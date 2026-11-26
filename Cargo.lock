@@ -1112,7 +1112,7 @@ checksum = "a4ae5f15dda3c708c0ade84bfee31ccab44a3da4f88015ed22f63732abe300c8"
 
 [[package]]
 name = "dcc-mcp-actions"
-version = "0.20.55"
+version = "0.21.0"
 dependencies = [
  "dashmap",
  "dcc-mcp-models",
@@ -1130,7 +1130,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-artefact"
-version = "0.20.55"
+version = "0.21.0"
 dependencies = [
  "chrono",
  "hex",
@@ -1150,7 +1150,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-attestation"
-version = "0.20.55"
+version = "0.21.0"
 dependencies = [
  "sha2 0.11.0",
  "sigstore-verify",
@@ -1160,7 +1160,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-capture"
-version = "0.20.55"
+version = "0.21.0"
 dependencies = [
  "image",
  "libc",
@@ -1178,7 +1178,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-catalog"
-version = "0.20.55"
+version = "0.21.0"
 dependencies = [
  "dcc-mcp-gateway-search",
  "jsonschema",
@@ -1194,7 +1194,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-cli"
-version = "0.20.55"
+version = "0.21.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -1203,6 +1203,7 @@ dependencies = [
  "dcc-mcp-actions",
  "dcc-mcp-attestation",
  "dcc-mcp-catalog",
+ "dcc-mcp-client",
  "dcc-mcp-gateway",
  "dcc-mcp-gateway-ensure",
  "dcc-mcp-http",
@@ -1238,8 +1239,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "dcc-mcp-client"
+version = "0.21.0"
+dependencies = [
+ "axum",
+ "dcc-mcp-jsonrpc",
+ "reqwest 0.13.4",
+ "serde_json",
+ "thiserror",
+ "tokio",
+]
+
+[[package]]
 name = "dcc-mcp-core"
-version = "0.20.55"
+version = "0.21.0"
 dependencies = [
  "dcc-mcp-actions",
  "dcc-mcp-artefact",
@@ -1273,7 +1286,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-db"
-version = "0.20.55"
+version = "0.21.0"
 dependencies = [
  "dcc-mcp-models",
  "dcc-mcp-paths",
@@ -1288,7 +1301,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-gateway"
-version = "0.20.55"
+version = "0.21.0"
 dependencies = [
  "axum",
  "base64 0.22.1",
@@ -1344,7 +1357,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-gateway-admin"
-version = "0.20.55"
+version = "0.21.0"
 dependencies = [
  "axum",
  "chrono",
@@ -1366,7 +1379,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-gateway-core"
-version = "0.20.55"
+version = "0.21.0"
 dependencies = [
  "chrono",
  "dcc-mcp-gateway-search",
@@ -1381,7 +1394,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-gateway-ensure"
-version = "0.20.55"
+version = "0.21.0"
 dependencies = [
  "anyhow",
  "dcc-mcp-test-utils",
@@ -1398,7 +1411,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-gateway-search"
-version = "0.20.55"
+version = "0.21.0"
 dependencies = [
  "nucleo-matcher",
  "serde",
@@ -1410,7 +1423,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-host"
-version = "0.20.55"
+version = "0.21.0"
 dependencies = [
  "parking_lot",
  "pyo3",
@@ -1424,7 +1437,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-host-rpc"
-version = "0.20.55"
+version = "0.21.0"
 dependencies = [
  "async-trait",
  "dcc-mcp-protocols",
@@ -1440,7 +1453,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-http"
-version = "0.20.55"
+version = "0.21.0"
 dependencies = [
  "axum",
  "axum-test",
@@ -1496,7 +1509,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-http-py"
-version = "0.20.55"
+version = "0.21.0"
 dependencies = [
  "dcc-mcp-actions",
  "dcc-mcp-artefact",
@@ -1520,7 +1533,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-http-server"
-version = "0.20.55"
+version = "0.21.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1554,7 +1567,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-http-types"
-version = "0.20.55"
+version = "0.21.0"
 dependencies = [
  "base64 0.22.1",
  "dcc-mcp-gateway-core",
@@ -1569,7 +1582,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-job"
-version = "0.20.55"
+version = "0.21.0"
 dependencies = [
  "chrono",
  "dashmap",
@@ -1588,7 +1601,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-jsonrpc"
-version = "0.20.55"
+version = "0.21.0"
 dependencies = [
  "base64 0.22.1",
  "dcc-mcp-protocols",
@@ -1600,7 +1613,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-logging"
-version = "0.20.55"
+version = "0.21.0"
 dependencies = [
  "dcc-mcp-paths",
  "parking_lot",
@@ -1618,7 +1631,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-marketplace"
-version = "0.20.55"
+version = "0.21.0"
 dependencies = [
  "dcc-mcp-attestation",
  "dcc-mcp-catalog",
@@ -1638,7 +1651,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-models"
-version = "0.20.55"
+version = "0.21.0"
 dependencies = [
  "dcc-mcp-naming",
  "dcc-mcp-pybridge",
@@ -1657,7 +1670,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-naming"
-version = "0.20.55"
+version = "0.21.0"
 dependencies = [
  "pyo3",
  "pyo3-stub-gen",
@@ -1668,7 +1681,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-paths"
-version = "0.20.55"
+version = "0.21.0"
 dependencies = [
  "dirs",
  "pyo3",
@@ -1680,7 +1693,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-process"
-version = "0.20.55"
+version = "0.21.0"
 dependencies = [
  "dcc-mcp-models",
  "ipckit",
@@ -1701,7 +1714,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-protocols"
-version = "0.20.55"
+version = "0.21.0"
 dependencies = [
  "dcc-mcp-models",
  "parking_lot",
@@ -1716,7 +1729,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-pybridge"
-version = "0.20.55"
+version = "0.21.0"
 dependencies = [
  "dcc-mcp-pybridge-derive",
  "pyo3",
@@ -1731,7 +1744,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-pybridge-derive"
-version = "0.20.55"
+version = "0.21.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1741,7 +1754,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-sandbox"
-version = "0.20.55"
+version = "0.21.0"
 dependencies = [
  "dcc-mcp-pybridge",
  "parking_lot",
@@ -1758,7 +1771,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-scheduler"
-version = "0.20.55"
+version = "0.21.0"
 dependencies = [
  "axum",
  "bytes",
@@ -1789,7 +1802,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-semantic"
-version = "0.20.55"
+version = "0.21.0"
 dependencies = [
  "anyhow",
  "fastembed",
@@ -1801,7 +1814,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-server"
-version = "0.20.55"
+version = "0.21.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -1841,7 +1854,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-shm"
-version = "0.20.55"
+version = "0.21.0"
 dependencies = [
  "bytemuck",
  "ipckit",
@@ -1861,7 +1874,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-sidecar"
-version = "0.20.55"
+version = "0.21.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -1887,7 +1900,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-skill-rest"
-version = "0.20.55"
+version = "0.21.0"
 dependencies = [
  "async-trait",
  "axum",
@@ -1914,7 +1927,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-skills"
-version = "0.20.55"
+version = "0.21.0"
 dependencies = [
  "criterion",
  "dashmap",
@@ -1945,7 +1958,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-skills-bench"
-version = "0.20.55"
+version = "0.21.0"
 dependencies = [
  "criterion",
  "dcc-mcp-actions",
@@ -1961,7 +1974,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-telemetry"
-version = "0.20.55"
+version = "0.21.0"
 dependencies = [
  "opentelemetry",
  "opentelemetry-otlp",
@@ -1986,7 +1999,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-test-utils"
-version = "0.20.55"
+version = "0.21.0"
 dependencies = [
  "dcc-mcp-skill-rest",
  "serde_json",
@@ -1996,7 +2009,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-transport"
-version = "0.20.55"
+version = "0.21.0"
 dependencies = [
  "criterion",
  "dashmap",
@@ -2026,7 +2039,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-tunnel-agent"
-version = "0.20.55"
+version = "0.21.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -2042,7 +2055,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-tunnel-protocol"
-version = "0.20.55"
+version = "0.21.0"
 dependencies = [
  "jsonwebtoken",
  "rmp-serde",
@@ -2055,7 +2068,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-tunnel-relay"
-version = "0.20.55"
+version = "0.21.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -2078,7 +2091,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-updater"
-version = "0.20.55"
+version = "0.21.0"
 dependencies = [
  "anyhow",
  "fs4",
@@ -2097,7 +2110,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-usd"
-version = "0.20.55"
+version = "0.21.0"
 dependencies = [
  "dcc-mcp-protocols",
  "pyo3",
@@ -2113,7 +2126,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-wire"
-version = "0.20.55"
+version = "0.21.0"
 dependencies = [
  "dcc-mcp-protocols",
  "dcc-mcp-pybridge",
@@ -2128,7 +2141,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-workflow"
-version = "0.20.55"
+version = "0.21.0"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -2186,7 +2199,7 @@ dependencies = [
  "defmt-parser",
  "proc-macro2",
  "quote",
- "syn",
+ "syn 2.0.117",
 ]
 
 [[package]]
@@ -2219,7 +2232,7 @@ checksum = "8034092389675178f570469e6c3b0465d3d30b4505c294a6550db47f3c17ad18"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn",
+ "syn 2.0.117",
 ]
 
 [[package]]
@@ -2628,9 +2641,9 @@ checksum = "28dea519a9695b9977216879a3ebfddf92f1c08c05d984f8996aecd6ecdc811d"
 
 [[package]]
 name = "filetime"
-version = "0.2.29"
+version = "0.2.30"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5c287a33c7f0a620c38e641e7f60827713987b3c0f26e8ddc9462cc69cf75759"
+checksum = "e1255e7a9f1902190d4c10a75f2f7f495d3d3ce13e9ba26e6c48683a0f4dbed7"
 dependencies = [
  "cfg-if",
  "libc",
@@ -3606,7 +3619,7 @@ dependencies = [
  "jiff-core",
  "proc-macro2",
  "quote",
- "syn",
+ "syn 2.0.117",
 ]
 
 [[package]]
@@ -7096,7 +7109,7 @@ checksum = "2d2e76690929402faae40aebdda620a2c0e25dd6d3b9afe48867dfd95991f4bd"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn",
+ "syn 2.0.117",
 ]
 
 [[package]]
@@ -8606,6 +8619,7 @@ dependencies = [
  "getrandom 0.4.2",
  "half",
  "hashbrown 0.16.1",
+ "http",
  "httparse",
  "hyper",
  "hyper-util",
@@ -8642,7 +8656,6 @@ dependencies = [
  "regex-automata",
  "regex-syntax",
  "reqwest 0.13.4",
- "ring",
  "rustls",
  "rustls-pki-types",
  "rustls-webpki",
@@ -8671,6 +8684,7 @@ dependencies = [
  "tracing-core",
  "tracing-subscriber",
  "typenum",
+ "ureq 3.3.0",
  "url",
  "winapi",
  "windows",

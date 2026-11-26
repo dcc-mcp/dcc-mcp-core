@@ -14,12 +14,14 @@ use std::sync::Arc;
 use axum::Router;
 use axum::body::{Body, Bytes, to_bytes};
 use dcc_mcp_http_server::rmcp_handler::{DccMcpHandler, RegistryContext};
+use dcc_mcp_http_server::rmcp_providers::SkillProvider;
 use dcc_mcp_jsonrpc::NotificationBuilder;
 #[cfg(feature = "mcp-2026-07-28")]
 use http::header::HeaderValue;
 use http::{Request, Response, StatusCode};
 use rmcp::transport::streamable_http_server::session::local::LocalSessionManager;
 use rmcp::transport::streamable_http_server::{StreamableHttpServerConfig, StreamableHttpService};
+use serde_json::{Value, json};
 use tower::ServiceExt;
 use tracing::info;
 
@@ -61,9 +63,22 @@ pub fn attach_rmcp_endpoint(
 
     #[cfg(not(feature = "mcp-2026-07-28"))]
     {
+        let server_state = Arc::new(app_state.server.clone());
+        let skill_context = registry_context.clone();
         let dispatcher = tower::service_fn(move |request: Request<Body>| {
             let legacy = service.clone();
-            async move { dispatch_legacy_request(request, legacy, max_request_body_bytes).await }
+            let server_state = server_state.clone();
+            let skill_context = skill_context.clone();
+            async move {
+                dispatch_legacy_request(
+                    request,
+                    legacy,
+                    max_request_body_bytes,
+                    server_state,
+                    skill_context,
+                )
+                .await
+            }
         });
         info!("rmcp MCP endpoint mounted at /mcp");
         router.nest_service("/mcp", dispatcher)
@@ -84,7 +99,9 @@ pub(crate) fn build_registry_context(app_state: &AppState) -> Arc<RegistryContex
         };
 
     let skill_provider: Option<Arc<dyn dcc_mcp_http_server::rmcp_providers::SkillProvider>> =
-        if app_state.server.enable_resources && app_state.server.enable_skills_extension {
+        if app_state.server.features.enable_resources
+            && app_state.server.features.enable_skills_extension
+        {
             Some(Arc::new(SkillCatalogProvider))
         } else {
             None
@@ -221,6 +238,23 @@ async fn dispatch_request(
                 .map(|r| r.map(Body::new));
         }
     };
+    if matches!(version.as_deref(), None | Some("2025-11-25"))
+        && method.is_none()
+        && parsed
+            .get("method")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|method| {
+                matches!(
+                    method,
+                    "skills/list" | "skills/get" | "resources/directory/read"
+                )
+            })
+    {
+        return legacy
+            .oneshot(Request::from_parts(parts, Body::from(body)))
+            .await
+            .map(|r| r.map(Body::new));
+    }
     let req =
         match classify_protocol_request("POST", hints, &parsed, SUPPORTED_MODERN_PROTOCOL_VERSIONS)
         {
@@ -265,6 +299,8 @@ async fn dispatch_legacy_request(
     request: Request<Body>,
     legacy: StreamableHttpService<DccMcpHandler, LocalSessionManager>,
     max_request_body_bytes: usize,
+    server_state: Arc<dcc_mcp_http_server::ServerState>,
+    skill_context: Arc<RegistryContext>,
 ) -> Result<Response<Body>, std::convert::Infallible> {
     let request = if request.method() == http::Method::POST {
         let (parts, body) = request.into_parts();
@@ -276,7 +312,99 @@ async fn dispatch_legacy_request(
     } else {
         request
     };
-    legacy.oneshot(request).await.map(|r| r.map(Body::new))
+    let (parts, body) = request.into_parts();
+    let body = match read_bounded_body(body, max_request_body_bytes).await {
+        Ok(body) => body,
+        Err(response) => return Ok(response),
+    };
+    if let Ok(value) = serde_json::from_slice::<Value>(&body)
+        && let Some(response) = legacy_skill_response(&value, &server_state, &skill_context)
+    {
+        return Ok(response);
+    }
+    let is_initialize = value_method(&body).as_deref() == Some("initialize");
+    let request = Request::from_parts(parts, Body::from(body));
+    let response = legacy.oneshot(request).await.map(|r| r.map(Body::new));
+    if !is_initialize {
+        return response;
+    }
+    let response = match response {
+        Ok(response) => response,
+        Err(error) => return Err(error),
+    };
+    let (parts, body) = response.into_parts();
+    let body = match to_bytes(body, max_request_body_bytes).await {
+        Ok(body) => body,
+        Err(_) => return Ok(Response::from_parts(parts, Body::empty())),
+    };
+    let mut payload = match serde_json::from_slice::<Value>(&body) {
+        Ok(payload) => payload,
+        Err(_) => return Ok(Response::from_parts(parts, Body::from(body))),
+    };
+    if let Some(protocol_version) = payload
+        .pointer_mut("/result/protocolVersion")
+        .and_then(|value| value.as_str())
+    {
+        if protocol_version == "2025-06-18" {
+            payload["result"]["protocolVersion"] = Value::String("2025-11-25".to_string());
+        }
+    }
+    Ok(Response::from_parts(parts, Body::from(payload.to_string())))
+}
+
+fn value_method(body: &[u8]) -> Option<String> {
+    serde_json::from_slice::<Value>(body)
+        .ok()?
+        .get("method")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+}
+
+fn legacy_skill_response(
+    request: &Value,
+    state: &dcc_mcp_http_server::ServerState,
+    _context: &RegistryContext,
+) -> Option<Response<Body>> {
+    let method = request.get("method").and_then(Value::as_str)?;
+    let provider = SkillCatalogProvider;
+    let id = request.get("id").cloned().unwrap_or(Value::Null);
+    let result = match method {
+        "skills/list" => serde_json::to_value(provider.list_skills(&state.catalog))
+            .map_err(|error| error.to_string()),
+        "skills/get" => {
+            let params = request.get("params").cloned().unwrap_or_else(|| json!({}));
+            let params: dcc_mcp_jsonrpc::GetSkillParams = serde_json::from_value(params).ok()?;
+            provider
+                .get_skill(&params.uri, &state.catalog)
+                .map_err(|error| error.to_string())
+                .and_then(|value| serde_json::to_value(value).map_err(|error| error.to_string()))
+        }
+        "resources/directory/read" => {
+            let params = request.get("params").cloned().unwrap_or_else(|| json!({}));
+            let params: dcc_mcp_jsonrpc::ReadResourceDirectoryParams =
+                serde_json::from_value(params).ok()?;
+            provider
+                .read_skill_directory(&params.uri, &state.catalog)
+                .map_err(|error| error.to_string())
+                .and_then(|value| serde_json::to_value(value).map_err(|error| error.to_string()))
+        }
+        _ => return None,
+    };
+    let response = match result {
+        Ok(result) => json!({"jsonrpc": "2.0", "id": id, "result": result}),
+        Err(message) => json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "error": {"code": -32602, "message": message}
+        }),
+    };
+    Some(
+        Response::builder()
+            .status(StatusCode::OK)
+            .header(http::header::CONTENT_TYPE, "application/json")
+            .body(Body::from(response.to_string()))
+            .expect("valid JSON response"),
+    )
 }
 
 /// The same bounded stream read protects both feature configurations. In

@@ -602,13 +602,13 @@ impl DccMcpHandler {
         let mut capabilities = serde_json::json!({
             "tools": {"listChanged": true}
         });
-        if self.state.enable_resources || skills_enabled {
+        if self.state.features.enable_resources || skills_enabled {
             capabilities["resources"] = serde_json::json!({
-                "subscribe": self.state.enable_resources,
-                "listChanged": self.state.enable_resources
+                "subscribe": self.state.features.enable_resources,
+                "listChanged": self.state.features.enable_resources
             });
         }
-        if self.state.enable_prompts {
+        if self.state.features.enable_prompts {
             capabilities["prompts"] = serde_json::json!({"listChanged": false});
         }
         if skills_enabled {

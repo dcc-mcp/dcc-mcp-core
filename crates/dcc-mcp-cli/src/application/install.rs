@@ -1,25 +1,69 @@
-use std::collections::BTreeMap;
+use std::cell::RefCell;
 use std::fs;
-use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 
-use dcc_mcp_models::DccName;
-use serde::Serialize;
+use crate::domain::install_catalog::CatalogSource;
+use dcc_mcp_catalog::{CatalogEntry, CoreRuntimeReport, derive_requirement};
+use sha2::{Digest, Sha256};
 use thiserror::Error;
 
-use crate::application::dcc_discovery::{discover_dcc_installations, preferred_python};
+use crate::application::adapter_import::{
+    AdapterImportTarget, core_compatibility_for_requirement, import_module, probe_target,
+};
 use crate::domain::install::{
-    InstallPlan, InstallPlanError, InstallPlanner, InstallPolicy, InstallRequest, InstallStepAction,
+    InstallPlan, InstallPlanError, InstallPlanner, InstallPolicy, InstallRequest,
+    InstallStepAction, normalized_dcc_key,
 };
 
 const BUNDLED_CATALOG: &str = include_str!("../../../../dcc-mcp-catalog.yml");
-const INSTALL_DISABLED_ENV: &str = "DCC_MCP_INSTALL_DISABLED";
-const INSTALL_DISABLED_PROMPT_ENV: &str = "DCC_MCP_INSTALL_DISABLED_PROMPT";
-const DEFAULT_INSTALL_DISABLED_PROMPT: &str = "Automatic DCC adapter installation is disabled in this environment. Ask your Pipeline TD or studio deployment owner to deploy {adapter} for {dcc_type}, then start the DCC plugin and rerun `dccmcp list`.";
+
+mod acquire;
+mod adobe;
+#[cfg(test)]
+mod archive_http_tests;
+mod catalog;
+#[cfg(test)]
+mod catalog_contract_tests;
+mod discovery;
+mod file_ops;
+mod lifecycle;
+mod pip;
+mod policy;
+mod readiness;
+mod receipt;
+mod report;
+mod sidecar_preflight;
+mod uninstall;
+mod verify;
+#[cfg(test)]
+use uninstall::install_state_is_absent;
+
+use acquire::{execute_git_clone, execute_path_copy, execute_zip_extract};
+pub(crate) use catalog::{is_implicit_cwd_catalog, warn_if_implicit_cwd_catalog};
+pub use discovery::{DccAdapterSummary, DccTypeSummary, DccTypesCatalog};
+use pip::{
+    PipArtifact, pip_install_args, pip_restore_args_for_artifact, pip_show_args, pip_show_version,
+    pip_uninstall_args,
+};
+use policy::{AutoInstallPolicy, ask_consent, render_install_policy_prompt};
+use receipt::{
+    commit_install_receipt, commit_install_receipt_with_lock, lock_receipt_for_plan,
+    receipt_match_details, receipt_path_for_plan,
+};
+pub use report::{
+    InstallExecutionError, InstallExecutionReport, InstallReportNextStep, InstallRollbackReport,
+    InstallStepReport, InstallStepRollbackReport, InstallVerifyReport,
+};
+use report::{
+    action_failure, apply_readiness, execution_report_for_plan, failed_report,
+    safe_report_identifier, stable_step_id, success_next_steps, upgrade_requires_restart_report,
+};
 
 #[derive(Debug, Error)]
 pub enum InstallError {
+    #[error("{0}")]
+    CatalogRefresh(String),
     #[error(transparent)]
     Catalog(#[from] dcc_mcp_catalog::CatalogError),
     #[error(transparent)]
@@ -28,40 +72,20 @@ pub enum InstallError {
     ConsentDenied,
     #[error("step '{step}' failed: {message}")]
     StepFailed { step: String, message: String },
+    #[error("target Core version '{running}' does not satisfy '{requirement}': {reason}")]
+    CoreRequirementFailed {
+        requirement: String,
+        running: String,
+        verdict: String,
+        declaration_valid: bool,
+        reason: String,
+    },
+    #[error("sidecar blocks upgrade: {reason}")]
+    UpgradeRequiresRestart { reason: String, detail: String },
     #[error("rollback of step '{step}' failed: {message}")]
     RollbackFailed { step: String, message: String },
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct DccTypesCatalog {
-    pub total: usize,
-    pub dcc_types: Vec<DccTypeSummary>,
-    pub custom_types_supported: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct DccTypeSummary {
-    pub dcc_type: String,
-    pub adapters: Vec<DccAdapterSummary>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct DccAdapterSummary {
-    pub name: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub version: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub url: Option<String>,
-    pub catalog_install_available: bool,
-}
-
-/// Result of a single executed step with optional rollback data.
-struct StepResult {
-    step_name: String,
-    /// Rollback action to undo this step, if applicable.
-    rollback: Option<StepRollback>,
 }
 
 /// Describes how to undo a completed step.
@@ -71,19 +95,61 @@ enum StepRollback {
     RemovePath(PathBuf),
     /// Run a shell command to revert.
     Command { program: String, args: Vec<String> },
+    /// Restore a pinned wheel and remove its retained staging file afterward.
+    PipCommand {
+        program: String,
+        args: Vec<String>,
+        artifact: Box<PipArtifact>,
+    },
+}
+
+#[derive(Debug)]
+enum StepExecution {
+    Completed(Option<StepRollback>),
+    Deferred,
 }
 
 pub struct InstallService {
-    default_catalog_path: PathBuf,
+    default_catalog_path: Option<PathBuf>,
     auto_install_policy: AutoInstallPolicy,
+    catalog_snapshot: Option<catalog::ResolvedCatalog>,
+    catalog_error: Option<String>,
+    require_fresh_catalog: bool,
 }
 
 impl InstallService {
+    /// Adapter catalog entries from the bundled or explicitly supplied catalog.
+    ///
+    /// Read-only view for sibling application modules (e.g. the `doctor`
+    /// adapter-import probe) that need adapter package/interpreter metadata.
+    pub(crate) fn catalog_entries(
+        &self,
+        requested_path: Option<&Path>,
+    ) -> Result<Vec<CatalogEntry>, InstallError> {
+        self.load_entries(requested_path)
+    }
+
     #[must_use]
     pub fn new(default_catalog_path: PathBuf) -> Self {
         Self {
-            default_catalog_path,
+            default_catalog_path: Some(default_catalog_path),
             auto_install_policy: AutoInstallPolicy::from_env(),
+            catalog_snapshot: None,
+            catalog_error: None,
+            require_fresh_catalog: false,
+        }
+    }
+
+    /// Build a service whose implicit catalog is the release catalog embedded
+    /// in this binary. Custom catalogs must be passed explicitly in a request.
+    #[must_use]
+    pub fn bundled() -> Self {
+        Self {
+            default_catalog_path: None,
+            auto_install_policy: AutoInstallPolicy::from_env(),
+            catalog_snapshot: None,
+            catalog_error: None,
+            require_fresh_catalog: false,
         }
     }
 
@@ -93,92 +159,73 @@ impl InstallService {
         auto_install_policy: AutoInstallPolicy,
     ) -> Self {
         Self {
-            default_catalog_path,
+            default_catalog_path: Some(default_catalog_path),
             auto_install_policy,
+            catalog_snapshot: None,
+            catalog_error: None,
+            require_fresh_catalog: false,
         }
     }
 
     /// Generate an install plan (display-only, no execution).
     pub fn plan(&self, request: InstallRequest) -> Result<InstallPlan, InstallError> {
-        let entries = self.load_entries(request.catalog_path.as_deref())?;
-        let discovery = discover_dcc_installations(Some(&request.dcc_type), &[]);
-        let mut request = request;
-        if request.python.is_none() {
-            request.python = preferred_python(&request.dcc_type, &[])
-                .map(|path| path.to_string_lossy().into_owned());
-        }
-        let mut plan = InstallPlanner::plan(&entries, request)?;
-        plan.detected_installations = discovery.installations;
+        let catalog = self.load_catalog(request.catalog_path.as_deref())?;
+        let install_env = crate::domain::install::python::InstallEnv::from_process();
+        let host_candidates = Self::host_candidates(&request);
+        let mut plan = InstallPlanner::plan_with_candidates(
+            &catalog.entries,
+            request,
+            &install_env,
+            &host_candidates,
+        )?;
+        plan.catalog = Some(catalog.provenance);
         Ok(self.apply_auto_install_policy(plan))
     }
 
-    /// List adapter-backed DCC types from the same catalog used by `install`.
-    pub fn dcc_types(&self, catalog_path: Option<&Path>) -> Result<DccTypesCatalog, InstallError> {
-        let entries = self.load_entries(catalog_path)?;
-        let mut grouped: BTreeMap<String, BTreeMap<String, DccAdapterSummary>> = BTreeMap::new();
-
-        for entry in entries.iter().filter(|entry| {
-            entry
-                .tags
-                .iter()
-                .any(|tag| tag.eq_ignore_ascii_case("adapter"))
-        }) {
-            let adapter = DccAdapterSummary {
-                name: entry.name.clone(),
-                version: entry.version.clone(),
-                url: entry.url.clone(),
-                catalog_install_available: entry.install.is_some(),
-            };
-            for dcc_type in &entry.dcc {
-                let canonical = DccName::parse(dcc_type).to_string();
-                if canonical.is_empty() {
-                    continue;
-                }
-                grouped
-                    .entry(canonical)
-                    .or_default()
-                    .insert(adapter.name.clone(), adapter.clone());
-            }
+    fn host_candidates(
+        request: &InstallRequest,
+    ) -> Vec<crate::domain::install::python::HostCandidate> {
+        let mut candidates = Vec::new();
+        if let Some(path) = request.dcc_path.as_deref() {
+            candidates.push(crate::domain::install::python::HostCandidate {
+                path: path.to_path_buf(),
+                explicit: true,
+            });
         }
 
-        let dcc_types = grouped
-            .into_iter()
-            .map(|(dcc_type, adapters)| DccTypeSummary {
-                dcc_type,
-                adapters: adapters.into_values().collect(),
-            })
-            .collect::<Vec<_>>();
-
-        Ok(DccTypesCatalog {
-            total: dcc_types.len(),
-            dcc_types,
-            custom_types_supported: true,
-        })
+        let dcc_key = normalized_dcc_key(&request.dcc_type);
+        if let Some(def) = crate::application::host::manifest::bundled().find(&dcc_key) {
+            let env = crate::application::host::detect::HostEnv::from_process();
+            for candidate in crate::application::host::detect::install_candidates(
+                def,
+                &env,
+                request.dcc_path.as_deref(),
+            ) {
+                if !candidates
+                    .iter()
+                    .any(|existing| existing.path == candidate.path)
+                {
+                    candidates.push(candidate);
+                }
+            }
+        }
+        candidates
     }
 
     /// Generate and execute an install plan with user consent.
     ///
-    /// Steps are executed sequentially.  If any step fails, all prior steps
-    /// are rolled back in reverse order.  Returns the full plan (with step
-    /// results) on success.
-    pub fn execute(&self, request: InstallRequest) -> Result<InstallPlan, InstallError> {
-        let plan = self.plan(request)?;
-        self.execute_plan(&plan)
-    }
-
-    fn load_entries(
+    /// Execution always returns one machine-readable Install SOP v1 report.
+    /// Internal errors are reduced to stable public codes before serialization.
+    pub fn execute(
         &self,
-        requested_path: Option<&Path>,
-    ) -> Result<Vec<dcc_mcp_catalog::CatalogEntry>, InstallError> {
-        if let Some(path) = requested_path {
-            return dcc_mcp_catalog::load_from_file(path).map_err(Into::into);
+        request: InstallRequest,
+        skip_confirmation: bool,
+    ) -> InstallExecutionReport {
+        let requested_dcc = safe_report_identifier(&request.dcc_type, "unknown");
+        match self.plan(request) {
+            Ok(plan) => self.execute_plan(&plan, skip_confirmation),
+            Err(error) => report::plan_failure_report(requested_dcc, &error),
         }
-
-        let entries = dcc_mcp_catalog::load_from_file(Path::new(&self.default_catalog_path))?;
-        if entries.is_empty() {
-            return dcc_mcp_catalog::load_from_str(BUNDLED_CATALOG).map_err(Into::into);
-        }
-        Ok(entries)
     }
 
     fn apply_auto_install_policy(&self, mut plan: InstallPlan) -> InstallPlan {
@@ -192,154 +239,458 @@ impl InstallService {
         plan
     }
 
-    fn execute_plan(&self, plan: &InstallPlan) -> Result<InstallPlan, InstallError> {
-        if !plan.install_policy.auto_install_enabled {
-            if let Some(prompt) = &plan.install_policy.prompt {
-                eprintln!("{prompt}");
+    fn execute_plan(&self, plan: &InstallPlan, skip_confirmation: bool) -> InstallExecutionReport {
+        let skipped_actions = RefCell::new(Vec::new());
+        let acquired_actions = RefCell::new(Vec::new());
+        let receipt_lock = match lock_receipt_for_plan(plan) {
+            Ok(lock) => lock,
+            Err(message) => {
+                return failed_report(
+                    execution_report_for_plan(plan),
+                    "preflight",
+                    30,
+                    "INSTALL_RECEIPT_LOCK_FAILED",
+                    Some(&message),
+                );
             }
-            return Ok(plan.clone());
-        }
-
-        // Filter to executable steps
-        let executable_steps: Vec<_> = plan.steps.iter().filter(|s| s.action.is_some()).collect();
-
-        if executable_steps.is_empty() {
-            eprintln!("No executable steps in the install plan.");
-            return Ok(plan.clone());
-        }
-
-        // ── consent gating ────────────────────────────────────────────────
-        eprintln!();
-        eprintln!("╔══════════════════════════════════════════════╗");
-        eprintln!("║         DCC-MCP Install Plan                ║");
-        eprintln!("╠══════════════════════════════════════════════╣");
-        eprintln!("║  Adapter:  {:<30} ║", plan.adapter.name);
-        eprintln!("║  DCC type: {:<30} ║", plan.dcc_type);
-        if let Some(ver) = &plan.version {
-            eprintln!("║  Version:  {:<30} ║", ver);
-        }
-        eprintln!("╠══════════════════════════════════════════════╣");
-        eprintln!("║  Steps:                                    ║");
-        for (i, step) in executable_steps.iter().enumerate() {
-            eprintln!("║    {}. {:<34} ║", i + 1, step.name);
-            eprintln!("║       {:<34} ║", step.description);
-        }
-        eprintln!("╚══════════════════════════════════════════════╝");
-        eprintln!();
-
-        if !ask_consent("Proceed with installation? [Y/n]")? {
-            return Err(InstallError::ConsentDenied);
-        }
-
-        // ── execute with rollback support ────────────────────────────────
-        let mut completed: Vec<StepResult> = Vec::new();
-
-        for step in &executable_steps {
-            let action = step.action.as_ref().expect("filtered to Some above");
-            eprint!(
-                "  [{}/{}] {} ... ",
-                completed.len() + 1,
-                executable_steps.len(),
-                step.name
-            );
-
-            let result = match action {
-                InstallStepAction::Verify => execute_verify(plan),
-                _ => execute_action(action),
-            };
-
-            match result {
-                Ok(rollback) => {
-                    eprintln!("OK");
-                    completed.push(StepResult {
-                        step_name: step.name.clone(),
-                        rollback,
-                    });
+        };
+        self.execute_plan_with_commit(
+            plan,
+            skip_confirmation,
+            // A failed preflight must never fail open: without the sidecar
+            // stop, a Windows file lock could break the upgrade mid-transaction.
+            |plan| match prepare_sidecar_upgrade(plan) {
+                Ok(()) => Ok(()),
+                Err(InstallError::UpgradeRequiresRestart { reason, detail }) => {
+                    Err(InstallError::UpgradeRequiresRestart { reason, detail })
                 }
-                Err(e) => {
-                    eprintln!("FAILED");
-                    // Roll back all completed steps in reverse order
-                    eprintln!("  Rolling back...");
-                    rollback_all(&completed);
-                    return Err(InstallError::StepFailed {
-                        step: step.name.clone(),
-                        message: e.to_string(),
-                    });
+                Err(error) => Err(InstallError::StepFailed {
+                    step: "sidecar-preflight".into(),
+                    message: error.to_string(),
+                }),
+            },
+            |action, plan| {
+                let result = if matches!(action, InstallStepAction::Verify) {
+                    execute_verify(plan).map(StepExecution::Completed)
+                } else if is_receipt_action(action) {
+                    let (matches_receipt, validated_digest) = receipt_match_details(plan, action)
+                        .map_err(|message| {
+                        InstallError::StepFailed {
+                            step: "install-receipt".into(),
+                            message,
+                        }
+                    })?;
+                    if matches_receipt {
+                        skipped_actions
+                            .borrow_mut()
+                            .push((action.clone(), validated_digest));
+                        Ok(StepExecution::Completed(None))
+                    } else {
+                        execute_action(action)
+                    }
+                } else {
+                    execute_action(action)
+                };
+                if matches!(&result, Ok(StepExecution::Completed(Some(_)))) {
+                    acquired_actions.borrow_mut().push(action.clone());
                 }
-            }
-        }
-
-        eprintln!();
-        eprintln!("Installation complete for {}.", plan.adapter.name);
-        Ok(plan.clone())
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct AutoInstallPolicy {
-    enabled: bool,
-    prompt_template: String,
-}
-
-impl AutoInstallPolicy {
-    fn from_env() -> Self {
-        let disabled = std::env::var(INSTALL_DISABLED_ENV)
-            .ok()
-            .is_some_and(|value| env_flag_enabled(&value));
-        let prompt_template = std::env::var(INSTALL_DISABLED_PROMPT_ENV)
-            .ok()
-            .filter(|value| !value.trim().is_empty())
-            .unwrap_or_else(|| DEFAULT_INSTALL_DISABLED_PROMPT.to_string());
-        Self {
-            enabled: !disabled,
-            prompt_template,
-        }
+                result
+            },
+            execute_rollback,
+            |plan| {
+                let commit = match receipt_lock.as_ref() {
+                    Some(lock) => commit_install_receipt_with_lock(
+                        plan,
+                        &skipped_actions.borrow(),
+                        &acquired_actions.borrow(),
+                        lock,
+                    ),
+                    None => commit_install_receipt(
+                        plan,
+                        &skipped_actions.borrow(),
+                        &acquired_actions.borrow(),
+                    ),
+                };
+                commit
+                    .map(|written| written.then(|| receipt_path_for_plan(plan)))
+                    .map_err(|message| InstallError::StepFailed {
+                        step: "install-receipt".into(),
+                        message,
+                    })
+            },
+        )
     }
 
     #[cfg(test)]
-    fn disabled(prompt_template: impl Into<String>) -> Self {
-        Self {
-            enabled: false,
-            prompt_template: prompt_template.into(),
+    fn execute_plan_with<E, R>(
+        &self,
+        plan: &InstallPlan,
+        skip_confirmation: bool,
+        execute_step: E,
+        rollback_step: R,
+    ) -> InstallExecutionReport
+    where
+        E: FnMut(&InstallStepAction, &InstallPlan) -> Result<StepExecution, InstallError>,
+        R: FnMut(&StepRollback) -> Result<(), InstallError>,
+    {
+        self.execute_plan_with_commit(
+            plan,
+            skip_confirmation,
+            |_| Ok(()),
+            execute_step,
+            rollback_step,
+            |_| Ok(None),
+        )
+    }
+
+    fn execute_plan_with_commit<P, E, R, C>(
+        &self,
+        plan: &InstallPlan,
+        skip_confirmation: bool,
+        mut preflight: P,
+        mut execute_step: E,
+        mut rollback_step: R,
+        mut commit: C,
+    ) -> InstallExecutionReport
+    where
+        P: FnMut(&InstallPlan) -> Result<(), InstallError>,
+        E: FnMut(&InstallStepAction, &InstallPlan) -> Result<StepExecution, InstallError>,
+        R: FnMut(&StepRollback) -> Result<(), InstallError>,
+        C: FnMut(&InstallPlan) -> Result<Option<PathBuf>, InstallError>,
+    {
+        let mut report = execution_report_for_plan(plan);
+
+        if self.require_fresh_catalog
+            && plan.catalog.as_ref().is_some_and(|catalog| {
+                !catalog.latest_checked && catalog.source != CatalogSource::Explicit
+            })
+        {
+            eprintln!(
+                "Latest installation catalog could not be checked. Reconnect or explicitly use --offline."
+            );
+            return failed_report(report, "preflight", 10, "INSTALL_CATALOG_UNAVAILABLE", None);
         }
+
+        if !plan.install_policy.auto_install_enabled {
+            eprintln!("Automatic installation is disabled by policy.");
+            return failed_report(report, "preflight", 10, "AUTO_INSTALL_DISABLED", None);
+        }
+
+        let executable_steps = plan
+            .steps
+            .iter()
+            .enumerate()
+            .filter_map(|(index, step)| step.action.as_ref().map(|action| (index, action)))
+            .collect::<Vec<_>>();
+
+        if executable_steps.is_empty() {
+            eprintln!("No executable steps in the install plan.");
+            return failed_report(report, "preflight", 10, "NO_EXECUTABLE_STEPS", None);
+        }
+
+        eprintln!(
+            "Install execution requires {} step(s).",
+            executable_steps.len()
+        );
+        if !skip_confirmation {
+            match ask_consent("Proceed with installation? [Y/n]") {
+                Ok(true) => {}
+                Ok(false) => {
+                    return failed_report(report, "preflight", 10, "CONSENT_DENIED", None);
+                }
+                Err(_) => {
+                    return failed_report(report, "preflight", 10, "CONSENT_INPUT_FAILED", None);
+                }
+            }
+        }
+
+        if plan
+            .catalog
+            .as_ref()
+            .and_then(|catalog| catalog.expires_at)
+            .is_some_and(|expires| catalog::now_seconds().map_or(true, |now| expires <= now))
+        {
+            return failed_report(report, "preflight", 10, "INSTALL_CATALOG_EXPIRED", None);
+        }
+
+        match preflight(plan) {
+            Ok(()) => {}
+            Err(InstallError::UpgradeRequiresRestart { reason, detail }) => {
+                return upgrade_requires_restart_report(
+                    report,
+                    plan.retry_request.as_ref(),
+                    &reason,
+                    &detail,
+                );
+            }
+            Err(error) => {
+                return failed_report(
+                    report,
+                    "preflight",
+                    10,
+                    "SIDECAR_PREFLIGHT_FAILED",
+                    Some(&error.to_string()),
+                );
+            }
+        }
+
+        let mut completed: Vec<(usize, Option<StepRollback>)> = Vec::new();
+        let mut has_deferred_steps = false;
+
+        for (ordinal, (step_index, action)) in executable_steps.iter().enumerate() {
+            let step_id = stable_step_id(action);
+            eprint!(
+                "  [{}/{}] {step_id} ... ",
+                ordinal + 1,
+                executable_steps.len()
+            );
+            match execute_step(action, plan) {
+                Ok(StepExecution::Completed(rollback)) => {
+                    eprintln!("OK");
+                    report.steps[*step_index].status = "ok".into();
+                    report.steps[*step_index].rollback.status = if rollback.is_some() {
+                        "available".into()
+                    } else {
+                        "not_available".into()
+                    };
+                    completed.push((*step_index, rollback));
+                }
+                Ok(StepExecution::Deferred) => {
+                    eprintln!("DEFERRED");
+                    report.steps[*step_index].status = "deferred".into();
+                    report.steps[*step_index].rollback.status = "not_available".into();
+                    has_deferred_steps = true;
+                }
+                Err(error) => {
+                    eprintln!("FAILED");
+                    report.steps[*step_index].status = "failed".into();
+                    report.steps[*step_index].rollback.status = "not_available".into();
+                    if let InstallError::CoreRequirementFailed {
+                        requirement,
+                        running,
+                        verdict,
+                        declaration_valid,
+                        ..
+                    } = &error
+                    {
+                        report.verify.observed_core_compatibility = Some(serde_json::json!({
+                            "requirement": requirement,
+                            "running": running,
+                            "status": verdict,
+                            "declaration_valid": declaration_valid,
+                        }));
+                    }
+                    let (failure_stage, failure_exit, failure_code) =
+                        action_failure(action, &error);
+
+                    let mut rollback_attempted = false;
+                    let mut rollback_failures = 0;
+                    for (completed_index, rollback) in completed.iter().rev() {
+                        let Some(rollback) = rollback else {
+                            continue;
+                        };
+                        rollback_attempted = true;
+                        let rollback_report = &mut report.steps[*completed_index].rollback;
+                        rollback_report.attempted = true;
+                        if rollback_step(rollback).is_ok() {
+                            rollback_report.status = "ok".into();
+                        } else {
+                            rollback_report.status = "failed".into();
+                            rollback_failures += 1;
+                        }
+                    }
+                    report.rollback = InstallRollbackReport {
+                        attempted: rollback_attempted,
+                        status: if rollback_failures > 0 {
+                            "failed".into()
+                        } else if rollback_attempted {
+                            "ok".into()
+                        } else {
+                            "not_attempted".into()
+                        },
+                        failure_count: rollback_failures,
+                    };
+
+                    if rollback_failures > 0 {
+                        return failed_report(
+                            report,
+                            "rollback",
+                            30,
+                            "ROLLBACK_FAILED",
+                            Some(failure_code),
+                        );
+                    }
+                    return failed_report(report, failure_stage, failure_exit, failure_code, None);
+                }
+            }
+        }
+
+        let receipt_path = match commit(plan) {
+            Ok(path) => path,
+            Err(_error) => {
+                let mut rollback_attempted = false;
+                let mut rollback_failures = 0;
+                for (completed_index, rollback) in completed.iter().rev() {
+                    let Some(rollback) = rollback else {
+                        continue;
+                    };
+                    rollback_attempted = true;
+                    let rollback_report = &mut report.steps[*completed_index].rollback;
+                    rollback_report.attempted = true;
+                    if rollback_step(rollback).is_ok() {
+                        rollback_report.status = "ok".into();
+                    } else {
+                        rollback_report.status = "failed".into();
+                        rollback_failures += 1;
+                    }
+                }
+                report.rollback = InstallRollbackReport {
+                    attempted: rollback_attempted,
+                    status: if rollback_failures > 0 {
+                        "failed".into()
+                    } else if rollback_attempted {
+                        "ok".into()
+                    } else {
+                        "not_attempted".into()
+                    },
+                    failure_count: rollback_failures,
+                };
+                if rollback_failures > 0 {
+                    return failed_report(
+                        report,
+                        "rollback",
+                        30,
+                        "ROLLBACK_FAILED",
+                        Some("INSTALL_STEP_FAILED"),
+                    );
+                }
+                return failed_report(report, "install", 30, "INSTALL_STEP_FAILED", None);
+            }
+        };
+
+        if has_deferred_steps {
+            eprintln!("Installation execution completed with deferred manual steps.");
+            report.status = "partial".into();
+        } else {
+            eprintln!("Installation execution completed.");
+            report.status = "ok".into();
+        }
+        report.stage = "complete".into();
+        report.exit_code = 0;
+        report.next_steps = success_next_steps(&report.dcc_type);
+        report.receipt_path = receipt_path.map(|path| path.display().to_string());
+        report.verify.failure_stage = Some("host-readiness".into());
+        report.verify.failure_reason = Some("LIVE_DCC_VERIFICATION_REQUIRED".into());
+        apply_readiness(report, readiness::probe_ready(&plan.dcc_type), false)
     }
 }
 
-fn env_flag_enabled(value: &str) -> bool {
+fn is_receipt_action(action: &InstallStepAction) -> bool {
     matches!(
-        value.trim().to_ascii_lowercase().as_str(),
-        "1" | "true" | "yes" | "on" | "disabled" | "disable"
+        action,
+        InstallStepAction::PipInstall { .. }
+            | InstallStepAction::GitClone { .. }
+            | InstallStepAction::ZipExtract { .. }
+            | InstallStepAction::PathCopy { .. }
+            | InstallStepAction::AdobePluginLink { .. }
     )
 }
 
-fn render_install_policy_prompt(template: &str, plan: &InstallPlan) -> String {
-    template
-        .replace("{adapter}", &plan.adapter.name)
-        .replace("{dcc_type}", &plan.dcc_type)
-        .replace("{version}", plan.version.as_deref().unwrap_or(""))
+/// Stop adapter-owned sidecars before replacing an installed pip package.
+///
+/// Runs once before the step loop so a blocked preflight leaves the system
+/// untouched (there is nothing to roll back). Fresh installs and receipt
+/// matches never enter this path.
+fn prepare_sidecar_upgrade(plan: &InstallPlan) -> Result<(), InstallError> {
+    let Some((action, package, python)) =
+        plan.steps
+            .iter()
+            .find_map(|step| match step.action.as_ref()? {
+                InstallStepAction::PipInstall {
+                    package, python, ..
+                } => Some((step.action.as_ref()?, package.as_str(), python.as_deref()?)),
+                _ => None,
+            })
+    else {
+        return Ok(());
+    };
+    // A receipt match means no pip mutation will happen; do not stop a sidecar
+    // (or block) on a converged re-run.
+    if receipt_match_details(plan, action).is_ok_and(|(matches, _)| matches) {
+        return Ok(());
+    }
+    if discover_pip_artifact(python, package)?.is_none() {
+        return Ok(());
+    }
+    let version = plan
+        .steps
+        .iter()
+        .find_map(|step| match step.action.as_ref()? {
+            InstallStepAction::PipInstall { version, .. } => version.as_deref(),
+            _ => None,
+        });
+    match sidecar_preflight::prepare_sidecar_update(python, &plan.dcc_type, version) {
+        sidecar_preflight::UpgradePreflight::RequiresRestart { reason, detail } => {
+            Err(InstallError::UpgradeRequiresRestart { reason, detail })
+        }
+        sidecar_preflight::UpgradePreflight::ExecutionFailed { detail } => {
+            Err(InstallError::StepFailed {
+                step: "sidecar-preflight".into(),
+                message: detail,
+            })
+        }
+        _ => Ok(()),
+    }
 }
 
 // ── step executors ───────────────────────────────────────────────────────────────
 
-/// Execute a single install action, returning an optional rollback handle.
-fn execute_action(action: &InstallStepAction) -> Result<Option<StepRollback>, InstallError> {
+/// Execute a single install action, distinguishing completed work from manual deferral.
+fn execute_action(action: &InstallStepAction) -> Result<StepExecution, InstallError> {
     match action {
         InstallStepAction::PipInstall {
             package,
+            version,
             extras,
             python,
-        } => execute_pip_install(package, extras.as_deref(), python.as_deref()),
+            artifact_url,
+            sha256,
+        } => execute_pip_install(
+            package,
+            version.as_deref(),
+            extras.as_deref(),
+            python.as_deref(),
+            artifact_url.as_deref(),
+            sha256.as_deref(),
+        )
+        .map(StepExecution::Completed),
         InstallStepAction::GitClone { url, ref_, dest } => {
-            execute_git_clone(url, ref_.as_deref(), dest)
+            execute_git_clone(url, ref_.as_deref(), dest).map(StepExecution::Completed)
         }
         InstallStepAction::ZipExtract { url, sha256, dest } => {
-            execute_zip_extract(url, sha256.as_deref(), dest)
+            execute_zip_extract(url, sha256.as_deref(), dest).map(StepExecution::Completed)
         }
-        InstallStepAction::PathCopy { source, dest } => execute_path_copy(source, dest),
+        InstallStepAction::PathCopy { source, dest } => {
+            execute_path_copy(source, dest).map(StepExecution::Completed)
+        }
+        InstallStepAction::AdobePluginLink {
+            source,
+            dest,
+            product,
+            extension_type,
+            ..
+        } => adobe::execute_plugin_link(source, dest, product, extension_type)
+            .map(StepExecution::Completed),
         InstallStepAction::RegisterDcc {
             dcc_type,
             entry_point,
-        } => execute_register_dcc(dcc_type, entry_point.as_deref()),
+            dcc_path,
+            ..
+        } => Ok(execute_register_dcc(
+            dcc_type,
+            entry_point.as_deref(),
+            dcc_path.as_deref(),
+        )),
         InstallStepAction::Verify => Err(InstallError::StepFailed {
             step: "verify".into(),
             message: "verify requires the full install plan".into(),
@@ -349,18 +700,26 @@ fn execute_action(action: &InstallStepAction) -> Result<Option<StepRollback>, In
 
 fn execute_pip_install(
     package: &str,
+    version: Option<&str>,
     extras: Option<&[String]>,
     python: Option<&str>,
+    artifact_url: Option<&str>,
+    sha256: Option<&str>,
 ) -> Result<Option<StepRollback>, InstallError> {
-    validate_pip_identifier(package, "package")?;
-    if let Some(extras) = extras {
-        for extra in extras {
-            validate_pip_identifier(extra, "extra")?;
-        }
-    }
-    let python_cmd = python.unwrap_or("python");
+    let Some(python_cmd) = python.filter(|value| !value.trim().is_empty()) else {
+        return Err(InstallError::StepFailed {
+            step: format!("pip-install-{package}"),
+            message:
+                "no safe Python interpreter was selected; pass --python or DCC_MCP_INSTALL_PYTHON"
+                    .into(),
+        });
+    };
+    let package_spec = verified_pip_artifact_spec(package, version, extras, artifact_url, sha256)?;
+    let previous_artifact = discover_pip_artifact(python_cmd, package)?;
     let mut cmd = Command::new(python_cmd);
-    cmd.args(pip_install_args(package, extras));
+    cmd.args(pip_install_args(&package_spec))
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
 
     let status = cmd.status().map_err(|e| InstallError::StepFailed {
         step: format!("pip-install-{package}"),
@@ -374,270 +733,341 @@ fn execute_pip_install(
         });
     }
 
-    // Rollback: pip uninstall
-    Ok(Some(StepRollback::Command {
-        program: python_cmd.to_string(),
-        args: pip_uninstall_args(package),
-    }))
+    Ok(Some(pip_rollback(package, python_cmd, previous_artifact)))
 }
 
-fn pip_package_spec(package: &str, extras: Option<&[String]>) -> String {
-    if extras.is_some_and(|values| !values.is_empty()) {
+fn pip_rollback(
+    package: &str,
+    python_cmd: &str,
+    previous_artifact: Option<PipArtifact>,
+) -> StepRollback {
+    let Some(previous) = previous_artifact else {
+        return StepRollback::Command {
+            program: python_cmd.to_string(),
+            args: pip_uninstall_args(package),
+        };
+    };
+    let args = pip_restore_args_for_artifact(package, &previous);
+    StepRollback::PipCommand {
+        program: python_cmd.to_string(),
+        args,
+        artifact: Box::new(previous),
+    }
+}
+
+fn discover_pip_artifact(
+    python_cmd: &str,
+    package: &str,
+) -> Result<Option<PipArtifact>, InstallError> {
+    let output = Command::new(python_cmd)
+        .args(pip_show_args(package))
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output();
+    let Ok(output) = output else {
+        return Err(pip_rollback_preflight_error(
+            package,
+            "failed to inspect the installed package",
+        ));
+    };
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if stderr.contains("Package(s) not found") {
+            return Ok(None);
+        }
+        return Err(pip_rollback_preflight_error(
+            package,
+            "pip show failed while inspecting the installed package",
+        ));
+    }
+
+    let metadata = String::from_utf8_lossy(&output.stdout);
+    let version = pip_show_version(&output.stdout).ok_or_else(|| {
+        pip_rollback_preflight_error(
+            package,
+            "pip show did not report a usable installed version",
+        )
+    })?;
+    let location = metadata
+        .lines()
+        .find_map(|line| line.strip_prefix("Location:").map(str::trim))
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            pip_rollback_preflight_error(package, "pip show did not report a location")
+        })?;
+    let (metadata_path, direct_url) = find_direct_url_metadata(Path::new(location), package)
+        .ok_or_else(|| {
+            pip_rollback_preflight_error(
+                package,
+                "the installed package has no trusted direct URL metadata",
+            )
+        })?;
+    let document: serde_json::Value = serde_json::from_str(&direct_url).map_err(|_| {
+        pip_rollback_preflight_error(package, "the installed direct URL metadata is invalid")
+    })?;
+    let url = document
+        .get("url")
+        .and_then(serde_json::Value::as_str)
+        .filter(|value| value.starts_with("https://"))
+        .map(str::to_owned)
+        .ok_or_else(|| {
+            pip_rollback_preflight_error(package, "the prior artifact URL is not HTTPS")
+        })?;
+    let sha256 = document
+        .get("archive_info")
+        .and_then(|archive| archive.get("hashes"))
+        .and_then(|hashes| hashes.get("sha256"))
+        .and_then(serde_json::Value::as_str)
+        .or_else(|| {
+            document
+                .get("archive_info")
+                .and_then(|archive| archive.get("hash"))
+                .and_then(serde_json::Value::as_str)
+                .and_then(|value| value.strip_prefix("sha256="))
+        })
+        .filter(|value| value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        .map(str::to_owned)
+        .ok_or_else(|| {
+            pip_rollback_preflight_error(package, "the prior artifact has no SHA-256")
+        })?;
+    let normalized_package = package
+        .chars()
+        .map(|character| match character {
+            '-' | '.' => '_',
+            other => other.to_ascii_lowercase(),
+        })
+        .collect::<String>();
+    let filename = url.rsplit('/').next().unwrap_or_default();
+    let expected_prefix = format!("{normalized_package}-{version}-");
+    if !filename
+        .to_ascii_lowercase()
+        .starts_with(&expected_prefix.to_ascii_lowercase())
+        || !filename.to_ascii_lowercase().ends_with(".whl")
+    {
+        return Err(pip_rollback_preflight_error(
+            package,
+            "the prior artifact URL does not bind the installed package and version",
+        ));
+    }
+
+    let artifact = PipArtifact {
+        version,
+        url,
+        sha256,
+        path: PathBuf::new(),
+        metadata_path,
+        metadata: direct_url,
+    };
+    Ok(Some(prepare_pip_artifact(python_cmd, package, artifact)?))
+}
+
+fn prepare_pip_artifact(
+    python_cmd: &str,
+    package: &str,
+    artifact: PipArtifact,
+) -> Result<PipArtifact, InstallError> {
+    let staging = tempfile::tempdir().map_err(|_| {
+        pip_rollback_preflight_error(package, "failed to create rollback staging directory")
+    })?;
+    let spec = format!("{package} @ {}#sha256={}", artifact.url, artifact.sha256);
+    let status = Command::new(python_cmd)
+        .args([
+            "-m",
+            "pip",
+            "download",
+            "--no-deps",
+            "--only-binary=:all:",
+            "--dest",
+            staging.path().to_str().unwrap_or_default(),
+            &spec,
+        ])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map_err(|_| {
+            pip_rollback_preflight_error(package, "failed to prepare the rollback wheel")
+        })?;
+    if !status.success() {
+        return Err(pip_rollback_preflight_error(
+            package,
+            "the prior rollback wheel could not be downloaded",
+        ));
+    }
+    let wheel = std::fs::read_dir(staging.path())
+        .ok()
+        .and_then(|entries| {
+            entries.flatten().map(|entry| entry.path()).find(|path| {
+                path.extension()
+                    .is_some_and(|extension| extension.eq_ignore_ascii_case("whl"))
+            })
+        })
+        .ok_or_else(|| {
+            pip_rollback_preflight_error(package, "pip did not produce a rollback wheel")
+        })?;
+    let bytes = std::fs::read(&wheel)
+        .map_err(|_| pip_rollback_preflight_error(package, "failed to read the rollback wheel"))?;
+    let digest = Sha256::digest(&bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    if digest != artifact.sha256 {
+        return Err(pip_rollback_preflight_error(
+            package,
+            "the rollback wheel SHA-256 does not match its recorded digest",
+        ));
+    }
+    let retained = staging.keep();
+    let retained_wheel = retained.join(wheel.file_name().unwrap_or_default());
+    let mut artifact = artifact;
+    artifact.path = retained_wheel;
+    Ok(artifact)
+}
+
+fn pip_rollback_preflight_error(package: &str, message: &str) -> InstallError {
+    InstallError::StepFailed {
+        step: format!("pip-rollback-{package}"),
+        message: format!("cannot prepare a verified rollback: {message}"),
+    }
+}
+
+fn find_direct_url_metadata(location: &Path, package: &str) -> Option<(PathBuf, String)> {
+    let normalized_package = package
+        .chars()
+        .map(|character| match character {
+            '-' | '.' => '_',
+            other => other.to_ascii_lowercase(),
+        })
+        .collect::<String>();
+    for entry in std::fs::read_dir(location).ok()?.flatten() {
+        let file_type = entry.file_type().ok()?;
+        if !file_type.is_dir() {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
+        if !name.starts_with(&format!("{normalized_package}-")) || !name.ends_with(".dist-info") {
+            continue;
+        }
+        let path = entry.path().join("direct_url.json");
+        if let Ok(content) = std::fs::read_to_string(&path) {
+            return Some((path, content));
+        }
+    }
+    None
+}
+
+fn verified_pip_artifact_spec(
+    package: &str,
+    version: Option<&str>,
+    extras: Option<&[String]>,
+    artifact_url: Option<&str>,
+    sha256: Option<&str>,
+) -> Result<String, InstallError> {
+    let version = version.unwrap_or_default().trim();
+    let artifact_url = artifact_url.unwrap_or_default().trim();
+    let value = sha256.unwrap_or_default().trim();
+    let checksum = value.strip_prefix("sha256:").unwrap_or(value);
+    let valid_package = !package.is_empty()
+        && package
+            .as_bytes()
+            .first()
+            .is_some_and(u8::is_ascii_alphanumeric)
+        && package
+            .as_bytes()
+            .last()
+            .is_some_and(u8::is_ascii_alphanumeric)
+        && package
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'));
+    let valid_extras = extras.is_none_or(|values| {
+        values.iter().all(|value| {
+            !value.is_empty()
+                && value
+                    .as_bytes()
+                    .first()
+                    .is_some_and(u8::is_ascii_alphanumeric)
+                && value
+                    .as_bytes()
+                    .last()
+                    .is_some_and(u8::is_ascii_alphanumeric)
+                && value
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+        })
+    });
+    let normalized_package = package
+        .chars()
+        .map(|character| match character {
+            '-' | '.' => '_',
+            other => other.to_ascii_lowercase(),
+        })
+        .collect::<String>();
+    let filename = artifact_url.rsplit('/').next().unwrap_or_default();
+    let expected_prefix = format!("{normalized_package}-{version}-");
+    let valid_artifact = artifact_url.starts_with("https://")
+        && !artifact_url.contains('#')
+        && !artifact_url.contains('?')
+        && filename
+            .to_ascii_lowercase()
+            .starts_with(&expected_prefix.to_ascii_lowercase())
+        && filename.ends_with("-py3-none-any.whl");
+    if !valid_package
+        || !valid_extras
+        || version.is_empty()
+        || !valid_artifact
+        || checksum.len() != 64
+        || !checksum.bytes().all(|byte| byte.is_ascii_hexdigit())
+    {
+        return Err(InstallError::StepFailed {
+            step: "pip-integrity".into(),
+            message: "catalog-pinned wheel URL, version, and SHA-256 are required".into(),
+        });
+    }
+
+    let package_with_extras = if extras.is_some_and(|values| !values.is_empty()) {
         format!("{}[{}]", package, extras.unwrap().join(","))
     } else {
         package.to_string()
-    }
+    };
+    Ok(format!(
+        "{package_with_extras} @ {artifact_url}#sha256={}",
+        checksum.to_ascii_lowercase()
+    ))
 }
 
-fn pip_install_args(package: &str, extras: Option<&[String]>) -> Vec<String> {
-    vec![
-        "-m".into(),
-        "pip".into(),
-        "install".into(),
-        pip_package_spec(package, extras),
-    ]
-}
-
-fn pip_uninstall_args(package: &str) -> Vec<String> {
-    vec![
-        "-m".into(),
-        "pip".into(),
-        "uninstall".into(),
-        "-y".into(),
-        package.to_string(),
-    ]
-}
-
-fn pip_show_args(package: &str) -> Vec<String> {
-    vec![
-        "-m".into(),
-        "pip".into(),
-        "show".into(),
-        package.to_string(),
-    ]
-}
-
-fn execute_git_clone(
-    url: &str,
-    ref_: Option<&str>,
-    dest: &Path,
-) -> Result<Option<StepRollback>, InstallError> {
-    if dest.exists() {
-        return Err(InstallError::StepFailed {
-            step: "git-clone".into(),
-            message: format!("destination already exists: {}", dest.display()),
-        });
+pub(super) fn resolve_install_source_path(source: &Path) -> PathBuf {
+    if source.exists() {
+        return std::fs::canonicalize(source).unwrap_or_else(|_| source.to_path_buf());
     }
-
-    // Ensure parent directory exists
-    if let Some(parent) = dest.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-
-    validate_remote_install_url(url)?;
-
-    let mut cmd = Command::new("git");
-    cmd.arg("clone").arg("--depth").arg("1");
-    if let Some(r) = ref_.filter(|v| !v.trim().is_empty()) {
-        cmd.arg("--branch").arg(r);
-    }
-    cmd.arg("--").arg(url).arg(dest);
-
-    let status = cmd.status().map_err(|e| InstallError::StepFailed {
-        step: "git-clone".into(),
-        message: format!("failed to launch git: {e}"),
-    })?;
-
-    if !status.success() {
-        return Err(InstallError::StepFailed {
-            step: "git-clone".into(),
-            message: format!("git clone exited with {status}"),
-        });
-    }
-
-    Ok(Some(StepRollback::RemovePath(dest.to_path_buf())))
-}
-
-fn execute_zip_extract(
-    url: &str,
-    sha256: Option<&str>,
-    dest: &Path,
-) -> Result<Option<StepRollback>, InstallError> {
-    if dest.exists() {
-        return Err(InstallError::StepFailed {
-            step: "zip-extract".into(),
-            message: format!("destination already exists: {}", dest.display()),
-        });
-    }
-
-    validate_remote_install_url(url)?;
-    if sha256.is_none() && is_remote_url(url) {
-        return Err(InstallError::StepFailed {
-            step: "zip-checksum".into(),
-            message: "remote ZIP installs require a SHA-256 digest".into(),
-        });
-    }
-
-    // Download the archive
-    let response = reqwest::blocking::get(url)
-        .and_then(reqwest::blocking::Response::error_for_status)
-        .map_err(|e| InstallError::StepFailed {
-            step: "zip-download".into(),
-            message: format!("failed to download {url}: {e}"),
-        })?;
-
-    let bytes = response.bytes().map_err(|e| InstallError::StepFailed {
-        step: "zip-download".into(),
-        message: format!("failed to read response from {url}: {e}"),
-    })?;
-
-    // Verify SHA-256 if requested
-    if let Some(expected) = sha256 {
-        use sha2::Digest;
-        let actual = sha2::Sha256::digest(&bytes);
-        let actual_hex = actual
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect::<String>();
-        let expected = expected
-            .trim()
-            .strip_prefix("sha256:")
-            .unwrap_or(expected.trim());
-        if expected.len() != 64 || !expected.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-            return Err(InstallError::StepFailed {
-                step: "zip-checksum".into(),
-                message: "SHA-256 digest must contain 64 hexadecimal characters".into(),
-            });
-        }
-        if !actual_hex.eq_ignore_ascii_case(expected) {
-            return Err(InstallError::StepFailed {
-                step: "zip-checksum".into(),
-                message: format!("SHA-256 mismatch: expected {expected}, got {actual_hex}"),
-            });
-        }
-    }
-
-    // Ensure parent directory exists
-    if let Some(parent) = dest.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-
-    // Extract the archive
-    let reader = std::io::Cursor::new(&bytes);
-    let mut archive = zip::ZipArchive::new(reader).map_err(|e| InstallError::StepFailed {
-        step: "zip-extract".into(),
-        message: format!("failed to open zip archive: {e}"),
-    })?;
-
-    for index in 0..archive.len() {
-        let mut file = archive
-            .by_index(index)
-            .map_err(|e| InstallError::StepFailed {
-                step: "zip-extract".into(),
-                message: format!("failed to read ZIP entry: {e}"),
-            })?;
-        let Some(relative) = file.enclosed_name() else {
-            return Err(InstallError::StepFailed {
-                step: "zip-extract".into(),
-                message: format!("archive entry escapes install root: {}", file.name()),
-            });
-        };
-        let output = dest.join(relative);
-        if file.is_dir() {
-            std::fs::create_dir_all(&output)?;
-            continue;
-        }
-        if let Some(parent) = output.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        let mut target = std::fs::File::create(&output)?;
-        std::io::copy(&mut file, &mut target)?;
-    }
-
-    Ok(Some(StepRollback::RemovePath(dest.to_path_buf())))
-}
-
-fn validate_pip_identifier(value: &str, kind: &str) -> Result<(), InstallError> {
-    if value.is_empty()
-        || !value
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
-    {
-        return Err(InstallError::StepFailed {
-            step: "validate-install-metadata".into(),
-            message: format!("invalid pip {kind} '{value}'"),
-        });
-    }
-    Ok(())
-}
-
-fn is_remote_url(url: &str) -> bool {
-    url.starts_with("http://") || url.starts_with("https://")
-}
-
-fn validate_remote_install_url(url: &str) -> Result<(), InstallError> {
-    if !is_remote_url(url) {
-        return Ok(());
-    }
-    let parsed = reqwest::Url::parse(url).map_err(|error| InstallError::StepFailed {
-        step: "validate-install-metadata".into(),
-        message: format!("invalid install URL '{url}': {error}"),
-    })?;
-    let loopback = parsed
-        .host_str()
-        .is_some_and(|host| matches!(host, "localhost" | "127.0.0.1" | "::1"));
-    if parsed.scheme() != "https" && !(parsed.scheme() == "http" && loopback) {
-        return Err(InstallError::StepFailed {
-            step: "validate-install-metadata".into(),
-            message: format!("remote install URL must use HTTPS: {url}"),
-        });
-    }
-    Ok(())
-}
-
-fn execute_path_copy(source: &Path, dest: &Path) -> Result<Option<StepRollback>, InstallError> {
-    if dest.exists() {
-        return Err(InstallError::StepFailed {
-            step: "path-copy".into(),
-            message: format!("destination already exists: {}", dest.display()),
-        });
-    }
-
-    if !source.exists() {
-        return Err(InstallError::StepFailed {
-            step: "path-copy".into(),
-            message: format!("source does not exist: {}", source.display()),
-        });
-    }
-
-    // Ensure parent directory exists
-    if let Some(parent) = dest.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-
-    if source.is_dir() {
-        copy_dir_recursive(source, dest)?;
+    if source.is_absolute() {
+        source.to_path_buf()
     } else {
-        std::fs::copy(source, dest)?;
+        std::env::current_dir()
+            .map(|cwd| cwd.join(source))
+            .unwrap_or_else(|_| source.to_path_buf())
     }
-
-    Ok(Some(StepRollback::RemovePath(dest.to_path_buf())))
 }
 
 fn execute_register_dcc(
     _dcc_type: &str,
     _entry_point: Option<&str>,
-) -> Result<Option<StepRollback>, InstallError> {
+    _dcc_path: Option<&Path>,
+) -> StepExecution {
     // Registration is owned by the DCC plugin's sidecar. The CLI can install
     // packages, but it must not pretend a host process is registered until the
     // plugin starts, stays alive, and advertises itself in the registry.
-    eprintln!();
-    eprint!("    └─ note: start or enable the '{_dcc_type}' plugin, ");
-    eprintln!("then re-run `dccmcp list` to confirm self-registration.");
-    Ok(None)
+    StepExecution::Deferred
 }
 
 fn execute_verify(plan: &InstallPlan) -> Result<Option<StepRollback>, InstallError> {
+    if let Some(path) = &plan.dcc_path
+        && !path.exists()
+    {
+        return Err(InstallError::StepFailed {
+            step: "verify".into(),
+            message: format!("DCC path does not exist: {}", path.display()),
+        });
+    }
+    let mut pip_target = None;
     for step in &plan.steps {
         let Some(action) = &step.action else {
             continue;
@@ -647,12 +1077,162 @@ fn execute_verify(plan: &InstallPlan) -> Result<Option<StepRollback>, InstallErr
             | InstallStepAction::ZipExtract { dest, .. }
             | InstallStepAction::PathCopy { dest, .. } => verify_installed_path(dest)?,
             InstallStepAction::PipInstall {
-                package, python, ..
-            } => verify_pip_package(package, python.as_deref())?,
+                package,
+                version,
+                python,
+                ..
+            } => {
+                verify_pip_package(package, version.as_deref(), python.as_deref())?;
+                if target_core_requirement(plan).is_none() {
+                    verify_target_adapter_import(plan, package, python.as_deref())?;
+                }
+                pip_target = Some((package.clone(), python.clone()));
+            }
+            InstallStepAction::AdobePluginLink { dest, manifest, .. } => {
+                adobe::verify_linked_plugin(dest, manifest.as_deref())?
+            }
             InstallStepAction::RegisterDcc { .. } | InstallStepAction::Verify => {}
         }
     }
+    if let Some(requirement) = target_core_requirement(plan) {
+        let Some((package, python)) = pip_target else {
+            return Err(InstallError::StepFailed {
+                step: "verify".into(),
+                message: format!(
+                    "cannot verify Core requirement '{requirement}' without a target Python package"
+                ),
+            });
+        };
+        verify_target_core_requirement(plan, &requirement, &package, python.as_deref())?;
+    }
     Ok(None)
+}
+
+pub(super) fn target_core_requirement(plan: &InstallPlan) -> Option<String> {
+    plan.adapter.core_requirement.clone().or_else(|| {
+        plan.adapter
+            .min_core_version
+            .as_deref()
+            .and_then(derive_requirement)
+    })
+}
+
+fn verify_target_adapter_import(
+    plan: &InstallPlan,
+    package: &str,
+    python: Option<&str>,
+) -> Result<(), InstallError> {
+    let Some(python) = python.filter(|value| !value.trim().is_empty()) else {
+        return Err(InstallError::StepFailed {
+            step: "verify".into(),
+            message: format!(
+                "no target Python interpreter is available to verify adapter import '{package}'"
+            ),
+        });
+    };
+    let target = AdapterImportTarget {
+        dcc_type: plan.dcc_type.clone(),
+        module: import_module(&plan.adapter, package),
+        distribution: package.to_string(),
+        python: Some(PathBuf::from(python)),
+        python_source: Some("install_plan".into()),
+    };
+    let probe = probe_target(&target);
+    if probe
+        .get("imported")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false)
+        && probe.get("status").and_then(serde_json::Value::as_str) == Some("ok")
+    {
+        return Ok(());
+    }
+    let status = probe
+        .get("status")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("unavailable");
+    Err(InstallError::StepFailed {
+        step: "verify".into(),
+        message: format!("target adapter import is not healthy for '{package}' ({status})"),
+    })
+}
+
+fn verify_target_core_requirement(
+    plan: &InstallPlan,
+    requirement: &str,
+    package: &str,
+    python: Option<&str>,
+) -> Result<(), InstallError> {
+    let Some(python) = python.filter(|value| !value.trim().is_empty()) else {
+        return Err(InstallError::StepFailed {
+            step: "verify".into(),
+            message: format!(
+                "no target Python interpreter is available to verify Core requirement '{requirement}'"
+            ),
+        });
+    };
+    let target = AdapterImportTarget {
+        dcc_type: plan.dcc_type.clone(),
+        module: import_module(&plan.adapter, package),
+        distribution: package.to_string(),
+        python: Some(PathBuf::from(python)),
+        python_source: Some("install_plan".into()),
+    };
+    let probe = probe_target(&target);
+    if !probe
+        .get("imported")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false)
+    {
+        let status = probe
+            .get("status")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("unavailable");
+        return Err(InstallError::StepFailed {
+            step: "verify".into(),
+            message: format!(
+                "target adapter import failed while verifying Core requirement '{requirement}' ({status})"
+            ),
+        });
+    }
+    let report = probe
+        .as_object()
+        .expect("adapter import probe is a JSON object");
+    let probe_status = report.get("status").and_then(serde_json::Value::as_str);
+    if probe_status == Some("incompatible_core") {
+        let declared_requirement = report
+            .get("core_requirement")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or(requirement);
+        let core = core_compatibility_for_requirement(report, declared_requirement);
+        return Err(core_requirement_failure(&core));
+    }
+    if probe_status != Some("ok") {
+        let status = report
+            .get("status")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("unavailable");
+        return Err(InstallError::StepFailed {
+            step: "verify".into(),
+            message: format!(
+                "target adapter/Core probe is not healthy while verifying Core requirement '{requirement}' ({status})"
+            ),
+        });
+    }
+    let core = core_compatibility_for_requirement(report, requirement);
+    if !core.is_ok() {
+        return Err(core_requirement_failure(&core));
+    }
+    Ok(())
+}
+
+fn core_requirement_failure(core: &CoreRuntimeReport) -> InstallError {
+    InstallError::CoreRequirementFailed {
+        requirement: core.declaration.clone(),
+        running: core.running.as_deref().unwrap_or("unknown").into(),
+        verdict: core.verdict.as_str().into(),
+        declaration_valid: core.bound.is_ok(),
+        reason: core.bound.message(),
+    }
 }
 
 fn verify_installed_path(path: &Path) -> Result<(), InstallError> {
@@ -671,62 +1251,52 @@ fn verify_installed_path(path: &Path) -> Result<(), InstallError> {
     Ok(())
 }
 
-fn verify_pip_package(package: &str, python: Option<&str>) -> Result<(), InstallError> {
-    let python_cmd = python.unwrap_or("python");
-    let status = Command::new(python_cmd)
+fn verify_pip_package(
+    package: &str,
+    expected_version: Option<&str>,
+    python: Option<&str>,
+) -> Result<(), InstallError> {
+    let Some(python_cmd) = python.filter(|value| !value.trim().is_empty()) else {
+        return Err(InstallError::StepFailed {
+            step: "verify".into(),
+            message:
+                "no safe Python interpreter was selected; pass --python or DCC_MCP_INSTALL_PYTHON"
+                    .into(),
+        });
+    };
+    let output = Command::new(python_cmd)
         .args(pip_show_args(package))
-        .status()
+        .output()
         .map_err(|e| InstallError::StepFailed {
             step: "verify".into(),
             message: format!("failed to launch {python_cmd}: {e}"),
         })?;
-    if !status.success() {
+    if !output.status.success() {
         return Err(InstallError::StepFailed {
             step: "verify".into(),
             message: format!("{python_cmd} could not verify installed pip package '{package}'"),
         });
     }
+    if let Some(expected) = expected_version {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let actual = stdout
+            .lines()
+            .find_map(|line| line.strip_prefix("Version:"))
+            .map(str::trim)
+            .unwrap_or_default();
+        if actual != expected {
+            return Err(InstallError::StepFailed {
+                step: "verify".into(),
+                message: format!(
+                    "installed {package} version mismatch: expected {expected}, got {actual}"
+                ),
+            });
+        }
+    }
     Ok(())
 }
 
-// ── consent ──────────────────────────────────────────────────────────────────────
-
-/// Prompt the user for Y/n consent.  Returns `true` if the user agrees.
-fn ask_consent(prompt: &str) -> Result<bool, InstallError> {
-    let stdin = std::io::stdin();
-    let mut stdout = std::io::stdout();
-
-    loop {
-        write!(stdout, "{prompt} ")?;
-        stdout.flush()?;
-
-        let mut line = String::new();
-        stdin.lock().read_line(&mut line)?;
-        let trimmed = line.trim().to_lowercase();
-
-        match trimmed.as_str() {
-            "" | "y" | "yes" => return Ok(true),
-            "n" | "no" => return Ok(false),
-            _ => {
-                write!(stdout, "  Please answer Y or n: ")?;
-                stdout.flush()?;
-            }
-        }
-    }
-}
-
 // ── rollback ─────────────────────────────────────────────────────────────────────
-
-/// Roll back all completed steps in reverse order, best-effort.
-fn rollback_all(completed: &[StepResult]) {
-    for result in completed.iter().rev() {
-        if let Some(rollback) = &result.rollback
-            && let Err(e) = execute_rollback(rollback)
-        {
-            eprintln!("  ⚠  rollback of '{}' failed: {e}", result.step_name);
-        }
-    }
-}
 
 fn execute_rollback(rollback: &StepRollback) -> Result<(), InstallError> {
     match rollback {
@@ -741,12 +1311,15 @@ fn execute_rollback(rollback: &StepRollback) -> Result<(), InstallError> {
             Ok(())
         }
         StepRollback::Command { program, args } => {
-            let status = Command::new(program).args(args).status().map_err(|e| {
-                InstallError::RollbackFailed {
+            let status = Command::new(program)
+                .args(args)
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .map_err(|e| InstallError::RollbackFailed {
                     step: program.clone(),
                     message: format!("failed to launch {program}: {e}"),
-                }
-            })?;
+                })?;
             if !status.success() {
                 return Err(InstallError::RollbackFailed {
                     step: program.clone(),
@@ -755,308 +1328,46 @@ fn execute_rollback(rollback: &StepRollback) -> Result<(), InstallError> {
             }
             Ok(())
         }
-    }
-}
-
-/// Recursively copy a directory and its contents.
-fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), InstallError> {
-    if !dst.exists() {
-        std::fs::create_dir_all(dst)?;
-    }
-    for entry in std::fs::read_dir(src)? {
-        let entry = entry?;
-        let file_type = entry.file_type()?;
-        let src_path = entry.path();
-        let file_name = entry.file_name();
-        let dst_path = dst.join(&file_name);
-
-        if file_type.is_dir() {
-            copy_dir_recursive(&src_path, &dst_path)?;
-        } else {
-            std::fs::copy(&src_path, &dst_path)?;
+        StepRollback::PipCommand {
+            program,
+            args,
+            artifact,
+        } => {
+            let status = Command::new(program)
+                .args(args)
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .map_err(|e| InstallError::RollbackFailed {
+                    step: program.clone(),
+                    message: format!("failed to launch {program}: {e}"),
+                })?;
+            if !status.success() {
+                return Err(InstallError::RollbackFailed {
+                    step: program.clone(),
+                    message: format!("{program} exited with {status}"),
+                });
+            }
+            std::fs::write(&artifact.metadata_path, &artifact.metadata).map_err(|e| {
+                InstallError::RollbackFailed {
+                    step: program.clone(),
+                    message: format!("failed to restore direct URL metadata: {e}"),
+                }
+            })?;
+            std::fs::remove_file(&artifact.path).map_err(|e| InstallError::RollbackFailed {
+                step: program.clone(),
+                message: format!("failed to remove retained rollback wheel: {e}"),
+            })?;
+            Ok(())
         }
     }
-    Ok(())
 }
 
 // ── tests ────────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::domain::install::InstallStep;
+#[path = "install/recovery_tests.rs"]
+mod recovery_tests;
 
-    #[test]
-    fn service_uses_bundled_catalog_when_default_path_is_missing() {
-        let service = InstallService::new(PathBuf::from("__missing_dcc_mcp_catalog__.yml"));
-        let plan = service
-            .plan(InstallRequest {
-                dcc_type: "maya".into(),
-                version: None,
-                catalog_path: None,
-                python: None,
-            })
-            .unwrap();
-
-        assert_eq!(plan.adapter.name, "dcc-mcp-maya");
-        assert!(matches!(
-            plan.steps[0].action,
-            Some(InstallStepAction::PipInstall { .. })
-        ));
-    }
-
-    #[test]
-    fn bundled_catalog_prefers_an_adapter_over_its_skill_pack() {
-        let service = InstallService::new(PathBuf::from("__missing_dcc_mcp_catalog__.yml"));
-        let plan = service
-            .plan(InstallRequest {
-                dcc_type: "unreal".into(),
-                version: None,
-                catalog_path: None,
-                python: None,
-            })
-            .unwrap();
-
-        assert_eq!(plan.adapter.name, "dcc-mcp-unreal");
-        assert!(matches!(
-            plan.steps[0].action,
-            Some(InstallStepAction::PipInstall { .. })
-        ));
-    }
-
-    #[test]
-    fn bundled_catalog_lists_adapter_dcc_types_and_collapses_aliases() {
-        let service = InstallService::new(PathBuf::from("__missing_dcc_mcp_catalog__.yml"));
-        let catalog = service.dcc_types(None).unwrap();
-
-        assert!(catalog.custom_types_supported);
-        assert_eq!(
-            catalog
-                .dcc_types
-                .iter()
-                .filter(|entry| entry.dcc_type == "3dsmax")
-                .count(),
-            1
-        );
-        for expected in ["godot", "renderdoc"] {
-            let entry = catalog
-                .dcc_types
-                .iter()
-                .find(|entry| entry.dcc_type == expected)
-                .unwrap_or_else(|| panic!("missing cataloged DCC type {expected}"));
-            assert!(
-                entry
-                    .adapters
-                    .iter()
-                    .any(|adapter| adapter.name == format!("dcc-mcp-{expected}"))
-            );
-        }
-    }
-
-    #[test]
-    fn install_plan_reports_disabled_auto_install_policy_with_custom_prompt() {
-        let service = InstallService::with_auto_install_policy(
-            PathBuf::from("__missing_dcc_mcp_catalog__.yml"),
-            AutoInstallPolicy::disabled(
-                "Auto install unavailable; contact PipelineTD to deploy {adapter} for {dcc_type}.",
-            ),
-        );
-        let plan = service
-            .plan(InstallRequest {
-                dcc_type: "maya".into(),
-                version: None,
-                catalog_path: None,
-                python: None,
-            })
-            .unwrap();
-
-        assert!(!plan.install_policy.auto_install_enabled);
-        assert_eq!(
-            plan.install_policy.prompt.as_deref(),
-            Some("Auto install unavailable; contact PipelineTD to deploy dcc-mcp-maya for maya.")
-        );
-    }
-
-    #[test]
-    fn execute_returns_plan_without_running_steps_when_auto_install_is_disabled() {
-        let service = InstallService::with_auto_install_policy(
-            PathBuf::from("__missing_dcc_mcp_catalog__.yml"),
-            AutoInstallPolicy::disabled(
-                "Automatic install disabled; ask PipelineTD for {adapter}.",
-            ),
-        );
-
-        let plan = service
-            .execute(InstallRequest {
-                dcc_type: "maya".into(),
-                version: None,
-                catalog_path: None,
-                python: Some("/__nonexistent__/python".into()),
-            })
-            .unwrap();
-
-        assert!(!plan.install_policy.auto_install_enabled);
-        assert_eq!(plan.steps[0].name, "install-pip");
-    }
-
-    #[test]
-    fn pip_install_missing_python_reports_error() {
-        let result =
-            execute_pip_install("nonexistent-package", None, Some("/__nonexistent__/python"));
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert!(
-            matches!(&err, InstallError::StepFailed { step, .. } if step.contains("pip-install")),
-            "expected StepFailed, got {err}"
-        );
-    }
-
-    #[test]
-    fn git_clone_nonexistent_url_fails() {
-        let dest = PathBuf::from("/__nonexistent__/test-repo");
-        let result = execute_git_clone("https://__nonexistent__.invalid/repo.git", None, &dest);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn path_copy_missing_source_fails() {
-        let result = execute_path_copy(
-            &PathBuf::from("/__nonexistent__/source"),
-            &PathBuf::from("/__nonexistent__/dest"),
-        );
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn rollback_remove_path_does_not_error_on_nonexistent() {
-        let rb = StepRollback::RemovePath(PathBuf::from("/__nonexistent__/path"));
-        assert!(execute_rollback(&rb).is_ok());
-    }
-
-    #[test]
-    fn register_dcc_is_noop() {
-        let result = execute_register_dcc("maya", Some("dcc_mcp_maya.cli:main"));
-        assert!(result.is_ok());
-        assert!(result.unwrap().is_none());
-    }
-
-    #[test]
-    fn pip_install_uses_python_module_invocation() {
-        assert_eq!(
-            pip_install_args("dcc-mcp-maya", Some(&["maya".to_string()])),
-            vec![
-                "-m".to_string(),
-                "pip".to_string(),
-                "install".to_string(),
-                "dcc-mcp-maya[maya]".to_string(),
-            ]
-        );
-        assert_eq!(
-            pip_uninstall_args("dcc-mcp-maya"),
-            vec![
-                "-m".to_string(),
-                "pip".to_string(),
-                "uninstall".to_string(),
-                "-y".to_string(),
-                "dcc-mcp-maya".to_string(),
-            ]
-        );
-        assert_eq!(
-            pip_show_args("dcc-mcp-maya"),
-            vec![
-                "-m".to_string(),
-                "pip".to_string(),
-                "show".to_string(),
-                "dcc-mcp-maya".to_string(),
-            ]
-        );
-    }
-
-    fn verify_plan(action: InstallStepAction) -> InstallPlan {
-        InstallPlan {
-            dcc_type: "maya".into(),
-            version: None,
-            adapter: dcc_mcp_catalog::CatalogEntry {
-                name: "dcc-mcp-maya".into(),
-                description: "Maya adapter".into(),
-                dcc: vec!["maya".into()],
-                url: None,
-                tags: vec![],
-                version: None,
-                min_core_version: None,
-                install: None,
-                maintainer: None,
-                category: None,
-                policy: None,
-                requires: None,
-                icon: None,
-                showcase: None,
-            },
-            detected_installations: Vec::new(),
-            steps: vec![
-                InstallStep {
-                    name: "install".into(),
-                    description: "Install adapter".into(),
-                    action: Some(action),
-                },
-                InstallStep {
-                    name: "verify".into(),
-                    description: "Verify adapter".into(),
-                    action: Some(InstallStepAction::Verify),
-                },
-            ],
-            next_steps: vec![],
-            install_policy: InstallPolicy::enabled(),
-        }
-    }
-
-    #[test]
-    fn verify_accepts_non_empty_installed_path() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        let source = tmp.path().join("source");
-        let dest = tmp.path().join("dest");
-        fs::create_dir_all(&dest).unwrap();
-        fs::write(dest.join("adapter.txt"), "installed").unwrap();
-
-        let result = execute_verify(&verify_plan(InstallStepAction::PathCopy { source, dest }));
-        assert!(result.is_ok());
-        assert!(result.unwrap().is_none());
-    }
-
-    #[test]
-    fn verify_rejects_missing_installed_path() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        let source = tmp.path().join("source");
-        let dest = tmp.path().join("missing");
-
-        let err = execute_verify(&verify_plan(InstallStepAction::PathCopy {
-            source,
-            dest: dest.clone(),
-        }))
-        .unwrap_err();
-        assert!(
-            matches!(&err, InstallError::StepFailed { step, message }
-                if step == "verify" && message.contains(&dest.display().to_string())),
-            "expected verify StepFailed, got {err}"
-        );
-    }
-
-    #[test]
-    fn verify_rejects_empty_installed_directory() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        let source = tmp.path().join("source");
-        let dest = tmp.path().join("empty");
-        fs::create_dir_all(&dest).unwrap();
-
-        let err = execute_verify(&verify_plan(InstallStepAction::PathCopy {
-            source,
-            dest: dest.clone(),
-        }))
-        .unwrap_err();
-        assert!(
-            matches!(&err, InstallError::StepFailed { step, message }
-                if step == "verify" && message.contains("installed directory is empty")),
-            "expected verify StepFailed, got {err}"
-        );
-    }
-}
+#[cfg(test)]
+mod tests;

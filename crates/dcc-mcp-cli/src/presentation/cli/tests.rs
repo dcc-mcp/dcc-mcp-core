@@ -1,4 +1,246 @@
 use super::*;
+use base64::Engine;
+use dcc_mcp_models::FeedbackSeverity;
+
+use super::cli_args::{
+    GatewayAction, GatewayDaemonAction, GatewayStatusArgs, command_has_distinct_per_timeout,
+    read_call_arguments, resolve_query,
+};
+use super::gateway_cmd::gateway_endpoint_for_command;
+use super::record_replay::RecordReplayAction;
+use crate::application::gateway_ensure;
+use crate::application::gateway_profile::GatewayTarget;
+use crate::presentation::feedback_cmd::FeedbackAction;
+
+#[test]
+fn verification_disables_automatic_maintenance_and_gateway_startup() {
+    let args = Args::try_parse_annotated_from([
+        "dcc-mcp-cli",
+        "verify",
+        "--dcc-type",
+        "houdini",
+        "--python",
+        "selected-python",
+    ])
+    .unwrap();
+    assert!(args.no_auto_gateway);
+    assert!(args.no_update_maintenance);
+    assert!(
+        gateway_endpoint_for_command(DEFAULT_BASE_URL, &args.command, &GatewayTarget::Local)
+            .is_none()
+    );
+}
+
+#[test]
+fn result_view_flags_are_global_and_invalid_pointers_fail_before_dispatch() {
+    let args = Args::try_parse_from([
+        "dcc-mcp-cli",
+        "call",
+        "houdini.abc.inspect",
+        "--raw-result",
+        "--select",
+        "/result/structuredContent",
+        "--show-maintenance",
+    ])
+    .unwrap();
+    assert!(args.raw_result);
+    assert!(args.show_maintenance);
+    assert!(!command_shows_maintenance(&args.command, false));
+    assert!(command_shows_maintenance(&args.command, true));
+    assert_eq!(args.select, ["/result/structuredContent"]);
+    let quiet = Args::try_parse_from(["dcc-mcp-cli", "list", "--quiet"]).unwrap();
+    assert!(quiet.no_update_maintenance);
+    assert!(!command_shows_maintenance(&quiet.command, false));
+    let doctor = Args::try_parse_from(["dcc-mcp-cli", "doctor"]).unwrap();
+    assert!(command_shows_maintenance(&doctor.command, false));
+    assert!(
+        Args::try_parse_from(["dcc-mcp-cli", "call", "tool", "--select", "not-a-pointer",])
+            .is_err()
+    );
+    assert!(
+        Args::try_parse_from(["dcc-mcp-cli", "list", "--quiet", "--show-maintenance",]).is_err()
+    );
+}
+
+#[test]
+fn require_gateway_is_a_global_fail_closed_control_flag() {
+    let args = Args::try_parse_from([
+        "dcc-mcp-cli",
+        "call",
+        "maya.abc12345.inspect",
+        "--require-gateway",
+        "--agent-session-id",
+        "task-42",
+    ])
+    .expect("parse --require-gateway after the subcommand");
+
+    assert!(args.require_gateway);
+    assert_eq!(args.agent_session_id.as_deref(), Some("task-42"));
+}
+
+#[test]
+fn bare_update_command_defaults_to_the_one_step_apply_action() {
+    let args = Args::try_parse_from(["dcc-mcp-cli", "update"])
+        .expect("a bare `dcc-mcp-cli update` must parse without a subcommand");
+
+    let Command::Update { action } = args.command else {
+        panic!("expected update command");
+    };
+    assert!(
+        action.is_none(),
+        "bare update should default to the one-step apply flow"
+    );
+}
+
+#[test]
+fn update_apply_and_yes_flag_remain_accepted() {
+    let args = Args::try_parse_from(["dcc-mcp-cli", "update", "apply", "--yes"])
+        .expect("`update apply --yes` must stay backward compatible");
+
+    let Command::Update {
+        action: Some(UpdateAction::Apply { yes }),
+    } = args.command
+    else {
+        panic!("expected update apply action");
+    };
+    assert!(yes);
+}
+
+#[test]
+fn record_replay_compile_requires_explicit_review_flag_in_contract() {
+    let args = Args::try_parse_from([
+        "dcc-mcp-cli",
+        "--agent-session-id",
+        "task-42",
+        "record-replay",
+        "compile",
+        "rec-1",
+        "--name",
+        "scene-build",
+        "--reviewed",
+    ])
+    .expect("parse record-replay compile command");
+
+    let Command::RecordReplay {
+        action:
+            RecordReplayAction::Compile {
+                recording_id,
+                name,
+                reviewed,
+                ..
+            },
+    } = args.command
+    else {
+        panic!("expected record-replay compile command");
+    };
+    assert_eq!(recording_id, "rec-1");
+    assert_eq!(name, "scene-build");
+    assert!(reviewed);
+}
+
+#[test]
+fn record_replay_compile_session_exposes_retroactive_history_path() {
+    let args = Args::try_parse_from([
+        "dcc-mcp-cli",
+        "--agent-session-id",
+        "task-42",
+        "record-replay",
+        "compile-session",
+        "--name",
+        "scene-build",
+        "--reviewed",
+    ])
+    .expect("parse retroactive session compile command");
+
+    let Command::RecordReplay {
+        action: RecordReplayAction::CompileSession { name, reviewed, .. },
+    } = args.command
+    else {
+        panic!("expected record-replay compile-session command");
+    };
+    assert_eq!(name, "scene-build");
+    assert!(reviewed);
+}
+
+#[test]
+fn record_replay_replay_keeps_current_approval_separate() {
+    let args = Args::try_parse_from([
+        "dcc-mcp-cli",
+        "record-replay",
+        "replay",
+        "--workflow-file",
+        "replay.workflow.yaml",
+        "--tool-slug",
+        "maya.abcd.workflows_run",
+    ])
+    .expect("parse record-replay replay command");
+
+    let Command::RecordReplay {
+        action: RecordReplayAction::Replay { approve_replay, .. },
+    } = args.command
+    else {
+        panic!("expected record-replay replay command");
+    };
+    assert!(!approve_replay);
+}
+
+#[test]
+fn capabilities_contract_accepts_repeated_keys_and_global_output() {
+    let args = Args::try_parse_from([
+        "dcc-mcp-cli",
+        "--output",
+        "json",
+        "capabilities",
+        "--dcc-type",
+        "houdini",
+        "--instance-id",
+        "abc12345",
+        "--keys",
+        "render.lpe",
+        "--keys",
+        "render.cryptomatte,script.in_process_python",
+        "--force-refresh",
+        "--invalidate",
+    ])
+    .expect("parse capabilities command");
+
+    assert_eq!(args.output, Some(OutputFormat::Json));
+    let Command::Capabilities {
+        dcc_type,
+        instance_id,
+        keys,
+        force_refresh,
+        invalidate,
+    } = args.command
+    else {
+        panic!("expected capabilities command");
+    };
+    assert_eq!(dcc_type.as_deref(), Some("houdini"));
+    assert_eq!(instance_id.as_deref(), Some("abc12345"));
+    assert_eq!(
+        keys,
+        vec![
+            "render.lpe".to_string(),
+            "render.cryptomatte,script.in_process_python".to_string()
+        ]
+    );
+    assert!(force_refresh);
+    assert!(invalidate);
+}
+
+#[test]
+fn capabilities_uses_the_same_maintenance_policy_as_inventory_commands() {
+    assert!(!command_shows_maintenance(
+        &Command::Capabilities {
+            dcc_type: Some("zbrush".to_string()),
+            instance_id: None,
+            keys: Vec::new(),
+            force_refresh: false,
+            invalidate: false,
+        },
+        false
+    ));
+}
 
 #[test]
 fn dcc_types_contract_accepts_a_custom_catalog() {
@@ -7,13 +249,120 @@ fn dcc_types_contract_accepts_a_custom_catalog() {
         "dcc-types",
         "--catalog",
         "studio-catalog.yml",
+        "--dcc-type",
+        "studio tool",
     ])
     .expect("parse dcc-types command");
 
-    let Command::DccTypes { catalog } = args.command else {
+    let Command::DccTypes {
+        catalog, dcc_type, ..
+    } = args.command
+    else {
         panic!("expected dcc-types command");
     };
     assert_eq!(catalog, Some(PathBuf::from("studio-catalog.yml")));
+    assert_eq!(dcc_type.as_deref(), Some("studio tool"));
+}
+
+#[test]
+fn search_contract_accepts_unquoted_positional_query_words() {
+    let args = Args::try_parse_from([
+        "dcc-mcp-cli",
+        "search",
+        "create",
+        "sphere",
+        "--dcc-type",
+        "maya",
+    ])
+    .expect("parse positional search query");
+
+    let Command::Search {
+        query,
+        query_terms,
+        dcc_type,
+        ..
+    } = args.command
+    else {
+        panic!("expected search command");
+    };
+    assert!(query.is_none());
+    assert_eq!(
+        resolve_query(query, query_terms).as_deref(),
+        Some("create sphere")
+    );
+    assert_eq!(dcc_type.as_deref(), Some("maya"));
+}
+
+#[test]
+fn marketplace_search_contract_accepts_positional_query_and_dcc_type_alias() {
+    let args = Args::try_parse_from([
+        "dcc-mcp-cli",
+        "marketplace",
+        "search",
+        "maya",
+        "rigging",
+        "--dcc-type",
+        "maya",
+    ])
+    .expect("parse positional marketplace query");
+
+    let Command::Marketplace {
+        action:
+            MarketplaceAction::Search {
+                query,
+                query_terms,
+                dcc,
+                ..
+            },
+    } = args.command
+    else {
+        panic!("expected marketplace search command");
+    };
+    assert_eq!(
+        resolve_query(query, query_terms).as_deref(),
+        Some("maya rigging")
+    );
+    assert_eq!(dcc.as_deref(), Some("maya"));
+}
+
+#[test]
+fn marketplace_add_repo_requires_commit_for_install_but_not_list() {
+    assert!(
+        Args::try_parse_from(["dcc-mcp-cli", "marketplace", "add-repo", "dcc-mcp/example",])
+            .is_err()
+    );
+
+    let args = Args::try_parse_from([
+        "dcc-mcp-cli",
+        "marketplace",
+        "add-repo",
+        "dcc-mcp/example",
+        "--commit",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    ])
+    .expect("parse pinned direct repo install");
+    let Command::Marketplace {
+        action: MarketplaceAction::AddRepo { commit, list, .. },
+    } = args.command
+    else {
+        panic!("expected marketplace add-repo command");
+    };
+    assert_eq!(
+        commit.as_deref(),
+        Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+    );
+    assert!(!list);
+
+    assert!(
+        Args::try_parse_from([
+            "dcc-mcp-cli",
+            "marketplace",
+            "add-repo",
+            "dcc-mcp/example",
+            "--list",
+        ])
+        .is_ok()
+    );
 }
 
 #[test]
@@ -86,7 +435,7 @@ fn call_batch_contract_parses_steps_and_timeout() {
     assert!(tool_slug.is_none());
     assert!(batch);
     assert_eq!(parsed_steps.as_deref(), Some(steps));
-    assert_eq!(timeout_secs, 45);
+    assert_eq!(timeout_secs, Some(45));
 }
 
 #[test]
@@ -99,22 +448,6 @@ fn call_batch_compatibility_alias_still_parses() {
     ])
     .unwrap();
     assert!(matches!(args.command, Command::CallBatch { .. }));
-}
-
-#[test]
-fn update_without_subcommand_defaults_to_apply() {
-    let args = Args::try_parse_from(["dccmcp", "update"]).expect("parse default update");
-    let Command::Update { action } = args.command else {
-        panic!("expected update command");
-    };
-    assert!(action.is_none());
-}
-
-#[test]
-fn auto_update_flag_is_global() {
-    let args = Args::try_parse_from(["dccmcp", "--auto-update", "doctor"])
-        .expect("parse global auto-update flag");
-    assert!(args.auto_update);
 }
 
 #[test]
@@ -142,7 +475,8 @@ fn ui_control_contract_parses_a_stable_snapshot_command() {
     };
     assert_eq!(snapshot.dcc_type.as_deref(), Some("unreal"));
     assert_eq!(snapshot.instance_id.as_deref(), Some("abc12345"));
-    assert_eq!(snapshot.timeout_secs, 12);
+    assert_eq!(snapshot.timeout_secs, Some(12));
+    assert!(!snapshot.full_output);
     assert_eq!(
         read_call_arguments(&snapshot.arguments_json, snapshot.json_file.as_deref()).unwrap(),
         serde_json::json!({"session_id": "menu", "process_id": 42})
@@ -150,27 +484,204 @@ fn ui_control_contract_parses_a_stable_snapshot_command() {
 }
 
 #[test]
-fn ui_control_operations_map_to_legacy_app_ui_tools() {
+fn ui_control_contract_parses_an_exact_window_recording_command() {
+    let args = Args::try_parse_from([
+        "dcc-mcp-cli",
+        "ui-control",
+        "recording-start",
+        "--dcc-type",
+        "unity",
+        "--instance-id",
+        "abc12345",
+        "--json",
+        r#"{"session_id":"pv","output_dir":"C:/recording","record_video":true}"#,
+        "--timeout-secs",
+        "12",
+    ])
+    .expect("parse ui-control recording-start");
+
+    let Command::UiControl {
+        action: UiControlAction::RecordingStart(recording),
+    } = args.command
+    else {
+        panic!("expected ui-control recording-start command");
+    };
+    assert_eq!(recording.dcc_type.as_deref(), Some("unity"));
+    assert_eq!(recording.instance_id.as_deref(), Some("abc12345"));
+    assert_eq!(recording.timeout_secs, Some(12));
+    assert_eq!(
+        read_call_arguments(&recording.arguments_json, recording.json_file.as_deref()).unwrap(),
+        serde_json::json!({
+            "session_id": "pv",
+            "output_dir": "C:/recording",
+            "record_video": true
+        })
+    );
+}
+
+#[test]
+fn ui_control_operations_map_to_canonical_ui_control_tools() {
     let args = UiControlArgs {
         dcc_type: None,
         instance_id: None,
         arguments_json: "{}".to_string(),
         json_file: None,
         meta_json: None,
-        timeout_secs: 30,
+        timeout_secs: Some(30),
+        full_output: false,
     };
     for (action, expected) in [
-        (UiControlAction::Snapshot(args.clone()), "app_ui__snapshot"),
-        (UiControlAction::Find(args.clone()), "app_ui__find"),
-        (UiControlAction::Act(args.clone()), "app_ui__act"),
-        (UiControlAction::Wait(args.clone()), "app_ui__wait_for"),
+        (
+            UiControlAction::Snapshot(args.clone()),
+            "ui_control__snapshot",
+        ),
+        (UiControlAction::Find(args.clone()), "ui_control__find"),
+        (UiControlAction::Act(args.clone()), "ui_control__act"),
+        (
+            UiControlAction::RecordingStart(args.clone()),
+            "ui_control__recording_start",
+        ),
+        (
+            UiControlAction::RecordingState(args.clone()),
+            "ui_control__recording_state",
+        ),
+        (
+            UiControlAction::RecordingStop(args.clone()),
+            "ui_control__recording_stop",
+        ),
+        (UiControlAction::Wait(args.clone()), "ui_control__wait_for"),
         (
             UiControlAction::Stop(args.clone()),
-            "app_ui__stop_computer_use",
+            "ui_control__stop_computer_use",
         ),
     ] {
         assert_eq!(action.into_call().0, expected);
     }
+}
+
+#[test]
+fn ui_control_full_output_flag_preserves_the_diagnostic_escape_hatch() {
+    let args = Args::try_parse_from([
+        "dcc-mcp-cli",
+        "ui-control",
+        "snapshot",
+        "--instance-id",
+        "abc12345",
+        "--full-output",
+    ])
+    .expect("parse --full-output");
+
+    let Command::UiControl {
+        action: UiControlAction::Snapshot(snapshot),
+    } = args.command
+    else {
+        panic!("expected ui-control snapshot command");
+    };
+    assert!(snapshot.full_output);
+}
+
+#[test]
+fn ui_control_compact_output_keeps_agent_fields_and_drops_bulk_trees() {
+    let root = tempfile::tempdir().expect("create artifact directory");
+    let artifact = root.path().join("computer-use-frame.png");
+    let payload = serde_json::json!({
+        "success": true,
+        "message": "Captured isolated Windows UI Control snapshot.",
+        "prompt": "Act once, then snapshot again.",
+        "error": null,
+        "context": {
+            "session_id": "fab",
+            "snapshot_id": "snapshot-7",
+            "snapshot": {
+                "session_id": "fab",
+                "focus_id": "search",
+                "truncated": false,
+                "node_count": 501,
+                "root": {"id": "desktop", "children": [{"text": "bulk"}]},
+                "metadata": {
+                    "snapshot_id": "snapshot-7",
+                    "backend": "dcc-cua",
+                    "computer_use": {"raw": "bulk"}
+                }
+            },
+            "observation": {
+                "observation_id": "observation-7",
+                "process_id": 42,
+                "width": 1280,
+                "height": 720
+            },
+            "capture_provenance": {
+                "tool": "ui_control__snapshot",
+                "backend": "dcc-cua",
+                "session_id": "fab",
+                "snapshot_id": "snapshot-7",
+                "pixels_captured": true,
+                "width": 1280,
+                "height": 720,
+                "downscaled": false
+            },
+            "policy": {"allow_raw_coordinates": true},
+            "audit": {"coordinates": [1, 2]},
+            "__rich__": {
+                "kind": "image",
+                "data": "<materialized:image>",
+                "mime": "image/png",
+                "artifact_path": artifact
+            }
+        }
+    });
+    let value = serde_json::json!({
+        "success": true,
+        "tool_slug": "unreal.ui_control__snapshot",
+        "dcc_type": "unreal",
+        "instance_id": "abc12345",
+        "arguments": {"large": "request echo"},
+        "result": {"structuredContent": payload},
+        "source": "local_mcp"
+    });
+
+    let compact = compact_ui_control_result("ui_control__snapshot", &value);
+
+    assert_eq!(compact["success"], true);
+    assert_eq!(compact["tool"], "ui_control__snapshot");
+    assert_eq!(compact["snapshot_id"], "snapshot-7");
+    assert_eq!(compact["snapshot"]["node_count"], 501);
+    assert_eq!(compact["observation"]["observation_id"], "observation-7");
+    assert_eq!(compact["capture_provenance"]["backend"], "dcc-cua");
+    assert_eq!(compact["capture_provenance"]["pixels_captured"], true);
+    assert_eq!(
+        compact["__rich__"]["artifact_path"],
+        artifact.display().to_string()
+    );
+    let encoded = serde_json::to_string(&compact).unwrap();
+    assert!(!encoded.contains("request echo"));
+    assert!(!encoded.contains("children"));
+    assert!(!encoded.contains("allow_raw_coordinates"));
+    assert!(!encoded.contains("coordinates"));
+}
+
+#[test]
+fn ui_control_compact_output_preserves_async_job_identity() {
+    let value = serde_json::json!({
+        "success": true,
+        "tool_slug": "unity.abc12345.ui_control__act",
+        "output": {
+            "job_id": "job-42",
+            "status": "pending",
+            "parent_job_id": "parent-7",
+            "progress_token": "progress-9",
+            "bulk": "must not leak"
+        }
+    });
+
+    let compact = compact_ui_control_result("ui_control__act", &value);
+
+    assert_eq!(compact["success"], true);
+    assert_eq!(compact["job_id"], "job-42");
+    assert_eq!(compact["status"], "pending");
+    assert_eq!(compact["parent_job_id"], "parent-7");
+    assert_eq!(compact["progress_token"], "progress-9");
+    assert!(compact.get("bulk").is_none());
 }
 
 #[test]
@@ -185,7 +696,8 @@ fn call_materializes_rest_rich_image_without_printing_base64() {
                 "__rich__": {
                     "kind": "image",
                     "data": encoded,
-                    "mime": "image/png"
+                    "mime": "image/png",
+                    "display_name": "ui-control-snapshot-session-snapshot.png"
                 }
             }
         }
@@ -198,12 +710,144 @@ fn call_materializes_rest_rich_image_without_printing_base64() {
     assert!(artifact.is_absolute());
     assert!(artifact.starts_with(root.path()));
     assert_eq!(
+        artifact.file_name().and_then(|value| value.to_str()),
+        Some("ui-control-snapshot-session-snapshot.png")
+    );
+    assert_eq!(
         artifact.extension().and_then(|value| value.to_str()),
         Some("png")
     );
     assert_eq!(std::fs::read(artifact).unwrap(), bytes);
     assert_eq!(rich["data"], MATERIALIZED_IMAGE_PLACEHOLDER);
     assert!(!serde_json::to_string(&value).unwrap().contains(&encoded));
+}
+
+#[test]
+fn native_mcp_image_reuses_ui_control_canonical_name() {
+    let root = tempfile::tempdir().expect("create artifact directory");
+    let bytes = b"native ui control image";
+    let encoded = BASE64_STANDARD.encode(bytes);
+    let mut value = serde_json::json!({
+        "result": {
+            "content": [{"type": "image", "data": encoded, "mimeType": "image/png"}],
+            "structuredContent": {
+                "context": {
+                    "__rich__": {
+                        "kind": "image",
+                        "data": "<omitted; see native MCP image content>",
+                        "mime": "image/png",
+                        "display_name": "ui-control-snapshot-session-snapshot.png"
+                    }
+                }
+            }
+        }
+    });
+
+    materialize_call_images(&mut value, root.path());
+
+    let artifact = PathBuf::from(
+        value["result"]["content"][0]["artifact_path"]
+            .as_str()
+            .unwrap(),
+    );
+    assert_eq!(
+        artifact.file_name().and_then(|value| value.to_str()),
+        Some("ui-control-snapshot-session-snapshot.png")
+    );
+    assert_eq!(std::fs::read(artifact).unwrap(), bytes);
+}
+
+#[test]
+fn secondary_popup_images_keep_their_own_pixels_and_names() {
+    let root = tempfile::tempdir().unwrap();
+    let main = b"main application pixels";
+    let popup = b"transient popup pixels";
+    let mut value = serde_json::json!({"output":{"context":{
+        "__rich__":{"kind":"image","mime":"image/png","data":BASE64_STANDARD.encode(main),"display_name":"ui-control-main-nuke.png"},
+        "overlays":[{"__rich__":{"kind":"image","mime":"image/png","data":BASE64_STANDARD.encode(popup),"display_name":"ui-control-popup-nuke.png"}}]
+    }}});
+    materialize_call_images(&mut value, root.path());
+    let main_path = value["output"]["context"]["__rich__"]["artifact_path"]
+        .as_str()
+        .unwrap();
+    let popup_path = value["output"]["context"]["overlays"][0]["__rich__"]["artifact_path"]
+        .as_str()
+        .unwrap();
+    assert_ne!(main_path, popup_path);
+    assert_eq!(std::fs::read(main_path).unwrap(), main);
+    assert_eq!(std::fs::read(popup_path).unwrap(), popup);
+}
+
+#[test]
+fn multiple_native_images_do_not_alias_the_main_frame() {
+    let root = tempfile::tempdir().unwrap();
+    let mut value = serde_json::json!({"result":{
+        "content":[
+            {"type":"image","mimeType":"image/png","data":BASE64_STANDARD.encode(b"maya root")},
+            {"type":"image","mimeType":"image/png","data":BASE64_STANDARD.encode(b"maya popup")}
+        ],
+        "structuredContent":{"context":{"__rich__":{"display_name":"ui-control-main-maya.png"}}}
+    }});
+    materialize_call_images(&mut value, root.path());
+    let frames = value["result"]["content"].as_array().unwrap();
+    assert_ne!(frames[0]["artifact_path"], frames[1]["artifact_path"]);
+    assert_eq!(
+        std::fs::read(frames[0]["artifact_path"].as_str().unwrap()).unwrap(),
+        b"maya root"
+    );
+    assert_eq!(
+        std::fs::read(frames[1]["artifact_path"].as_str().unwrap()).unwrap(),
+        b"maya popup"
+    );
+}
+
+#[test]
+fn reused_display_name_never_returns_another_images_pixels() {
+    let root = tempfile::tempdir().unwrap();
+    let frame = |bytes: &[u8]| {
+        serde_json::json!({"kind":"image","mime":"image/png",
+        "data":BASE64_STANDARD.encode(bytes),"display_name":"ui-control-same-name.png"})
+    };
+    let mut value = serde_json::json!([
+        frame(b"first pixels"),
+        frame(b"other pixels"),
+        frame(b"first pixels")
+    ]);
+    materialize_call_images(&mut value, root.path());
+    let frames = value.as_array().unwrap();
+    assert_ne!(frames[0]["artifact_path"], frames[1]["artifact_path"]);
+    assert_eq!(frames[0]["artifact_path"], frames[2]["artifact_path"]);
+    for (index, bytes) in [b"first pixels", b"other pixels", b"first pixels"]
+        .iter()
+        .enumerate()
+    {
+        assert_eq!(
+            std::fs::read(frames[index]["artifact_path"].as_str().unwrap()).unwrap(),
+            *bytes
+        );
+    }
+}
+
+#[test]
+fn multiple_rich_images_without_names_do_not_inherit_the_main_name() {
+    let root = tempfile::tempdir().unwrap();
+    let mut value = serde_json::json!({"output":{"context":{
+    "__rich__":{"display_name":"ui-control-main.png"},
+    "frames":[
+        {"kind":"image","mime":"image/png","data":BASE64_STANDARD.encode(b"root")},
+        {"kind":"image","mime":"image/png","data":BASE64_STANDARD.encode(b"popup")}
+    ]}}});
+    materialize_call_images(&mut value, root.path());
+    let frames = value["output"]["context"]["frames"].as_array().unwrap();
+    assert_ne!(frames[0]["artifact_path"], frames[1]["artifact_path"]);
+    assert_eq!(
+        std::fs::read(frames[0]["artifact_path"].as_str().unwrap()).unwrap(),
+        b"root"
+    );
+    assert_eq!(
+        std::fs::read(frames[1]["artifact_path"].as_str().unwrap()).unwrap(),
+        b"popup"
+    );
 }
 
 #[test]
@@ -359,7 +1003,8 @@ fn gateway_endpoint_for_command_ensures_gateway_for_agent_control_commands() {
                 url: None,
                 query: "sphere".to_string(),
                 limit: 5,
-                timeout_secs: 5,
+                timeout_secs: Some(5),
+                max_pages: 16,
             },
             &local,
         )
@@ -372,7 +1017,8 @@ fn gateway_endpoint_for_command_ensures_gateway_for_agent_control_commands() {
                 url: Some("http://127.0.0.1:8765/mcp".to_string()),
                 query: "sphere".to_string(),
                 limit: 5,
-                timeout_secs: 5,
+                timeout_secs: Some(5),
+                max_pages: 16,
             },
             &local,
         )
@@ -386,9 +1032,11 @@ fn gateway_endpoint_for_command_ensures_gateway_for_agent_control_commands() {
             DEFAULT_BASE_URL,
             &Command::Search {
                 query: Some("sphere".to_string()),
+                query_terms: Vec::new(),
                 dcc_type: None,
                 instance_id: None,
                 limit: None,
+                gateway_only: None,
             },
             &local,
         )
@@ -431,7 +1079,9 @@ fn gateway_endpoint_for_command_ensures_gateway_for_agent_control_commands() {
                 arguments_json: "{}".to_string(),
                 json_file: None,
                 meta_json: None,
-                timeout_secs: 30,
+                wait: false,
+                wait_timeout_secs: 600,
+                timeout_secs: Some(30),
             },
             &local,
         )
@@ -444,7 +1094,7 @@ fn gateway_endpoint_for_command_ensures_gateway_for_agent_control_commands() {
                 dcc_type: Some("maya".to_string()),
                 instance_id: Some("abc12345".to_string()),
                 require: vec!["process".to_string(), "dispatcher".to_string()],
-                timeout_secs: 30,
+                timeout_secs: Some(30),
                 interval_secs: 1,
             },
             &local,
@@ -466,10 +1116,11 @@ fn gateway_endpoint_for_command_ensures_gateway_for_agent_control_commands() {
         gateway_endpoint_for_command(
             DEFAULT_BASE_URL,
             &Command::StopInstance {
-                dcc_type: "maya".to_string(),
-                instance_id: "abc12345".to_string(),
+                dcc_type: Some("maya".to_string()),
+                instance_id: Some("abc12345".to_string()),
                 expected_owner: Some("release-smoke-test".to_string()),
                 expected_session: Some("test".to_string()),
+                operation_id: None,
             },
             &local,
         )
@@ -480,9 +1131,11 @@ fn gateway_endpoint_for_command_ensures_gateway_for_agent_control_commands() {
             DEFAULT_BASE_URL,
             &Command::Search {
                 query: Some("sphere".to_string()),
+                query_terms: Vec::new(),
                 dcc_type: None,
                 instance_id: None,
                 limit: None,
+                gateway_only: None,
             },
             &remote,
         )
@@ -519,6 +1172,8 @@ fn gateway_endpoint_for_command_ensures_gateway_for_agent_control_commands() {
                 registry_dir: None,
                 gateway_host: "127.0.0.1".to_string(),
                 gateway_port: 9765,
+                adapter_python: Vec::new(),
+                adapter_catalog: None,
             },
             &local,
         )
@@ -527,7 +1182,12 @@ fn gateway_endpoint_for_command_ensures_gateway_for_agent_control_commands() {
     assert!(
         gateway_endpoint_for_command(
             DEFAULT_BASE_URL,
-            &Command::DccTypes { catalog: None },
+            &Command::DccTypes {
+                offline: false,
+                catalog: None,
+                dcc_type: None,
+                project: None,
+            },
             &local,
         )
         .is_none()
@@ -537,6 +1197,42 @@ fn gateway_endpoint_for_command_ensures_gateway_for_agent_control_commands() {
             DEFAULT_BASE_URL,
             &Command::Marketplace {
                 action: MarketplaceAction::List,
+            },
+            &local,
+        )
+        .is_none()
+    );
+    assert!(
+        gateway_endpoint_for_command(
+            DEFAULT_BASE_URL,
+            &Command::Marketplace {
+                action: MarketplaceAction::Install {
+                    name: "dcc-mcp-maya-mgear".to_string(),
+                    dcc: Some("maya".to_string()),
+                    target: None,
+                    reload: true,
+                    sources: Vec::new(),
+                    force: false,
+                    skip_validation: false,
+                },
+            },
+            &local,
+        )
+        .is_some()
+    );
+    assert!(
+        gateway_endpoint_for_command(
+            DEFAULT_BASE_URL,
+            &Command::Marketplace {
+                action: MarketplaceAction::Install {
+                    name: "dcc-mcp-maya-mgear".to_string(),
+                    dcc: Some("maya".to_string()),
+                    target: None,
+                    reload: false,
+                    sources: Vec::new(),
+                    force: false,
+                    skip_validation: false,
+                },
             },
             &local,
         )
@@ -572,7 +1268,261 @@ fn call_parses_configurable_request_timeout() {
     let Command::Call { timeout_secs, .. } = args.command else {
         panic!("expected call command");
     };
-    assert_eq!(timeout_secs, 120);
+    assert_eq!(timeout_secs, Some(120));
+}
+
+#[test]
+fn call_default_timeout_is_not_treated_as_explicit() {
+    let args = Args::parse_from(["dcc-mcp-cli", "call", "blender.abc12345.render"]);
+
+    let Command::Call { timeout_secs, .. } = &args.command else {
+        panic!("expected call command");
+    };
+    assert_eq!(*timeout_secs, None);
+    assert!(!command_has_distinct_per_timeout(&args.command, Some(30)));
+}
+
+#[test]
+fn feedback_parses_dead_instance_correlation() {
+    let args = Args::parse_from([
+        "dcc-mcp-cli",
+        "feedback",
+        "--tool-name",
+        "houdini.ui_control__act",
+        "--intent",
+        "Open the render menu",
+        "--blocker",
+        "The owner exited",
+        "--severity",
+        "suggestion",
+        "--dcc-type",
+        "houdini",
+        "--instance-id",
+        "abc12345",
+        "--request-id",
+        "request-42",
+        "--job-id",
+        "job-42",
+    ]);
+
+    let Command::Feedback(feedback) = args.command else {
+        panic!("expected feedback command");
+    };
+    assert_eq!(feedback.severity, FeedbackSeverity::Suggestion);
+    assert_eq!(feedback.dcc_type.as_deref(), Some("houdini"));
+    assert_eq!(feedback.instance_id.as_deref(), Some("abc12345"));
+    assert_eq!(feedback.request_id.as_deref(), Some("request-42"));
+    assert_eq!(feedback.job_id.as_deref(), Some("job-42"));
+}
+
+#[test]
+fn feedback_report_still_requires_legacy_required_fields() {
+    let args = Args::try_parse_from(["dcc-mcp-cli", "feedback", "--severity", "blocked"])
+        .expect("parse feedback command before conditional validation");
+    let Command::Feedback(feedback) = args.command else {
+        panic!("expected feedback command");
+    };
+    assert_eq!(
+        feedback.validate(),
+        Err("--tool-name is required when filing feedback".to_string())
+    );
+}
+
+#[test]
+fn feedback_list_parses_bounded_gateway_query() {
+    let args = Args::try_parse_from([
+        "dcc-mcp-cli",
+        "feedback",
+        "list",
+        "--range",
+        "24h",
+        "--dcc",
+        "houdini",
+        "--severity",
+        "workaround_found",
+        "--limit",
+        "25",
+        "--json",
+    ])
+    .expect("parse feedback list");
+
+    let Command::Feedback(feedback) = args.command else {
+        panic!("expected feedback command");
+    };
+    let FeedbackAction::List(query) = feedback.action.expect("feedback action") else {
+        panic!("expected feedback list action");
+    };
+    assert_eq!(query.range, "24h");
+    assert_eq!(query.dcc.as_deref(), Some("houdini"));
+    assert_eq!(query.severity.as_deref(), Some("workaround_found"));
+    assert_eq!(query.limit, Some(25));
+    assert!(query.json);
+}
+
+#[test]
+fn feedback_list_accepts_finding_schema_severity_vocabulary() {
+    let args = Args::try_parse_from(["dcc-mcp-cli", "feedback", "list", "--severity", "degraded"])
+        .expect("parse finding-schema severity");
+
+    let Command::Feedback(feedback) = args.command else {
+        panic!("expected feedback command");
+    };
+    let FeedbackAction::List(query) = feedback.action.expect("feedback action") else {
+        panic!("expected feedback list action");
+    };
+    assert_eq!(query.severity.as_deref(), Some("degraded"));
+}
+
+#[test]
+fn feedback_export_defaults_to_seven_days_and_endpoint_maximum() {
+    let args =
+        Args::try_parse_from(["dcc-mcp-cli", "feedback", "export"]).expect("parse feedback export");
+
+    let Command::Feedback(feedback) = args.command else {
+        panic!("expected feedback command");
+    };
+    let FeedbackAction::Export(query) = feedback.action.expect("feedback action") else {
+        panic!("expected feedback export action");
+    };
+    let request = query.into_request(1_000);
+    assert_eq!(request.range, "7d");
+    assert_eq!(request.limit, 1_000);
+    assert_eq!(request.dcc_type, None);
+    assert_eq!(request.severity, None);
+}
+
+#[test]
+fn feedback_route_parses_as_an_offline_json_command() {
+    let args = Args::try_parse_from([
+        "dcc-mcp-cli",
+        "feedback",
+        "route",
+        "finding.json",
+        "--catalog",
+        "catalog.yml",
+        "--json",
+    ])
+    .expect("parse feedback route");
+
+    let Command::Feedback(feedback) = args.command else {
+        panic!("expected feedback command");
+    };
+    assert!(!feedback.requires_gateway());
+    let FeedbackAction::Route(route) = feedback.action.expect("feedback action") else {
+        panic!("expected feedback route action");
+    };
+    assert_eq!(route.finding, PathBuf::from("finding.json"));
+    assert_eq!(route.catalog, Some(PathBuf::from("catalog.yml")));
+    assert!(route.json);
+}
+
+#[test]
+fn feedback_bundle_is_no_auto_gateway_and_enforces_tail_bounds() {
+    let args = Args::try_parse_from([
+        "dcc-mcp-cli",
+        "feedback",
+        "bundle",
+        "finding.json",
+        "--install-report",
+        "install-report.json",
+        "--dcc-pid",
+        "4321",
+        "--host-error-lines",
+        "200",
+        "--json",
+    ])
+    .expect("parse feedback bundle");
+
+    let Command::Feedback(feedback) = args.command else {
+        panic!("expected feedback command");
+    };
+    assert!(!feedback.requires_gateway());
+    let FeedbackAction::Bundle(bundle) = feedback.action.expect("feedback action") else {
+        panic!("expected feedback bundle action");
+    };
+    assert_eq!(bundle.finding, PathBuf::from("finding.json"));
+    assert_eq!(
+        bundle.install_report,
+        Some(PathBuf::from("install-report.json"))
+    );
+    assert_eq!(bundle.dcc_pid, Some(4321));
+    assert_eq!(bundle.host_error_lines, 200);
+    assert!(bundle.json);
+
+    assert!(
+        Args::try_parse_from([
+            "dcc-mcp-cli",
+            "feedback",
+            "bundle",
+            "finding.json",
+            "--host-error-lines",
+            "201",
+        ])
+        .is_err()
+    );
+}
+
+#[test]
+fn feedback_file_is_offline_by_default_and_requires_exclusive_decisions() {
+    let args = Args::try_parse_from([
+        "dcc-mcp-cli",
+        "feedback",
+        "file",
+        "finding.json",
+        "--existing",
+        "42",
+        "--json",
+    ])
+    .expect("parse feedback file");
+
+    let Command::Feedback(feedback) = args.command else {
+        panic!("expected feedback command");
+    };
+    assert!(!feedback.requires_gateway());
+    let FeedbackAction::File(file) = feedback.action.expect("feedback action") else {
+        panic!("expected feedback file action");
+    };
+    assert_eq!(file.finding, PathBuf::from("finding.json"));
+    assert_eq!(file.existing, Some(42));
+    assert!(!file.create);
+    assert!(!file.yes);
+    assert!(file.json);
+
+    assert!(
+        Args::try_parse_from([
+            "dcc-mcp-cli",
+            "feedback",
+            "file",
+            "finding.json",
+            "--existing",
+            "42",
+            "--create",
+        ])
+        .is_err()
+    );
+}
+
+#[test]
+fn call_contract_parses_wait_for_async_job() {
+    let args = Args::parse_from([
+        "dcc-mcp-cli",
+        "call",
+        "unity.abc12345.run_tests",
+        "--wait",
+        "--wait-timeout-secs",
+        "90",
+    ]);
+
+    let Command::Call {
+        wait,
+        wait_timeout_secs,
+        ..
+    } = args.command
+    else {
+        panic!("expected call command");
+    };
+    assert!(wait);
+    assert_eq!(wait_timeout_secs, 90);
 }
 
 #[test]
@@ -590,7 +1540,34 @@ fn gateway_daemon_start_defaults_to_persistent_daemon() {
         panic!("expected gateway daemon start");
     };
 
+    assert_eq!(
+        start.gateway_idle_timeout_secs,
+        cli_args::CLI_DAEMON_START_IDLE_TIMEOUT_SECS,
+        "gateway daemon start must keep idle shutdown disabled by default"
+    );
     assert_eq!(start.gateway_idle_timeout_secs, 0);
+    assert_eq!(start.remote_host, "127.0.0.1");
+    assert_eq!(start.remote_port, 59765);
+}
+
+/// The auto-ensure path is a *different* entry point from `gateway daemon
+/// start`: it must keep its own 300 s default and must not collapse onto the
+/// daemon-start value (0) or the server value (30).
+#[test]
+fn auto_ensure_idle_timeout_default_is_distinct_from_daemon_start() {
+    let auto_ensure = gateway_ensure::AUTO_ENSURE_IDLE_TIMEOUT_SECS;
+    assert_eq!(auto_ensure, 300);
+    assert_ne!(
+        auto_ensure,
+        cli_args::CLI_DAEMON_START_IDLE_TIMEOUT_SECS,
+        "auto-ensure must not inherit the operator-managed daemon value"
+    );
+    let server_default = dcc_mcp_gateway::gateway::idle_timeout::SERVER_DEFAULT;
+    assert_ne!(
+        auto_ensure, server_default,
+        "auto-ensure must not inherit the directly-run server value"
+    );
+    assert_eq!(server_default, 30);
 }
 
 #[test]
@@ -612,82 +1589,47 @@ fn gateway_daemon_restart_defaults_to_persistent_daemon() {
     assert_eq!(restart.stop_timeout_secs, 10);
 }
 
+/// `AmbiguousReuse` tells the operator to pass `--instance-id`, so the flag has
+/// to exist or the advertised recovery step fails with an unknown argument.
 #[test]
-fn dccmcp_mcp_tools_call_contract_parses_shared_client_arguments() {
+fn start_instance_accepts_the_advertised_instance_id_flag() {
     let args = Args::try_parse_from([
-        "dccmcp",
-        "mcp",
-        "tools",
-        "call",
-        "--url",
-        "http://127.0.0.1:9765/mcp",
-        "--name",
-        "create_sphere",
-        "--json",
-        r#"{"radius":2}"#,
-        "--meta-json",
-        r#"{"trace":"task-1"}"#,
+        "dcc-mcp-cli",
+        "start-instance",
+        "--dcc-type",
+        "unity",
+        "--project",
+        "/work/MyProject",
+        "--instance-id",
+        "11111111-2222-3333-4444-555555555555",
     ])
-    .expect("parse generic MCP tools call");
+    .expect("--instance-id must parse on start-instance");
 
-    let Command::Mcp {
-        action: McpAction::Tools {
-            action: McpToolsAction::Call(call),
-        },
-    } = args.command
-    else {
-        panic!("expected MCP tools call");
+    let Command::StartInstance { instance_id, .. } = args.command else {
+        panic!("expected start-instance");
     };
-
     assert_eq!(
-        call.connection.url.as_deref(),
-        Some("http://127.0.0.1:9765/mcp")
+        instance_id.as_deref(),
+        Some("11111111-2222-3333-4444-555555555555")
     );
-    assert_eq!(call.name, "create_sphere");
-    assert_eq!(call.arguments_json, r#"{"radius":2}"#);
 }
 
 #[test]
-fn dccmcp_mcp_resources_and_prompts_contracts_parse() {
-    let resources = Args::try_parse_from([
-        "dccmcp",
-        "mcp",
-        "resources",
-        "read",
-        "--url",
-        "http://127.0.0.1:9765/mcp",
-        "--uri",
-        "scene://active",
+fn start_instance_omits_instance_id_by_default() {
+    let args = Args::try_parse_from([
+        "dcc-mcp-cli",
+        "start-instance",
+        "--dcc-type",
+        "unity",
+        "--project",
+        "/work/MyProject",
     ])
-    .expect("parse resource read");
-    assert!(matches!(
-        resources.command,
-        Command::Mcp {
-            action: McpAction::Resources {
-                action: McpResourcesAction::Read(_)
-            }
-        }
-    ));
+    .expect("start-instance must parse without --instance-id");
 
-    let prompts = Args::try_parse_from([
-        "dccmcp",
-        "mcp",
-        "prompts",
-        "get",
-        "--name",
-        "render_review",
-        "--arguments-json",
-        r#"{"frame":"1001"}"#,
-    ])
-    .expect("parse prompt get");
-    assert!(matches!(
-        prompts.command,
-        Command::Mcp {
-            action: McpAction::Prompts {
-                action: McpPromptsAction::Get(_)
-            }
-        }
-    ));
+    let Command::StartInstance { instance_id, .. } = args.command else {
+        panic!("expected start-instance");
+    };
+    assert_eq!(instance_id, None);
 }
 
 fn default_gateway_daemon_args() -> dcc_mcp_sidecar::gateway_daemon::GatewayArgs {
@@ -695,7 +1637,7 @@ fn default_gateway_daemon_args() -> dcc_mcp_sidecar::gateway_daemon::GatewayArgs
         host: "127.0.0.1".to_string(),
         port: 9765,
         name: None,
-        remote_host: "0.0.0.0".to_string(),
+        remote_host: "127.0.0.1".to_string(),
         remote_port: 59765,
         registry_dir: None,
         no_admin: false,
@@ -703,10 +1645,46 @@ fn default_gateway_daemon_args() -> dcc_mcp_sidecar::gateway_daemon::GatewayArgs
         stale_timeout_secs: 30,
         relay_sources: Vec::new(),
         gateway_persist: false,
-        gateway_idle_timeout_secs: 30,
+        gateway_idle_timeout_secs: Some(30),
         semantic_search_enabled: false,
         daemon: false,
         pidfile: None,
         restart: false,
+        ..Default::default()
     }
+}
+
+#[test]
+fn doctor_disables_automatic_update_maintenance_without_an_opt_out() {
+    let doctor = Args::try_parse_annotated_from(["dcc-mcp-cli", "doctor"]).unwrap();
+    assert!(doctor.no_update_maintenance);
+    let health = Args::try_parse_annotated_from(["dcc-mcp-cli", "health"]).unwrap();
+    assert!(!health.no_update_maintenance);
+}
+
+#[test]
+fn describe_capabilities_is_a_canonical_cli_alias() {
+    let args = Args::try_parse_from([
+        "dcc-mcp-cli",
+        "describe-capabilities",
+        "--dcc-type",
+        "maya",
+        "--keys",
+        "render.lpe",
+        "--invalidate",
+    ])
+    .expect("parse canonical capabilities alias");
+
+    let Command::DescribeCapabilities {
+        dcc_type,
+        keys,
+        invalidate,
+        ..
+    } = args.command
+    else {
+        panic!("expected describe-capabilities command");
+    };
+    assert_eq!(dcc_type.as_deref(), Some("maya"));
+    assert_eq!(keys, vec!["render.lpe".to_string()]);
+    assert!(invalidate);
 }

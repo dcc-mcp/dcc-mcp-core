@@ -578,7 +578,7 @@ async fn mcp_call_tool_with_timeout(
     Ok(serde_json::to_value(result)?)
 }
 
-fn call_result_payload(result: &Value) -> Option<Value> {
+pub(crate) fn call_result_payload(result: &Value) -> Option<Value> {
     if let Some(value) = result.get("structuredContent") {
         return Some(value.clone());
     }

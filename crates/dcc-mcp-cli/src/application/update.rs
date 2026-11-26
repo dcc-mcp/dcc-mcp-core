@@ -361,17 +361,4 @@ mod tests {
         );
         assert_eq!(payload["compatibility"]["status"], "unknown");
     }
-
-    /// Best-effort self-update for opt-in automatic update checks.
-    pub async fn auto_update(&self) -> anyhow::Result<Value> {
-        if Updater::has_staged_update(self.updater.binary_name())? {
-            return Ok(serde_json::json!({
-                "status": "pending",
-                "binary": self.updater.binary_name(),
-                "message": "A verified update is already staged for the next launch."
-            }));
-        }
-
-        self.apply_update().await
-    }
 }

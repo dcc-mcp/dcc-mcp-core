@@ -1,14 +1,23 @@
 //! The main `McpHttpServer` type.
 
-use axum::{Json, Router, routing};
+use axum::middleware::Next;
+use axum::{Json, Router, middleware, routing};
+use http::{Method, Request, Response, StatusCode};
 use parking_lot::RwLock;
 use serde_json::json;
 use std::collections::HashMap;
+use std::fmt;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::{net::TcpListener, sync::watch, task::JoinHandle};
+use tower_http::classify::{
+    ClassifiedResponse, ClassifyResponse, MakeClassifier, NeverClassifyEos, ServerErrorsAsFailures,
+    ServerErrorsFailureClass,
+};
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::limit::RequestBodyLimitLayer;
-use tower_http::trace::TraceLayer;
+use tower_http::trace::{MakeSpan, TraceLayer};
+use uuid::Uuid;
 
 use crate::{
     config::McpHttpConfig,
@@ -25,6 +34,105 @@ mod background_impl;
 #[cfg(feature = "auto-gateway")]
 mod gateway_impl;
 mod spawn_impl;
+
+/// Request-aware HTTP failure classification for the server trace layer.
+///
+/// A `503 Service Unavailable` is the documented, structured response for an
+/// exact `GET /v1/readyz` request without a query while readiness is red. It is
+/// a routine probe result, not a transport or handler failure. Every other
+/// server error keeps tower-http's default failure classification.
+#[derive(Clone, Copy, Debug, Default)]
+struct HttpTraceClassifier;
+
+#[derive(Clone, Copy, Debug)]
+struct HttpResponseClassifier {
+    readyz: bool,
+}
+
+impl MakeClassifier for HttpTraceClassifier {
+    type Classifier = HttpResponseClassifier;
+    type FailureClass = ServerErrorsFailureClass;
+    type ClassifyEos = NeverClassifyEos<ServerErrorsFailureClass>;
+
+    fn make_classifier<B>(&self, request: &Request<B>) -> Self::Classifier {
+        HttpResponseClassifier {
+            readyz: request.method() == Method::GET
+                && request.uri().path() == "/v1/readyz"
+                && request.uri().query().is_none(),
+        }
+    }
+}
+
+/// Build request spans from non-sensitive routing fields only.
+///
+/// tower-http's default span records the full URI, including its query. Query
+/// values and headers are intentionally excluded from operator logs.
+#[derive(Clone, Copy, Debug, Default)]
+struct HttpTraceMakeSpan;
+
+impl<B> MakeSpan<B> for HttpTraceMakeSpan {
+    fn make_span(&mut self, request: &Request<B>) -> tracing::Span {
+        tracing::debug_span!(
+            "request",
+            method = %request.method(),
+            path = %request.uri().path(),
+            version = ?request.version(),
+        )
+    }
+}
+
+fn http_trace_layer() -> TraceLayer<HttpTraceClassifier, HttpTraceMakeSpan> {
+    TraceLayer::new(HttpTraceClassifier).make_span_with(HttpTraceMakeSpan)
+}
+
+/// Echo a caller-supplied request id on every HTTP response.
+///
+/// The CLI sends `X-Request-ID` and validates the value before accepting a
+/// response.  Keeping the header at the HTTP boundary makes stale or
+/// mis-correlated responses observable for both REST and MCP transports,
+/// including handler-generated errors.
+async fn echo_request_id(
+    request: Request<axum::body::Body>,
+    next: Next,
+) -> Response<axum::body::Body> {
+    let request_id = request.headers().get("x-request-id").cloned();
+    let mut response = next.run(request).await;
+    if let Some(request_id) = request_id {
+        response.headers_mut().insert("x-request-id", request_id);
+    }
+    response
+}
+
+impl ClassifyResponse for HttpResponseClassifier {
+    type FailureClass = ServerErrorsFailureClass;
+    type ClassifyEos = NeverClassifyEos<ServerErrorsFailureClass>;
+
+    fn classify_response<B>(
+        self,
+        response: &Response<B>,
+    ) -> ClassifiedResponse<Self::FailureClass, Self::ClassifyEos> {
+        if self.readyz && response.status() == StatusCode::SERVICE_UNAVAILABLE {
+            ClassifiedResponse::Ready(Ok(()))
+        } else {
+            ServerErrorsAsFailures::new().classify_response(response)
+        }
+    }
+
+    fn classify_error<E>(self, error: &E) -> Self::FailureClass
+    where
+        E: fmt::Display + 'static,
+    {
+        ServerErrorsAsFailures::new().classify_error(error)
+    }
+}
+
+fn health_payload(jobs: &crate::job::JobManager) -> serde_json::Value {
+    json!({
+        "ok": true,
+        "service": "dcc-mcp-http",
+        "job_persistence": jobs.persistence_status(),
+    })
+}
 
 /// Live DCC instance metadata that is propagated to `FileRegistry` on every
 /// heartbeat tick so that `list_dcc_instances` always shows current state.
@@ -44,6 +152,16 @@ pub struct LiveMetaInner {
     pub display_name: Option<String>,
     /// Arbitrary string metadata merged into the FileRegistry row on heartbeat.
     pub metadata: HashMap<String, String>,
+    /// Arbitrary JSON-typed extras merged into the FileRegistry row on heartbeat.
+    ///
+    /// Type-preserving counterpart of `metadata` (issue #2500): numbers,
+    /// booleans and nested containers survive the `services.json`
+    /// round-trip.
+    ///
+    /// A `serde_json::Value::Null` entry is a pending-removal tombstone, not
+    /// a stored value: the heartbeat applies it as a delete against the
+    /// registry row and readers must filter it out.
+    pub extras: HashMap<String, serde_json::Value>,
 }
 
 pub type LiveMeta = Arc<RwLock<LiveMetaInner>>;
@@ -58,6 +176,7 @@ pub type LiveMeta = Arc<RwLock<LiveMetaInner>>;
 /// listener's accept loop from being starved under PyO3-embedded hosts.
 pub struct McpServerHandle {
     shutdown_tx: watch::Sender<bool>,
+    jobs: Arc<crate::job::JobManager>,
     /// JoinHandle for the serve task when running in
     /// [`ServerSpawnMode::Ambient`] mode.
     join: Option<JoinHandle<()>>,
@@ -74,14 +193,43 @@ pub struct McpServerHandle {
     /// `--no-default-features` (the `auto-gateway` feature is off and
     /// `gateway_port` becomes a no-op).
     pub is_gateway: bool,
+    /// Exact UUID used to register this service in `FileRegistry`.
+    ///
+    /// `None` means gateway registration was disabled or unavailable. No
+    /// fallback UUID is generated, so a present value always identifies the
+    /// same row exposed through gateway instance discovery.
+    pub instance_id: Option<Uuid>,
     // Keep the GatewayHandle alive so background tasks keep running.
     #[cfg(feature = "auto-gateway")]
     _gateway: Option<dcc_mcp_gateway::GatewayHandle>,
 }
 
+const PERSISTENCE_SHUTDOWN_TIMEOUT: Duration = Duration::from_millis(250);
+
 impl McpServerHandle {
     /// Gracefully shut down the server and wait for it to stop.
     pub async fn shutdown(mut self) {
+        // Stop persistence before dropping the listener. Async job tasks can
+        // outlive the HTTP server and must not retain the SQLite ownership
+        // lease into the next process incarnation.
+        let jobs = Arc::clone(&self.jobs);
+        let shutdown = tokio::task::spawn_blocking(move || {
+            jobs.shutdown_persistence(PERSISTENCE_SHUTDOWN_TIMEOUT)
+        });
+        match tokio::time::timeout(PERSISTENCE_SHUTDOWN_TIMEOUT, shutdown).await {
+            Ok(Ok(true)) => {}
+            Ok(Ok(false)) => tracing::warn!(
+                timeout_ms = PERSISTENCE_SHUTDOWN_TIMEOUT.as_millis(),
+                "job persistence ownership did not close within the bounded shutdown window"
+            ),
+            Ok(Err(error)) => {
+                tracing::warn!(error = %error, "job persistence shutdown task failed")
+            }
+            Err(_) => tracing::warn!(
+                timeout_ms = PERSISTENCE_SHUTDOWN_TIMEOUT.as_millis(),
+                "job persistence shutdown task exceeded the bounded shutdown window"
+            ),
+        }
         // Issue #718: deregister from FileRegistry *before* waiting for
         // the serve loop to finish. Peers reading `services.json` should
         // see the row disappear as soon as `shutdown()` is invoked rather
@@ -161,13 +309,6 @@ pub struct McpHttpServer {
     catalog: Option<Arc<SkillCatalog>>,
     config: McpHttpConfig,
     executor: Option<DccExecutorHandle>,
-    /// Tokio runtime that drains the host-bridge mpsc (PyO3 / `dispatcher_to_executor_handle`).
-    ///
-    /// When set together with [`Self::with_executor`], REST `POST /v1/call` uses
-    /// [`dcc_mcp_http_server::ThreadRoutedInvoker`]. Without it, the server still
-    /// starts and MCP `tools/call` keeps executor routing; REST falls back to
-    /// direct dispatch (issue #1055).
-    host_bridge_runtime: Option<tokio::runtime::Handle>,
     resources: crate::resources::ResourceRegistry,
     prompts: crate::prompts::PromptRegistry,
     /// Live scene/version that is sync'd to FileRegistry on every heartbeat.
@@ -197,6 +338,7 @@ impl McpHttpServer {
         let live_meta: LiveMeta = Arc::new(RwLock::new(LiveMetaInner {
             scene: config.instance.scene.clone(),
             version: config.instance.dcc_version.clone(),
+            extras: config.instance.instance_extras.clone(),
             ..Default::default()
         }));
         Self {
@@ -205,7 +347,6 @@ impl McpHttpServer {
             catalog: Some(catalog),
             config,
             executor: None,
-            host_bridge_runtime: None,
             resources,
             prompts,
             live_meta,
@@ -228,6 +369,7 @@ impl McpHttpServer {
         let live_meta: LiveMeta = Arc::new(RwLock::new(LiveMetaInner {
             scene: config.instance.scene.clone(),
             version: config.instance.dcc_version.clone(),
+            extras: config.instance.instance_extras.clone(),
             ..Default::default()
         }));
         Self {
@@ -236,7 +378,6 @@ impl McpHttpServer {
             catalog: Some(catalog),
             config,
             executor: None,
-            host_bridge_runtime: None,
             resources,
             prompts,
             live_meta,
@@ -290,6 +431,27 @@ impl McpHttpServer {
         }
     }
 
+    /// Merge arbitrary JSON-typed extras pushed to `FileRegistry` each heartbeat.
+    ///
+    /// Type-preserving counterpart of [`Self::update_live_metadata`] (issue
+    /// #2500). Values keep their JSON type, so adapters can publish numbers,
+    /// booleans and nested containers — for example the WebView / bridge keys
+    /// `cdp_port` (int), `url`, `window_title` and `host_dcc`.
+    ///
+    /// [`serde_json::Value::Null`] clears the matching key. Existing unrelated
+    /// keys remain unchanged.
+    ///
+    /// A `Null` is deliberately kept in the live map as a **tombstone**: the
+    /// heartbeat snapshot is a merge patch, so dropping the key locally would
+    /// leave nothing to tell the registry row that the key must be removed.
+    /// Readers filter tombstones out; see [`LiveMetaInner::extras`].
+    pub fn update_live_extras(&self, extras: HashMap<String, serde_json::Value>) {
+        let mut guard = self.live_meta.write();
+        for (name, value) in extras {
+            guard.extras.insert(name, value);
+        }
+    }
+
     /// Access the MCP Prompts registry for this server (issues #351, #355).
     pub fn prompts(&self) -> &crate::prompts::PromptRegistry {
         &self.prompts
@@ -314,21 +476,20 @@ impl McpHttpServer {
 
     /// Attach a DCC main-thread executor for thread-safe DCC API calls (MCP `tools/call`).
     ///
-    /// Does not require [`Self::with_host_bridge_runtime`]; that handle is only
-    /// needed when REST `POST /v1/call` should use the same host-bridge path.
+    /// REST and MCP calls share the same async host-dispatch path whenever this
+    /// executor is present.
     pub fn with_executor(mut self, executor: DccExecutorHandle) -> Self {
         self.executor = Some(executor);
         self
     }
 
-    /// Tokio runtime that services the host-bridge mpsc paired with
-    /// [`dcc_mcp_http_server::dispatcher_to_executor_handle`].
-    ///
-    /// Pass the same [`Handle`] given to `dispatcher_to_executor_handle`. When
-    /// combined with [`Self::with_executor`], REST `POST /v1/call` honours
-    /// `thread_affinity=main` like MCP `tools/call`.
-    pub fn with_host_bridge_runtime(mut self, runtime: tokio::runtime::Handle) -> Self {
-        self.host_bridge_runtime = Some(runtime);
+    /// Compatibility no-op retained for embedders that previously supplied a
+    /// second runtime solely for synchronous REST invocation.
+    #[deprecated(
+        since = "0.20.9",
+        note = "REST invocation is async and no longer requires a bridge runtime handle"
+    )]
+    pub fn with_host_bridge_runtime(self, _runtime: tokio::runtime::Handle) -> Self {
         self
     }
 
@@ -488,11 +649,15 @@ impl McpHttpServer {
                     policy = self.config.job.job_recovery.as_str(),
                     "JobManager storage recovery found no in-flight rows"
                 ),
-                Err(e) => tracing::error!(
-                    error = %e,
-                    policy = self.config.job.job_recovery.as_str(),
-                    "JobManager storage recovery failed — in-process map stays empty"
-                ),
+                Err(e) => {
+                    jobs.disable_persistence_for_storage_error(&e);
+                    tracing::error!(
+                        error = %e,
+                        error_kind = ?jobs.persistence_status().last_error_kind,
+                        policy = self.config.job.job_recovery.as_str(),
+                        "JobManager storage recovery failed — persistence marked unavailable"
+                    );
+                }
             }
         }
 
@@ -506,40 +671,40 @@ impl McpHttpServer {
 
         let catalog_source =
             std::sync::Arc::new(dcc_mcp_skill_rest::CatalogSource::new(catalog.clone()));
-        let base_invoker: std::sync::Arc<dyn dcc_mcp_skill_rest::ToolInvoker> =
-            match (self.executor.clone(), self.host_bridge_runtime.clone()) {
-                (Some(executor), Some(bridge_runtime)) => {
-                    std::sync::Arc::new(dcc_mcp_http_server::ThreadRoutedInvoker::new(
-                        self.dispatcher.clone(),
-                        executor,
-                        bridge_runtime,
-                    ))
-                }
-                (Some(_), None) => {
-                    tracing::warn!(
-                        issue = "dcc-mcp/dcc-mcp-core#1055",
-                        "McpHttpServer: executor without host_bridge_runtime — MCP tools/call \
-                     keeps main-thread routing; REST POST /v1/call uses direct dispatch. \
-                     Call with_host_bridge_runtime(Handle) when the executor comes from \
-                     dispatcher_to_executor_handle"
-                    );
-                    std::sync::Arc::new(dcc_mcp_skill_rest::DispatcherInvoker::new(
-                        self.dispatcher.clone(),
-                    ))
-                }
-                _ if self.config.features.standalone_main_thread_execution => std::sync::Arc::new(
-                    dcc_mcp_skill_rest::DispatcherInvoker::new_standalone_main_thread(
-                        self.dispatcher.clone(),
-                    ),
-                ),
-                _ => std::sync::Arc::new(dcc_mcp_skill_rest::DispatcherInvoker::new(
+        let base_invoker: std::sync::Arc<dyn dcc_mcp_skill_rest::ToolInvoker> = match self
+            .executor
+            .clone()
+        {
+            Some(executor) => std::sync::Arc::new(dcc_mcp_http_server::ThreadRoutedInvoker::new(
+                self.dispatcher.clone(),
+                executor,
+            )),
+            None if self.config.features.standalone_main_thread_execution => std::sync::Arc::new(
+                dcc_mcp_skill_rest::DispatcherInvoker::new_standalone_main_thread(
                     self.dispatcher.clone(),
-                )),
-            };
+                ),
+            ),
+            None => std::sync::Arc::new(dcc_mcp_skill_rest::DispatcherInvoker::new(
+                self.dispatcher.clone(),
+            )),
+        };
         let invoker: std::sync::Arc<dyn dcc_mcp_skill_rest::ToolInvoker> = std::sync::Arc::new(
             dcc_mcp_http_server::JobAwareInvoker::new(base_invoker, jobs.clone()),
         );
+        let live_meta = self.live_meta.clone();
+        let dcc = self.config.instance.dcc_type.clone();
         let rest_service = dcc_mcp_skill_rest::SkillRestService::new(catalog_source, invoker)
+            .with_context_provider(std::sync::Arc::new(move || {
+                let live = live_meta.read();
+                dcc_mcp_skill_rest::ContextSnapshot {
+                    scene: live.scene.clone(),
+                    version: live.version.clone(),
+                    dcc: dcc.clone(),
+                    display_name: live.display_name.clone(),
+                    documents: live.documents.clone(),
+                    ..Default::default()
+                }
+            }))
             .with_resources(std::sync::Arc::new(
                 crate::rest_providers::ResourceRegistryAdapter::new(
                     resources.clone(),
@@ -563,31 +728,15 @@ impl McpHttpServer {
             dcc_mcp_http_server::ServerState::builder(self.registry, self.dispatcher, catalog)
                 .with_sessions(sessions)
                 .with_executor(self.executor)
-                .with_standalone_main_thread_execution(
-                    self.config.features.standalone_main_thread_execution,
-                )
+                .with_features(self.config.features.clone())
                 .with_server_identity(
                     self.config.server.server_name.clone(),
                     self.config.server.server_version.clone(),
                 )
                 .with_cancelled_requests(cancelled_requests)
-                .with_lazy_actions(self.config.features.lazy_actions)
-                .with_bare_tool_names(self.config.features.bare_tool_names)
-                .with_exclude_skill_stubs_from_tools_list(
-                    self.config.features.exclude_skill_stubs_from_tools_list,
-                )
-                .with_exclude_group_stubs_from_tools_list(
-                    self.config.features.exclude_group_stubs_from_tools_list,
-                )
                 .with_declared_capabilities(self.config.instance.declared_capabilities.clone())
-                .with_jobs(jobs)
+                .with_jobs(jobs.clone())
                 .with_job_notifier(job_notifier)
-                .with_resources_enabled(self.config.features.enable_resources)
-                .with_prompts_enabled(self.config.features.enable_prompts)
-                .with_skills_extension_enabled(
-                    self.config.features.enable_resources
-                        && self.config.features.enable_skills_extension,
-                )
                 .with_tool_cache_enabled(self.config.session.enable_tool_cache);
         #[cfg(feature = "prometheus")]
         let server_state = server_state.with_prometheus(prometheus.clone());
@@ -602,17 +751,18 @@ impl McpHttpServer {
 
         let app_state_for_rmcp = state.clone();
 
+        let health_jobs = jobs.clone();
         let mut router = Router::new()
             .route(
                 "/health",
-                routing::get(|| async { Json(json!({"ok": true, "service": "dcc-mcp-http"})) }),
+                routing::get(move || {
+                    let jobs = health_jobs.clone();
+                    async move { Json(health_payload(&jobs)) }
+                }),
             )
             .with_state(state)
             .merge(rest_router)
-            .layer(RequestBodyLimitLayer::new(
-                self.config.queue.max_request_body_bytes,
-            ))
-            .layer(TraceLayer::new_for_http());
+            .layer(http_trace_layer());
 
         // Prometheus `/metrics` endpoint (issue #331). Mounted on the
         // same router so scrapers share the MCP server's listening
@@ -629,7 +779,20 @@ impl McpHttpServer {
         }
 
         // MCP endpoint — speaks MCP 2025-11-25 via the official rmcp SDK.
-        router = crate::handler::rmcp_mount::attach_rmcp_endpoint(router, &app_state_for_rmcp);
+        router = crate::handler::rmcp_mount::attach_rmcp_endpoint(
+            router,
+            &app_state_for_rmcp,
+            self.config.queue.max_request_body_bytes,
+        );
+
+        // Apply the documented body budget after /mcp is mounted as well.
+        router = router.layer(RequestBodyLimitLayer::new(
+            self.config.queue.max_request_body_bytes,
+        ));
+
+        // Apply correlation after mounting `/mcp` so the middleware wraps both
+        // the existing REST routes and the nested MCP service.
+        router = router.layer(middleware::from_fn(echo_request_id));
 
         if self.config.server.enable_cors {
             router = router.layer(
@@ -681,8 +844,16 @@ impl McpHttpServer {
             .map(|h| h.is_gateway)
             .unwrap_or(false);
 
+        #[cfg(feature = "auto-gateway")]
+        let instance_id = gateway_handle
+            .as_ref()
+            .map(|handle| handle.service_key.instance_id);
+
         #[cfg(not(feature = "auto-gateway"))]
         let is_gateway = false;
+
+        #[cfg(not(feature = "auto-gateway"))]
+        let instance_id = None;
 
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
 
@@ -709,11 +880,13 @@ impl McpHttpServer {
 
         Ok(McpServerHandle {
             shutdown_tx,
+            jobs,
             join,
             serve_thread,
             port,
             bind_addr: actual_bind,
             is_gateway,
+            instance_id,
             #[cfg(feature = "auto-gateway")]
             _gateway: gateway_handle,
         })
@@ -730,6 +903,9 @@ pub fn start_in_runtime(
 ) -> HttpResult<McpServerHandle> {
     runtime.block_on(async { McpHttpServer::new(registry, config).start().await })
 }
+
+#[cfg(test)]
+mod tests;
 
 /// Build the [`JobManager`](crate::job::JobManager) for this server,
 /// attaching a SQLite-backed [`JobStorage`](crate::job_storage::JobStorage)
@@ -751,9 +927,46 @@ fn build_job_manager(config: &McpHttpConfig) -> HttpResult<Arc<crate::job::JobMa
                         path.display()
                     ))
                 })?;
-                Ok(Arc::new(crate::job::JobManager::with_storage(Arc::new(
+                // Read-back probe: `open` now rejects a database it cannot
+                // write, but a backend can still fail to enumerate rows (for
+                // example a stale `-shm`). Disabling here keeps the first job
+                // mutation from starting a per-put warning storm and surfaces
+                // the reason through `/health` instead.
+                {
+                    use crate::job_storage::JobStorage as _;
+                    if let Err(error) = storage.list(crate::job_storage::JobFilter::default()) {
+                        tracing::warn!(
+                            error = %error,
+                            path = %path.display(),
+                            "SQLite JobStorage is unreadable at startup; persistence disabled"
+                        );
+                        let jobs = Arc::new(crate::job::JobManager::with_offloaded_storage(
+                            Arc::new(storage),
+                        ));
+                        jobs.disable_persistence_for_storage_error(&error);
+                        return Ok(jobs);
+                    }
+                }
+                let jobs = Arc::new(crate::job::JobManager::with_offloaded_storage(Arc::new(
                     storage,
-                ))))
+                )));
+                if let Some(retention_hours) = config.job.job_retention_hours {
+                    let hours = retention_hours.min(24 * 365 * 1000) as i64;
+                    let cutoff = chrono::Utc::now() - chrono::Duration::hours(hours);
+                    if let Err(error) = jobs
+                        .storage()
+                        .expect("SQLite JobManager always has storage")
+                        .delete_older_than(cutoff)
+                    {
+                        tracing::warn!(
+                            error = %error,
+                            retention_hours,
+                            "startup job retention failed; persistence disabled and data left unchanged"
+                        );
+                        jobs.disable_persistence("retention_prune_failed");
+                    }
+                }
+                Ok(jobs)
             }
             #[cfg(not(feature = "job-persist-sqlite"))]
             {

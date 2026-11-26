@@ -79,7 +79,10 @@ pub(crate) fn server_capabilities(
     state: &ServerState,
     client_wants_delta: bool,
 ) -> ServerCapabilities {
-    let mut caps = match (state.enable_resources, state.enable_prompts) {
+    let mut caps = match (
+        state.features.enable_resources,
+        state.features.enable_prompts,
+    ) {
         (true, true) => ServerCapabilities::builder()
             .enable_logging()
             .enable_tools()
@@ -116,7 +119,7 @@ pub(crate) fn server_capabilities(
         experimental.insert(DELTA_TOOLS_UPDATE_CAP.to_string(), enabled);
         caps.experimental = Some(experimental);
     }
-    if state.enable_resources && state.enable_skills_extension {
+    if state.features.enable_resources && state.features.enable_skills_extension {
         let mut extensions = BTreeMap::new();
         extensions.insert(
             "io.modelcontextprotocol/skills".to_string(),
