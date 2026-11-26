@@ -1582,7 +1582,7 @@
           "workflow_stage": "authoring",
           "task_category": "mutate"
         },
-        "dcc-mcp.version": "0.21.0",
+        "dcc-mcp.version": "0.22.0",
         "dcc-mcp.layer": "infrastructure",
         "dcc-mcp.search-hint": "create marketplace extension, scaffold extension package, new skill package, SKILL.md generator, marketplace entry, extension authoring",
         "dcc-mcp.tags": "marketplace, extension, scaffolding, authoring, infrastructure",
@@ -1701,7 +1701,7 @@
           }
         }
       ],
-      "version": "0.21.0",
+      "version": "0.22.0",
       "depends": [],
       "scripts": [
         "skills/marketplace-create-extension/scripts/create_extension.py"
@@ -1738,7 +1738,7 @@
           "workflow_stage": "publishing",
           "task_category": "mutate"
         },
-        "dcc-mcp.version": "0.21.0",
+        "dcc-mcp.version": "0.22.0",
         "dcc-mcp.layer": "infrastructure",
         "dcc-mcp.search-hint": "publish extension, register extension, marketplace catalog, upsert catalog entry, marketplace.json, extension publishing, release to marketplace",
         "dcc-mcp.tags": "marketplace, publishing, catalog, infrastructure",
@@ -1912,7 +1912,7 @@
           }
         }
       ],
-      "version": "0.21.0",
+      "version": "0.22.0",
       "depends": [],
       "scripts": [
         "skills/marketplace-publish-extension/scripts/publish.py"
