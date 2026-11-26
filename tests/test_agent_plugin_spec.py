@@ -32,8 +32,8 @@ def test_manifest_declares_dccmcp_and_compatibility_command() -> None:
     assert command["name"] == "dccmcp"
     assert "dcc-mcp-cli" in command["compatibility_aliases"]
     assert manifest["runtime"]["kind"] == "dccmcp-cli"
-    assert manifest["version"] == "0.21.1"
-    assert manifest["runtime"]["minimum_cli"] == "0.21.1"
+    assert manifest["version"] == "0.21.2"
+    assert manifest["runtime"]["minimum_cli"] == "0.21.2"
     assert manifest["permissions"]["process"] == ["dccmcp", "dcc-mcp-cli"]
 
 

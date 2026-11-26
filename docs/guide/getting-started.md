@@ -23,7 +23,7 @@ npx --yes clawhub@0.23.1 install @loonghao/dcc-mcp
 
 This installs the standalone `dccmcp` control-plane binary and its
 `dcc-mcp-cli` compatibility alias from the latest GitHub Release. Pin a
-release with `DCC_MCP_VERSION=v0.17.17`.
+release with `DCC_MCP_VERSION=v0.21.2`.
 
 For agents, obtain user consent before installing or downloading a new binary.
 The bundled helper is fixed to the official `dcc-mcp/dcc-mcp-cli` release. It
@@ -54,8 +54,8 @@ The installer uses the same fixed official source, manifest, and SHA-256
 checks as the bundled helper. Never pipe it directly into a shell or bypass the
 machine's script execution policy.
 
-Pin a release with `sh ./install-cli.sh --version v0.19.63` or
-`& .\install-cli.ps1 -Version v0.19.63`.
+Pin a release with `sh ./install-cli.sh --version v0.21.2` or
+`& .\install-cli.ps1 -Version v0.21.2`.
 
 Keep an official installation current with:
 

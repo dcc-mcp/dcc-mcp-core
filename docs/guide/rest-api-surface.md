@@ -518,7 +518,7 @@ are ignored. Use `client_platform` values such as `cursor`, `claude-desktop`,
 `openclaw`, `clawhub`, `custom-http`, or `studio-tool` to distinguish surfaces
 without overloading agent identity. If a REST request omits `client_platform`,
 the gateway falls back to the first `User-Agent` product token, for example
-`dccmcp` from `dccmcp/0.21.1`.
+`dccmcp` from `dccmcp/0.21.2`.
 
 The gateway annotates stored context with a server-computed `trust` map and
 Admin rows expose the same map as `attribution_trust`. Values are

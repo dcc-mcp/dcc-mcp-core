@@ -2,10 +2,10 @@
   "schema_version": "1",
   "id": "dcc-mcp",
   "name": "DCCMCP Agent Plugin",
-  "version": "0.21.1",
+  "version": "0.21.2",
   "runtime": {
     "kind": "dccmcp-cli",
-    "minimum_cli": "0.21.1",
+    "minimum_cli": "0.21.2",
     "transports": ["streamable-http", "rest"]
   },
   "entrypoints": [

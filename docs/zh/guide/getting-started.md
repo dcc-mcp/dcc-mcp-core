@@ -22,7 +22,7 @@ npx --yes clawhub@0.23.1 install @loonghao/dcc-mcp
 
 这会从最新 GitHub Release 安装独立的 `dccmcp` 控制面二进制，同时保留
 `dcc-mcp-cli` 兼容别名。
-需要固定版本时设置 `DCC_MCP_VERSION=v0.21.1`。
+需要固定版本时设置 `DCC_MCP_VERSION=v0.21.2`。
 
 ### 从 `dcc-mcp` Skill 安装 CLI
 
@@ -59,8 +59,8 @@ installer 与 bundled helper 使用相同的固定官方来源、manifest 和 SH
 校验。不要把远程 installer 直接通过管道交给 shell，也不要绕过机器的脚本执行
 策略。
 
-固定版本可运行 `sh ./install-cli.sh --version v0.21.1`，或
-`& .\install-cli.ps1 -Version v0.21.1`。
+固定版本可运行 `sh ./install-cli.sh --version v0.21.2`，或
+`& .\install-cli.ps1 -Version v0.21.2`。
 
 官方安装可以通过以下命令保持最新：
 

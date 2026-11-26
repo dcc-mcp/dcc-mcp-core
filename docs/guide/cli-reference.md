@@ -24,8 +24,8 @@ Get-Content -Raw .\install-cli.ps1
 & .\install-cli.ps1
 ```
 
-Pin a release by setting `DCC_MCP_VERSION=v0.21.1` or passing
-`--version v0.21.1` to the install script.
+Pin a release by setting `DCC_MCP_VERSION=v0.21.2` or passing
+`--version v0.21.2` to the install script.
 The installers download the matching `.sha256` sidecar and verify the binary
 before replacing the destination. Set `DCC_MCP_ALLOW_UNSIGNED_DOWNLOADS=1`
 only for a trusted legacy mirror that does not publish sidecars.

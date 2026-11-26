@@ -46,8 +46,8 @@ Get-Content -Raw .\install-cli.ps1
 本地 installer 使用相同的固定来源和验证契约。不要把它通过管道直接交给 shell，
 也不要绕过机器的脚本执行策略。
 
-固定版本可运行 `sh ./install-cli.sh --version v0.21.1`，或
-`& .\install-cli.ps1 -Version v0.21.1`。
+固定版本可运行 `sh ./install-cli.sh --version v0.21.2`，或
+`& .\install-cli.ps1 -Version v0.21.2`。
 
 | 二进制 | 角色 | 源码位置 |
 |---|---|---|
