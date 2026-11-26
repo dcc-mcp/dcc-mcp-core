@@ -214,7 +214,7 @@ fn marketplace_pack_and_publish_updates_catalog() {
     );
     let catalog =
         serde_json::from_str::<Value>(&std::fs::read_to_string(&catalog_path).unwrap()).unwrap();
-    assert_eq!(catalog["schemaVersion"], "1");
+    assert_eq!(catalog["schemaVersion"], "2");
     assert_eq!(catalog["skills"][0]["minCoreVersion"], "0.19.0");
     assert_eq!(catalog["skills"][0]["source"]["type"], "zip");
     assert_eq!(
