@@ -193,7 +193,7 @@ def _manifest(*, asset: str, binary: bytes, url=None, sha256=None) -> dict:
             "version": "0.19.63",
             "url": f"{OFFICIAL_RELEASE}/v0.19.63/{asset}",
             "sha256": sha256 or hashlib.sha256(binary).hexdigest(),
-        }
+        },
     }
 
 
