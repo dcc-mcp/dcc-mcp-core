@@ -79,7 +79,7 @@ OTEL_SERVICE_NAME=dcc-mcp-gateway \
 三类可观测接口应按各自的交付契约使用：
 
 - Gateway Admin SQLite 是工作站本地持久化事实源，并为
-  `dcc-mcp-cli stats` 提供历史调用数据；
+  `dccmcp stats` 提供历史调用数据；
 - OTLP 是工作室集中汇总的主通道，它会批量上报同一组 DCC、Skill、
   Tool、实例、会话、结果和耗时维度到 OpenTelemetry Collector；
 - EventBus Webhook 适合告警和低频业务集成，不是权威分析流。它使用有界

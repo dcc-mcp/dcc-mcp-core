@@ -1,4 +1,4 @@
-//! Local/remote DCC control routing for `dcc-mcp-cli`.
+//! Local/remote DCC control routing for `dccmcp`.
 //!
 //! The CLI has one user-facing workflow: list/search/describe/load/call a DCC
 //! instance. The built-in `local` profile uses the shared FileRegistry and the
@@ -404,21 +404,29 @@ impl DccControlPlane {
             }
         }
 
-        let mut adapter = adapter_wait_target(&result, 0)
-            .expect("adapter target was checked before entering adapter wait");
-        if is_terminal_job_status(&adapter.status) {
-            on_progress(&adapter.progress());
-            attach_adapter_terminal_result(&mut result, &adapter, None, 0);
-            attach_wait_summary(
-                &mut result,
-                "adapter",
-                &adapter.job_id,
-                &adapter.status,
-                true,
-                None,
-            );
-            attach_wait_recovery(&mut result, &adapter.job_id, control_plane_disruptions);
-            return Ok(result);
+        let client = DccMcpClient::with_timeout(self.endpoint.clone(), timeout);
+        match (dcc_type, instance_id) {
+            (Some(dcc_type), Some(instance_id)) => client
+                .direct_call(DirectCallRequest {
+                    dcc_type,
+                    instance_id,
+                    backend_tool: tool_slug,
+                    arguments,
+                    meta,
+                })
+                .await
+                .map_err(Into::into),
+            (None, None) => client
+                .call(CallRequest {
+                    tool_slug,
+                    arguments,
+                    meta,
+                })
+                .await
+                .map_err(Into::into),
+            _ => anyhow::bail!(
+                "call requires both --dcc-type and --instance-id for direct backend-tool calls"
+            ),
         }
         let Some(poll_tool) = adapter.poll_tool.clone() else {
             attach_wait_summary(

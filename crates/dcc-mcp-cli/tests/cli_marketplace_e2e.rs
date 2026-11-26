@@ -409,6 +409,1055 @@ fn marketplace_pack_and_publish_updates_catalog() {
 }
 
 #[test]
+fn marketplace_install_list_and_uninstall_path_package() {
+    let tmp = TempDir::new().unwrap();
+    let skill_dir = write_skill(
+        tmp.path(),
+        "source-skill",
+        "---\nname: dcc-asset-hunyuan-download\ndescription: Hunyuan downloads\n---\n",
+    );
+    std::fs::write(
+        skill_dir.join("tools.yaml"),
+        "tools:\n  - name: download\n    description: Download\n",
+    )
+    .unwrap();
+    let catalog_path = tmp.path().join("marketplace.json");
+    let catalog = json!({
+        "version": "1",
+        "entries": [{
+            "name": "dcc-asset-hunyuan-download",
+            "description": "Search and download Hunyuan 3D models via official API",
+            "dcc": ["maya", "blender"],
+            "tags": ["asset", "hunyuan", "download", "domain"],
+            "version": "0.1.0",
+            "install": {
+                "type": "path",
+                "url": skill_dir.to_string_lossy()
+            }
+        }]
+    });
+    std::fs::write(
+        &catalog_path,
+        serde_json::to_string_pretty(&catalog).unwrap(),
+    )
+    .unwrap();
+
+    let source = catalog_path.to_string_lossy().to_string();
+    let config_path = tmp
+        .path()
+        .join("sources.json")
+        .to_string_lossy()
+        .to_string();
+    let install_root = tmp
+        .path()
+        .join("marketplace-root")
+        .to_string_lossy()
+        .to_string();
+    let envs = [
+        ("DCC_MCP_MARKETPLACE_SOURCES_FILE", config_path.as_str()),
+        ("DCC_MCP_MARKETPLACE_NO_DEFAULT_SOURCES", "1"),
+        ("DCC_MCP_MARKETPLACE_INSTALL_ROOT", install_root.as_str()),
+    ];
+
+    let installed = run_json_with_env(
+        &[
+            "marketplace",
+            "install",
+            "dcc-asset-hunyuan-download",
+            "--dcc",
+            "maya",
+            "--source",
+            &source,
+        ],
+        &envs,
+    );
+    assert_eq!(installed["installed"], true);
+    assert_eq!(installed["dcc"], "any");
+    assert_eq!(installed["install_type"], "path");
+    assert_eq!(installed["reload_required"], true);
+    let installed_path = installed["path"].as_str().unwrap();
+    assert!(
+        std::path::Path::new(installed_path)
+            .join("SKILL.md")
+            .is_file()
+    );
+    assert!(
+        installed["skill_search_path"]
+            .as_str()
+            .unwrap()
+            .ends_with("any")
+    );
+
+    let listed = run_json_with_env(&["marketplace", "list-installed", "--dcc", "maya"], &envs);
+    assert_eq!(listed["count"], 1);
+    assert_eq!(listed["packages"][0]["name"], "dcc-asset-hunyuan-download");
+    assert_eq!(listed["packages"][0]["install_type"], "path");
+
+    let uninstalled = run_json_with_env(
+        &[
+            "marketplace",
+            "uninstall",
+            "dcc-asset-hunyuan-download",
+            "--dcc",
+            "maya",
+        ],
+        &envs,
+    );
+    assert_eq!(uninstalled["uninstalled"], true);
+    assert_eq!(uninstalled["removed_files"], true);
+    assert_eq!(uninstalled["removed_state"], true);
+    assert!(!std::path::Path::new(installed_path).exists());
+
+    let listed = run_json_with_env(&["marketplace", "list-installed", "--dcc", "maya"], &envs);
+    assert_eq!(listed["count"], 0);
+}
+
+#[test]
+fn marketplace_multi_dcc_install_uses_one_shared_directory_for_each_host() {
+    let tmp = TempDir::new().unwrap();
+    let skill_dir = tmp.path().join("shared-skill-source");
+    std::fs::create_dir_all(&skill_dir).unwrap();
+    std::fs::write(
+        skill_dir.join("SKILL.md"),
+        "---\nname: shared-skill\ndescription: Shared skill\n---\n",
+    )
+    .unwrap();
+
+    let catalog_path = tmp.path().join("shared-catalog.json");
+    std::fs::write(
+        &catalog_path,
+        json!({
+            "version": "1",
+            "entries": [{
+                "name": "shared-skill",
+                "description": "Shared skill",
+                "dcc": ["maya", "blender"],
+                "version": "2.0.0",
+                "install": {
+                    "type": "path",
+                    "url": skill_dir.to_string_lossy()
+                }
+            }]
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    let install_root = tmp.path().join("marketplace-root");
+    let install_root_string = install_root.to_string_lossy().to_string();
+    let catalog_string = catalog_path.to_string_lossy().to_string();
+    let envs = [
+        (
+            "DCC_MCP_MARKETPLACE_INSTALL_ROOT",
+            install_root_string.as_str(),
+        ),
+        ("DCC_MCP_MARKETPLACE_NO_DEFAULT_SOURCES", "1"),
+    ];
+
+    let installed = run_json_with_env(
+        &[
+            "marketplace",
+            "install",
+            "shared-skill",
+            "--dcc",
+            "blender",
+            "--source",
+            &catalog_string,
+        ],
+        &envs,
+    );
+    assert_eq!(installed["dcc"], "any");
+    assert_eq!(
+        installed["path"],
+        install_root
+            .join("any")
+            .join("shared-skill")
+            .to_string_lossy()
+            .as_ref()
+    );
+
+    for dcc in ["blender", "maya"] {
+        let listed = run_json_with_env(&["marketplace", "list-installed", "--dcc", dcc], &envs);
+        assert_eq!(listed["count"], 1);
+        assert_eq!(listed["packages"][0]["dcc"], "any");
+    }
+
+    let all_install_error = run_failure_with_env(
+        &[
+            "marketplace",
+            "install",
+            "shared-skill",
+            "--dcc",
+            "all",
+            "--source",
+            &catalog_string,
+        ],
+        &envs,
+    );
+    assert!(all_install_error.contains("already installed"));
+
+    let uninstalled = run_json_with_env(
+        &[
+            "marketplace",
+            "uninstall",
+            "shared-skill",
+            "--dcc",
+            "blender",
+        ],
+        &envs,
+    );
+    assert_eq!(uninstalled["dcc"], "any");
+    assert_eq!(uninstalled["uninstalled"], true);
+    assert!(!install_root.join("any").join("shared-skill").exists());
+}
+
+#[test]
+fn marketplace_install_rejects_incompatible_or_unavailable_entries() {
+    let tmp = TempDir::new().unwrap();
+    let skill_dir = write_skill(
+        tmp.path(),
+        "source-skill",
+        "---\nname: incompatible-skill\ndescription: Incompatible\n---\n",
+    );
+    let catalog_path = tmp.path().join("marketplace.json");
+    std::fs::write(
+        &catalog_path,
+        serde_json::to_string_pretty(&json!({
+            "version": "1",
+            "entries": [{
+                "name": "incompatible-skill",
+                "description": "Requires a newer core",
+                "dcc": ["maya"],
+                "tags": ["test"],
+                "min_core_version": "999.0.0",
+                "install": {"type": "path", "url": skill_dir.to_string_lossy()}
+            }]
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let source = catalog_path.to_string_lossy().to_string();
+    let config_path = tmp
+        .path()
+        .join("sources.json")
+        .to_string_lossy()
+        .to_string();
+    let install_root = tmp
+        .path()
+        .join("marketplace-root")
+        .to_string_lossy()
+        .to_string();
+    let envs = [
+        ("DCC_MCP_MARKETPLACE_SOURCES_FILE", config_path.as_str()),
+        ("DCC_MCP_MARKETPLACE_NO_DEFAULT_SOURCES", "1"),
+        ("DCC_MCP_MARKETPLACE_INSTALL_ROOT", install_root.as_str()),
+    ];
+
+    let stderr = run_failure_with_env(
+        &[
+            "marketplace",
+            "install",
+            "incompatible-skill",
+            "--dcc",
+            "maya",
+            "--source",
+            &source,
+        ],
+        &envs,
+    );
+    assert!(stderr.contains("requires dcc-mcp-core >= 999.0.0"));
+    assert!(!std::path::Path::new(&install_root).exists());
+
+    std::fs::write(
+        &catalog_path,
+        serde_json::to_string_pretty(&json!({
+            "version": "1",
+            "entries": [{
+                "name": "incompatible-skill",
+                "description": "Unavailable skill",
+                "dcc": ["maya"],
+                "tags": ["test"],
+                "policy": {"installation": "not_available"},
+                "install": {"type": "path", "url": skill_dir.to_string_lossy()}
+            }]
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let stderr = run_failure_with_env(
+        &[
+            "marketplace",
+            "install",
+            "incompatible-skill",
+            "--dcc",
+            "maya",
+            "--source",
+            &source,
+        ],
+        &envs,
+    );
+    assert!(stderr.contains("is not available for installation"));
+    assert!(!std::path::Path::new(&install_root).exists());
+}
+
+#[test]
+fn marketplace_install_git_package_promotes_single_nested_skill_dir() {
+    let tmp = TempDir::new().unwrap();
+    let repo = tmp.path().join("nested-git-skill-repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    run_git(&repo, &["init"]);
+    run_git(&repo, &["config", "user.name", "dcc-mcp-test"]);
+    run_git(&repo, &["config", "user.email", "dcc-mcp-test@example.com"]);
+    let skill_dir = write_skill(
+        &repo,
+        "skill/nested-skill",
+        "---\nname: nested-skill\ndescription: Nested git skill\nmetadata:\n  dcc-mcp:\n    dcc: python\n---\n",
+    );
+    std::fs::write(skill_dir.join("marker.txt"), "nested").unwrap();
+    run_git(&repo, &["add", "."]);
+    run_git(&repo, &["commit", "-m", "nested skill"]);
+
+    let catalog_path = tmp.path().join("marketplace.json");
+    let source = catalog_path.to_string_lossy().to_string();
+    let config_path = tmp
+        .path()
+        .join("sources.json")
+        .to_string_lossy()
+        .to_string();
+    let install_root = tmp
+        .path()
+        .join("marketplace-root")
+        .to_string_lossy()
+        .to_string();
+    let envs = [
+        ("DCC_MCP_MARKETPLACE_SOURCES_FILE", config_path.as_str()),
+        ("DCC_MCP_MARKETPLACE_NO_DEFAULT_SOURCES", "1"),
+        ("DCC_MCP_MARKETPLACE_INSTALL_ROOT", install_root.as_str()),
+    ];
+    let catalog = json!({
+        "version": "1",
+        "entries": [{
+            "name": "nested-git-package",
+            "description": "Nested git package",
+            "dcc": ["maya"],
+            "tags": ["test"],
+            "version": "0.1.0",
+            "install": {
+                "type": "git",
+                "url": repo.to_string_lossy()
+            }
+        }]
+    });
+    std::fs::write(
+        &catalog_path,
+        serde_json::to_string_pretty(&catalog).unwrap(),
+    )
+    .unwrap();
+
+    let installed = run_json_with_env(
+        &[
+            "marketplace",
+            "install",
+            "nested-git-package",
+            "--dcc",
+            "maya",
+            "--source",
+            &source,
+        ],
+        &envs,
+    );
+    let installed_path = std::path::PathBuf::from(installed["path"].as_str().unwrap());
+    assert!(installed_path.join("SKILL.md").is_file());
+    assert_eq!(
+        std::fs::read_to_string(installed_path.join("marker.txt")).unwrap(),
+        "nested"
+    );
+
+    let listed = run_json_with_env(&["marketplace", "list-installed", "--dcc", "maya"], &envs);
+    assert_eq!(listed["count"], 1);
+    assert_eq!(listed["packages"][0]["name"], "nested-git-package");
+
+    let uninstalled = run_json_with_env(
+        &[
+            "marketplace",
+            "uninstall",
+            "nested-git-package",
+            "--dcc",
+            "maya",
+        ],
+        &envs,
+    );
+    assert_eq!(uninstalled["uninstalled"], true);
+    assert!(!installed_path.exists());
+}
+
+#[test]
+fn marketplace_install_path_package_uses_declared_skill_roots() {
+    let tmp = TempDir::new().unwrap();
+    let pack = tmp.path().join("multi-pack");
+    write_skill(
+        &pack,
+        "skill/maya-first",
+        "---\nname: maya-first\ndescription: First pack skill\nmetadata:\n  dcc-mcp:\n    dcc: maya\n---\n",
+    );
+    write_skill(
+        &pack,
+        "skill/maya-second",
+        "---\nname: maya-second\ndescription: Second pack skill\nmetadata:\n  dcc-mcp:\n    dcc: maya\n---\n",
+    );
+    write_skill(
+        &pack,
+        "examples/skills/example-skill",
+        "---\nname: example-skill\ndescription: Example skill\nmetadata:\n  dcc-mcp:\n    dcc: maya\n---\n",
+    );
+
+    let catalog_path = tmp.path().join("marketplace.json");
+    let catalog = json!({
+        "version": "1",
+        "entries": [{
+            "name": "multi-skill-pack",
+            "description": "Multi skill pack",
+            "dcc": ["maya"],
+            "tags": ["test"],
+            "version": "0.1.0",
+            "install": {
+                "type": "path",
+                "url": pack.to_string_lossy(),
+                "skillRoots": ["skill/maya-first"]
+            }
+        }]
+    });
+    std::fs::write(
+        &catalog_path,
+        serde_json::to_string_pretty(&catalog).unwrap(),
+    )
+    .unwrap();
+
+    let source = catalog_path.to_string_lossy().to_string();
+    let config_path = tmp
+        .path()
+        .join("sources.json")
+        .to_string_lossy()
+        .to_string();
+    let install_root = tmp
+        .path()
+        .join("marketplace-root")
+        .to_string_lossy()
+        .to_string();
+    let envs = [
+        ("DCC_MCP_MARKETPLACE_SOURCES_FILE", config_path.as_str()),
+        ("DCC_MCP_MARKETPLACE_NO_DEFAULT_SOURCES", "1"),
+        ("DCC_MCP_MARKETPLACE_INSTALL_ROOT", install_root.as_str()),
+    ];
+
+    let installed = run_json_with_env(
+        &[
+            "marketplace",
+            "install",
+            "multi-skill-pack",
+            "--dcc",
+            "maya",
+            "--source",
+            &source,
+        ],
+        &envs,
+    );
+    assert_eq!(installed["installed"], true);
+    let dcc_root = std::path::Path::new(&install_root).join("maya");
+    assert!(dcc_root.join("maya-first").join("SKILL.md").is_file());
+    assert!(!dcc_root.join("maya-second").exists());
+    assert!(!dcc_root.join("example-skill").exists());
+
+    let mut scanner = dcc_mcp_skills::SkillScanner::new();
+    let found = scanner.scan(
+        Some(&[dcc_root.to_string_lossy().to_string()]),
+        Some("maya"),
+        true,
+    );
+    assert!(found.iter().any(|path| path.ends_with("maya-first")));
+    assert!(!found.iter().any(|path| path.ends_with("maya-second")));
+    assert!(!found.iter().any(|path| path.ends_with("example-skill")));
+
+    let uninstalled = run_json_with_env(
+        &[
+            "marketplace",
+            "uninstall",
+            "multi-skill-pack",
+            "--dcc",
+            "maya",
+        ],
+        &envs,
+    );
+    assert_eq!(uninstalled["uninstalled"], true);
+    assert!(!dcc_root.join("maya-first").exists());
+}
+
+#[test]
+fn marketplace_install_zip_package_verifies_sha256_and_flattens_archive_root() {
+    let tmp = TempDir::new().unwrap();
+    let zip_path = tmp.path().join("zip-skill.zip");
+    let zip_bytes = write_zip(
+        &[
+            (
+                "zip-skill-main/SKILL.md",
+                "---\nname: zip-skill\ndescription: Zip skill\n---\n",
+            ),
+            ("zip-skill-main/tools.yaml", "tools: []\n"),
+        ],
+        &zip_path,
+    );
+    let digest = sha256_hex(&zip_bytes);
+
+    let catalog_path = tmp.path().join("marketplace.json");
+    let catalog = json!({
+        "version": "1",
+        "entries": [{
+            "name": "zip-skill",
+            "description": "Zip skill package",
+            "dcc": ["maya"],
+            "tags": ["test"],
+            "version": "0.1.0",
+            "install": {
+                "type": "zip",
+                "url": zip_path.to_string_lossy(),
+                "sha256": format!("sha256:{digest}")
+            }
+        }]
+    });
+    std::fs::write(
+        &catalog_path,
+        serde_json::to_string_pretty(&catalog).unwrap(),
+    )
+    .unwrap();
+
+    let source = catalog_path.to_string_lossy().to_string();
+    let config_path = tmp
+        .path()
+        .join("sources.json")
+        .to_string_lossy()
+        .to_string();
+    let install_root = tmp
+        .path()
+        .join("marketplace-root")
+        .to_string_lossy()
+        .to_string();
+    let envs = [
+        ("DCC_MCP_MARKETPLACE_SOURCES_FILE", config_path.as_str()),
+        ("DCC_MCP_MARKETPLACE_NO_DEFAULT_SOURCES", "1"),
+        ("DCC_MCP_MARKETPLACE_INSTALL_ROOT", install_root.as_str()),
+    ];
+
+    let installed = run_json_with_env(
+        &[
+            "marketplace",
+            "install",
+            "zip-skill",
+            "--dcc",
+            "maya",
+            "--source",
+            &source,
+        ],
+        &envs,
+    );
+    let installed_path = std::path::PathBuf::from(installed["path"].as_str().unwrap());
+    assert_eq!(installed["install_type"], "zip");
+    assert!(installed_path.join("SKILL.md").is_file());
+    assert!(installed_path.join("tools.yaml").is_file());
+    assert!(!installed_path.join("zip-skill-main").exists());
+
+    let listed = run_json_with_env(&["marketplace", "list-installed", "--dcc", "maya"], &envs);
+    assert_eq!(listed["packages"][0]["install_type"], "zip");
+}
+
+#[test]
+fn marketplace_install_zip_rejects_sha256_mismatch_without_replacing_existing_package() {
+    let tmp = TempDir::new().unwrap();
+    let good_skill = write_skill(
+        tmp.path(),
+        "good-skill",
+        "---\nname: zip-skill\ndescription: Existing skill\n---\n",
+    );
+    let zip_path = tmp.path().join("zip-skill.zip");
+    write_zip(
+        &[(
+            "SKILL.md",
+            "---\nname: zip-skill\ndescription: Broken hash skill\n---\n",
+        )],
+        &zip_path,
+    );
+
+    let catalog_path = tmp.path().join("marketplace.json");
+    let config_path = tmp
+        .path()
+        .join("sources.json")
+        .to_string_lossy()
+        .to_string();
+    let install_root = tmp
+        .path()
+        .join("marketplace-root")
+        .to_string_lossy()
+        .to_string();
+    let envs = [
+        ("DCC_MCP_MARKETPLACE_SOURCES_FILE", config_path.as_str()),
+        ("DCC_MCP_MARKETPLACE_NO_DEFAULT_SOURCES", "1"),
+        ("DCC_MCP_MARKETPLACE_INSTALL_ROOT", install_root.as_str()),
+    ];
+
+    let good_catalog = json!({
+        "version": "1",
+        "entries": [{
+            "name": "zip-skill",
+            "description": "Existing skill",
+            "dcc": ["maya"],
+            "tags": ["test"],
+            "version": "0.1.0",
+            "install": {
+                "type": "path",
+                "url": good_skill.to_string_lossy()
+            }
+        }]
+    });
+    std::fs::write(
+        &catalog_path,
+        serde_json::to_string_pretty(&good_catalog).unwrap(),
+    )
+    .unwrap();
+    let source = catalog_path.to_string_lossy().to_string();
+    let installed = run_json_with_env(
+        &[
+            "marketplace",
+            "install",
+            "zip-skill",
+            "--dcc",
+            "maya",
+            "--source",
+            &source,
+        ],
+        &envs,
+    );
+    let installed_path = std::path::PathBuf::from(installed["path"].as_str().unwrap());
+
+    let bad_catalog = json!({
+        "version": "1",
+        "entries": [{
+            "name": "zip-skill",
+            "description": "Bad hash skill",
+            "dcc": ["maya"],
+            "tags": ["test"],
+            "version": "0.2.0",
+            "install": {
+                "type": "zip",
+                "url": zip_path.to_string_lossy(),
+                "sha256": "sha256:0000"
+            }
+        }]
+    });
+    std::fs::write(
+        &catalog_path,
+        serde_json::to_string_pretty(&bad_catalog).unwrap(),
+    )
+    .unwrap();
+
+    let stderr = run_failure_with_env(
+        &[
+            "marketplace",
+            "install",
+            "zip-skill",
+            "--dcc",
+            "maya",
+            "--source",
+            &source,
+            "--force",
+        ],
+        &envs,
+    );
+    assert!(stderr.contains("SHA-256 mismatch") || stderr.contains("invalid SHA-256 digest"));
+    assert!(installed_path.join("SKILL.md").is_file());
+
+    let listed = run_json_with_env(&["marketplace", "list-installed", "--dcc", "maya"], &envs);
+    assert_eq!(listed["packages"][0]["version"], "0.1.0");
+    assert_eq!(listed["packages"][0]["install_type"], "path");
+}
+
+#[test]
+fn marketplace_rejects_unsafe_install_components() {
+    let tmp = TempDir::new().unwrap();
+    let skill_dir = write_skill(
+        tmp.path(),
+        "source-skill",
+        "---\nname: safe-skill\ndescription: Safe skill\n---\n",
+    );
+    let catalog_path = tmp.path().join("marketplace.json");
+    let catalog = json!({
+        "version": "1",
+        "entries": [{
+            "name": "../unsafe-skill",
+            "description": "Unsafe name",
+            "dcc": ["maya"],
+            "tags": ["test"],
+            "version": "0.1.0",
+            "install": {
+                "type": "path",
+                "url": skill_dir.to_string_lossy()
+            }
+        }]
+    });
+    std::fs::write(
+        &catalog_path,
+        serde_json::to_string_pretty(&catalog).unwrap(),
+    )
+    .unwrap();
+
+    let source = catalog_path.to_string_lossy().to_string();
+    let config_path = tmp
+        .path()
+        .join("sources.json")
+        .to_string_lossy()
+        .to_string();
+    let install_root = tmp
+        .path()
+        .join("marketplace-root")
+        .to_string_lossy()
+        .to_string();
+    let envs = [
+        ("DCC_MCP_MARKETPLACE_SOURCES_FILE", config_path.as_str()),
+        ("DCC_MCP_MARKETPLACE_NO_DEFAULT_SOURCES", "1"),
+        ("DCC_MCP_MARKETPLACE_INSTALL_ROOT", install_root.as_str()),
+    ];
+
+    let stderr = run_failure_with_env(
+        &[
+            "marketplace",
+            "install",
+            "../unsafe-skill",
+            "--dcc",
+            "maya",
+            "--source",
+            &source,
+        ],
+        &envs,
+    );
+    assert!(stderr.contains("invalid marketplace package name"));
+
+    let stderr = run_failure_with_env(
+        &[
+            "marketplace",
+            "uninstall",
+            "../unsafe-skill",
+            "--dcc",
+            "maya",
+        ],
+        &envs,
+    );
+    assert!(stderr.contains("invalid marketplace package name"));
+}
+
+#[test]
+fn marketplace_force_install_keeps_existing_package_when_replacement_fails() {
+    let tmp = TempDir::new().unwrap();
+    let good_skill = write_skill(
+        tmp.path(),
+        "good-skill",
+        "---\nname: replaceable-skill\ndescription: Replaceable skill\n---\n",
+    );
+    let bad_skill = tmp.path().join("bad-skill");
+    std::fs::create_dir_all(&bad_skill).unwrap();
+
+    let catalog_path = tmp.path().join("marketplace.json");
+    let config_path = tmp
+        .path()
+        .join("sources.json")
+        .to_string_lossy()
+        .to_string();
+    let install_root = tmp
+        .path()
+        .join("marketplace-root")
+        .to_string_lossy()
+        .to_string();
+    let envs = [
+        ("DCC_MCP_MARKETPLACE_SOURCES_FILE", config_path.as_str()),
+        ("DCC_MCP_MARKETPLACE_NO_DEFAULT_SOURCES", "1"),
+        ("DCC_MCP_MARKETPLACE_INSTALL_ROOT", install_root.as_str()),
+    ];
+
+    let good_catalog = json!({
+        "version": "1",
+        "entries": [{
+            "name": "replaceable-skill",
+            "description": "Replaceable skill",
+            "dcc": ["maya"],
+            "tags": ["test"],
+            "version": "0.1.0",
+            "install": {
+                "type": "path",
+                "url": good_skill.to_string_lossy()
+            }
+        }]
+    });
+    std::fs::write(
+        &catalog_path,
+        serde_json::to_string_pretty(&good_catalog).unwrap(),
+    )
+    .unwrap();
+    let source = catalog_path.to_string_lossy().to_string();
+    let installed = run_json_with_env(
+        &[
+            "marketplace",
+            "install",
+            "replaceable-skill",
+            "--dcc",
+            "maya",
+            "--source",
+            &source,
+        ],
+        &envs,
+    );
+    let installed_path = std::path::PathBuf::from(installed["path"].as_str().unwrap());
+    assert!(installed_path.join("SKILL.md").is_file());
+
+    let bad_catalog = json!({
+        "version": "1",
+        "entries": [{
+            "name": "replaceable-skill",
+            "description": "Broken replacement",
+            "dcc": ["maya"],
+            "tags": ["test"],
+            "version": "0.2.0",
+            "install": {
+                "type": "path",
+                "url": bad_skill.to_string_lossy()
+            }
+        }]
+    });
+    std::fs::write(
+        &catalog_path,
+        serde_json::to_string_pretty(&bad_catalog).unwrap(),
+    )
+    .unwrap();
+
+    let stderr = run_failure_with_env(
+        &[
+            "marketplace",
+            "install",
+            "replaceable-skill",
+            "--dcc",
+            "maya",
+            "--source",
+            &source,
+            "--force",
+        ],
+        &envs,
+    );
+    assert!(stderr.contains("does not contain SKILL.md"));
+    assert!(installed_path.join("SKILL.md").is_file());
+}
+
+#[test]
+fn marketplace_update_git_package_uses_latest_catalog_ref() {
+    let tmp = TempDir::new().unwrap();
+    let repo = tmp.path().join("git-skill-repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    run_git(&repo, &["init"]);
+    run_git(&repo, &["config", "user.name", "dcc-mcp-test"]);
+    run_git(&repo, &["config", "user.email", "dcc-mcp-test@example.com"]);
+    commit_git_skill_version(&repo, "v0.1.0", "v1");
+    commit_git_skill_version(&repo, "v0.2.0", "v2");
+
+    let catalog_path = tmp.path().join("marketplace.json");
+    let source = catalog_path.to_string_lossy().to_string();
+    let config_path = tmp
+        .path()
+        .join("sources.json")
+        .to_string_lossy()
+        .to_string();
+    let install_root = tmp
+        .path()
+        .join("marketplace-root")
+        .to_string_lossy()
+        .to_string();
+    let envs = [
+        ("DCC_MCP_MARKETPLACE_SOURCES_FILE", config_path.as_str()),
+        ("DCC_MCP_MARKETPLACE_NO_DEFAULT_SOURCES", "1"),
+        ("DCC_MCP_MARKETPLACE_INSTALL_ROOT", install_root.as_str()),
+    ];
+
+    let catalog_v1 = json!({
+        "version": "1",
+        "entries": [{
+            "name": "git-skill",
+            "description": "Git skill",
+            "dcc": ["maya"],
+            "tags": ["test"],
+            "version": "0.1.0",
+            "install": {
+                "type": "git",
+                "url": repo.to_string_lossy(),
+                "ref": "v0.1.0"
+            }
+        }]
+    });
+    std::fs::write(
+        &catalog_path,
+        serde_json::to_string_pretty(&catalog_v1).unwrap(),
+    )
+    .unwrap();
+
+    let installed = run_json_with_env(
+        &[
+            "marketplace",
+            "install",
+            "git-skill",
+            "--dcc",
+            "maya",
+            "--source",
+            &source,
+        ],
+        &envs,
+    );
+    let installed_path = std::path::PathBuf::from(installed["path"].as_str().unwrap());
+    assert_eq!(
+        std::fs::read_to_string(installed_path.join("marker.txt")).unwrap(),
+        "v1"
+    );
+
+    let catalog_v2 = json!({
+        "version": "1",
+        "entries": [{
+            "name": "git-skill",
+            "description": "Git skill",
+            "dcc": ["maya"],
+            "tags": ["test"],
+            "version": "0.2.0",
+            "install": {
+                "type": "git",
+                "url": repo.to_string_lossy(),
+                "ref": "v0.2.0"
+            }
+        }]
+    });
+    std::fs::write(
+        &catalog_path,
+        serde_json::to_string_pretty(&catalog_v2).unwrap(),
+    )
+    .unwrap();
+
+    let outdated = run_json_with_env(
+        &["marketplace", "outdated", "git-skill", "--dcc", "maya"],
+        &envs,
+    );
+    assert_eq!(outdated["count"], 1);
+    assert_eq!(outdated["packages"][0]["latest_version"], "0.2.0");
+    assert_eq!(outdated["packages"][0]["install_ref"], "v0.2.0");
+
+    let updated = run_json_with_env(
+        &["marketplace", "update", "git-skill", "--dcc", "maya"],
+        &envs,
+    );
+    assert_eq!(updated[0]["new_version"], "0.2.0");
+    assert_eq!(
+        std::fs::read_to_string(installed_path.join("marker.txt")).unwrap(),
+        "v2"
+    );
+
+    let listed = run_json_with_env(&["marketplace", "list-installed", "--dcc", "maya"], &envs);
+    assert_eq!(listed["packages"][0]["version"], "0.2.0");
+    assert_eq!(listed["packages"][0]["install_ref"], "v0.2.0");
+}
+
+#[test]
+fn lint_recurses_two_levels_and_reports_validation_errors() {
+    let tmp = TempDir::new().unwrap();
+    write_skill(
+        tmp.path(),
+        "studio/maya-tools",
+        "---\nname: maya-tools\ndescription: Valid test skill\n---\n",
+    );
+    write_skill(tmp.path(), "studio/bad-skill", "no frontmatter\n");
+    write_skill(tmp.path(), "too/deep/ignored-skill", "no frontmatter\n");
+
+    let output = cli_command().arg("lint").arg(tmp.path()).output().unwrap();
+
+    assert!(!output.status.success());
+    let value: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["checked"], 2);
+    assert_eq!(value["errors"], 1);
+    let reports = value["reports"].as_array().unwrap();
+    assert!(reports.iter().any(|report| {
+        report["skill_dir"]
+            .as_str()
+            .is_some_and(|path| path.contains("bad-skill"))
+    }));
+    assert!(!reports.iter().any(|report| {
+        report["skill_dir"]
+            .as_str()
+            .is_some_and(|path| path.contains("ignored-skill"))
+    }));
+}
+
+#[test]
+fn lint_bundled_skills_are_present_and_clean() {
+    let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let workspace_root = manifest_dir
+        .parent()
+        .and_then(std::path::Path::parent)
+        .unwrap();
+    let builtin_skill_roots = [
+        workspace_root.join("skills/dcc-mcp"),
+        workspace_root.join("python/dcc_mcp_core/skills"),
+    ];
+
+    for root in &builtin_skill_roots {
+        assert!(
+            root.is_dir(),
+            "missing bundled skill root: {}",
+            root.display()
+        );
+    }
+
+    let output = cli_command()
+        .arg("lint")
+        .arg("--max-depth")
+        .arg("4")
+        .args(&builtin_skill_roots)
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let value: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(
+        value["checked"].as_u64().unwrap() > 0,
+        "expected bundled skills to be linted"
+    );
+    assert_eq!(value["errors"], 0);
+    assert_eq!(value["warnings"], 0);
+}
+
+#[test]
+fn dcc_mcp_skill_routes_dcc_intent_without_required_gateway_env() {
+    let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let workspace_root = manifest_dir
+        .parent()
+        .and_then(std::path::Path::parent)
+        .unwrap();
+    let skill_dir = workspace_root.join("skills/dcc-mcp");
+
+    let meta = parse_skill_md(&skill_dir).expect("dcc-mcp SKILL.md parses");
+
+    assert_eq!(meta.name, "dcc-mcp");
+    assert!(meta.description.contains("Use this skill first"));
+    for dcc in ["Maya", "Blender", "Houdini", "Photoshop"] {
+        assert!(meta.description.contains(dcc), "missing DCC trigger: {dcc}");
+    }
+    assert!(meta.required_env_vars().is_empty());
+    assert_eq!(meta.primary_env(), None);
+}
+
+#[test]
 fn marketplace_schema_validation_rejects_empty_name() {
     let tmp = TempDir::new().unwrap();
     let catalog_path = tmp.path().join("marketplace.json");

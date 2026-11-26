@@ -985,7 +985,7 @@ single-instance behavior: entries default to `capacity: 1`, no lease owner, and
 `status: "available"`.
 
 An active lease is enforced on both gateway-routed calls and the local
-`dcc-mcp-cli` direct-MCP path. The lease holder must include the same owner
+`dccmcp` direct-MCP path. The lease holder must include the same owner
 label on every call:
 
 ```json

@@ -86,6 +86,14 @@ runs:
         # rather than to any single caller. An empty target means host-only.
         targets: ${{ inputs.target == 'x86_64-apple-darwin' && 'x86_64-apple-darwin' || '' }}
 
+    - name: Pin Windows builds to the MSVC target
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        $target = "x86_64-pc-windows-msvc"
+        rustup target add $target
+        "CARGO_BUILD_TARGET=$target" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
     - name: Install vx
       uses: loonghao/vx@v0.9.34
       with:

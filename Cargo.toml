@@ -10,6 +10,7 @@ members = [
     "crates/dcc-mcp-skills-bench",
     "crates/dcc-mcp-protocols",
     "crates/dcc-mcp-jsonrpc",
+    "crates/dcc-mcp-client",
     "crates/dcc-mcp-wire",
     "crates/dcc-mcp-job",
     "crates/dcc-mcp-skill-rest",
@@ -56,7 +57,7 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.20.55" # x-release-please-version
+version = "0.21.0" # x-release-please-version
 edition = "2024"
 rust-version = "1.95"
 authors = ["Hal Long <hal.long@outlook.com>"]
@@ -72,9 +73,7 @@ dcc-mcp-skills = { path = "crates/dcc-mcp-skills" }
 dcc-mcp-skills-bench = { path = "crates/dcc-mcp-skills-bench" }
 dcc-mcp-protocols = { path = "crates/dcc-mcp-protocols" }
 dcc-mcp-jsonrpc = { path = "crates/dcc-mcp-jsonrpc" }
-dcc-mcp-wire = { path = "crates/dcc-mcp-wire" }
-dcc-mcp-job = { path = "crates/dcc-mcp-job" }
-dcc-mcp-skill-rest = { path = "crates/dcc-mcp-skill-rest" }
+dcc-mcp-client = { path = "crates/dcc-mcp-client" }
 dcc-mcp-logging = { path = "crates/dcc-mcp-logging" }
 dcc-mcp-pybridge = { path = "crates/dcc-mcp-pybridge" }
 dcc-mcp-pybridge-derive = { path = "crates/dcc-mcp-pybridge-derive" }

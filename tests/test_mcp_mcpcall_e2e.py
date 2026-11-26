@@ -21,7 +21,7 @@ Requirements:
 
 The tests are skipped automatically when ``mcpcall`` is not found.
 
-CI status: this file runs in the dedicated ``mcpcall-e2e`` job
+CI status: this file runs in the dedicated ``mcp-interop-e2e`` job
 (``.github/workflows/ci.yml``), which runs ``vx mcpcall`` and executes
 ``pytest tests/test_mcp_mcpcall_e2e.py`` against a
 Linux wheel built earlier in the run. It also auto-skips inside the standard

@@ -54,7 +54,10 @@ Equivalent environment variables:
 | `DCC_MCP_GATEWAY_AUDIT_MAX_BYTES` | `52428800` | Approx. 50 MiB byte cap per durable JSONL file. |
 | `DCC_MCP_LOG_DIR` | platform log dir | Directory scanned by `/admin/api/logs` for `*.log` files. |
 
-### Analytics Dashboard
+**DCC UI Control** is the public cross-platform capability name. Shell agents
+use `dccmcp ui-control`; `app_ui__*` remains the compatibility tool
+namespace for MCP-native clients and existing adapters. Do not use the generic
+name “Computer Use” for this DCC-scoped feature.
 
 A separate analytics dashboard provides KPI timeseries, heatmaps, top-tool
 rankings, and CSV/JSONL export. See [analytics-dashboard.md](analytics-dashboard.md).
@@ -93,11 +96,9 @@ The `dcc-mcp-cli ui-control` subcommand exposes the same capabilities through
 the shell:
 
 ```bash
-dcc-mcp-cli ui-control snapshot --instance-id <id> --json '{"session_id":"ui","process_id":1234}'
-dcc-mcp-cli ui-control act --instance-id <id> --json '{"session_id":"ui","control_id":"ok","action":"click","snapshot_id":"<snapshot_id>"}'
-dcc-mcp-cli ui-control record-clip --instance-id <id> --json '{"session_id":"pv","process_id":1234,"duration_ms":5000}'
-dcc-mcp-cli ui-control stop --instance-id <id> --json '{"session_id":"ui"}'
-dcc-mcp-cli ui-control system-operation --instance-id <id> --json '{"operation_id":"enable-remote-control"}'
+dccmcp ui-control snapshot --instance-id <id> --json '{"session_id":"ui","process_id":1234}'
+dccmcp ui-control act --instance-id <id> --json '{"session_id":"ui","control_id":"ok","action":"click","snapshot_id":"<snapshot_id>"}'
+dccmcp ui-control stop --instance-id <id> --json '{"session_id":"ui"}'
 ```
 
 ## Related Documentation

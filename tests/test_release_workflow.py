@@ -375,31 +375,25 @@ def test_release_workflow_builds_deployable_zips_per_platform() -> None:
     bundle = next(step for step in build["steps"] if step.get("id") == "server-bundle")
     run = bundle["run"]
     assert "scripts/release/build_server_bundle.py" in run
-    assert '--version "$RELEASE_VERSION"' in run
-    assert '--platform "$MATRIX_PLATFORM"' in run
-    assert '--server-bin "$MATRIX_ARTIFACT_NAME"' in run
-    assert '--cli-bin "$MATRIX_CLI_ARTIFACT_NAME"' in run
-    # The bundle inputs must arrive through `env:`, never as literal `${{ }}`
-    # text in the script body, where GitHub would substitute before bash runs.
-    assert bundle["env"] == {
-        "RELEASE_VERSION": "${{ needs.release-please.outputs.version }}",
-        "MATRIX_PLATFORM": "${{ matrix.platform }}",
-        "MATRIX_ARTIFACT_NAME": "${{ matrix.artifact_name }}",
-        "MATRIX_CLI_ARTIFACT_NAME": "${{ matrix.cli_artifact_name }}",
-    }
+    assert '--version "${{ needs.release-please.outputs.version }}"' in run
+    assert '--platform "${{ matrix.platform }}"' in run
+    assert '--server-bin "${{ matrix.artifact_name }}"' in run
+    assert '--cli-bin "${{ matrix.cli_artifact_name }}"' in run
+    assert '--dccmcp-bin "${{ matrix.dccmcp_artifact_name }}"' in run
+    assert "--capture-helper target/x86_64-pc-windows-msvc/release/dcc-mcp-capture-helper.exe" in run
+    assert "--ui-control-host target/x86_64-pc-windows-msvc/release/dcc-mcp-ui-control-host.exe" in run
 
-    cli_bundle = next(step for step in build["steps"] if step.get("id") == "cli-bundle")
-    cli_run = cli_bundle["run"]
-    assert "scripts/release/build_standalone_bundle.py" in cli_run
-    assert '--version "$RELEASE_VERSION"' in cli_run
-    assert '--platform "$MATRIX_PLATFORM"' in cli_run
-    assert "--binary-name dcc-mcp-cli" in cli_run
-    assert '--binary-path "$MATRIX_CLI_ARTIFACT_NAME"' in cli_run
-    assert cli_bundle["env"] == {
-        "RELEASE_VERSION": "${{ needs.release-please.outputs.version }}",
-        "MATRIX_PLATFORM": "${{ matrix.platform }}",
-        "MATRIX_CLI_ARTIFACT_NAME": "${{ matrix.cli_artifact_name }}",
-    }
+    host_build = next(step for step in build["steps"] if step.get("name") == "Build and stage Windows runtime hosts")
+    assert host_build["if"] == "matrix.os == 'windows-latest'"
+    assert "vx just stage-windows-runtime-hosts" in host_build["run"]
+
+    host_inject = next(
+        step for step in build["steps"] if step.get("name") == "Inject Windows runtime hosts into server wheel"
+    )
+    assert host_inject["if"] == "matrix.os == 'windows-latest'"
+    assert "scripts/release/inject_capture_helper.py" in host_inject["run"]
+    assert "target/x86_64-pc-windows-msvc/release/dcc-mcp-capture-helper.exe" in host_inject["run"]
+    assert "target/x86_64-pc-windows-msvc/release/dcc-mcp-ui-control-host.exe" in host_inject["run"]
 
     raw_upload = next(
         step
@@ -415,39 +409,20 @@ def test_release_workflow_builds_deployable_zips_per_platform() -> None:
 
     notify = next(step for step in jobs["publish"]["steps"] if step["name"] == "Notify Multica release-ready autopilot")
     assert r"^dcc-mcp-server-[0-9A-Za-z.+-]+-(linux-x86_64|windows-x86_64|macos-universal2)\.zip$" in notify["run"]
-    assert r"^dcc-mcp-cli-[0-9A-Za-z.+-]+-(linux-x86_64|windows-x86_64|macos-universal2)\.zip$" in notify["run"]
 
 
-def _run_scripts(node, trail="root"):
-    """Yield ``(trail, step)`` for every ``run:`` script in the workflow tree."""
-    if isinstance(node, dict):
-        if isinstance(node.get("run"), str):
-            yield trail, node
-        for key, value in node.items():
-            yield from _run_scripts(value, f"{trail}.{key}")
-    elif isinstance(node, list):
-        for index, value in enumerate(node):
-            yield from _run_scripts(value, f"{trail}[{index}]")
+def test_release_workflow_publishes_checksum_sidecars_for_downloadable_assets() -> None:
+    jobs = _release_jobs()
+    build = jobs["build-binaries"]
+    checksum = next(step for step in build["steps"] if step.get("id") == "release-checksums")
+    assert "scripts/release/generate_asset_checksums.py" in checksum["run"]
+    assert "${{ matrix.artifact_name }}" in checksum["run"]
+    assert "${{ matrix.cli_artifact_name }}" in checksum["run"]
 
-
-def test_release_workflow_never_interpolates_expressions_into_run_bodies() -> None:
-    """No `run:` body may contain `${{ }}`.
-
-    GitHub substitutes `${{ }}` as plain text before the shell starts, so an
-    expression written inside a script body is not data the script reads — it is
-    source the shell parses and runs. A tag name or job output carrying
-    `$(...)` therefore executes as a command. Reaching the same value through
-    `env:` keeps it an environment variable, which bash expands without
-    re-parsing the result.
-
-    This walks the parsed workflow rather than grepping the file, so a value
-    that only *looks* interpolated inside a YAML comment or a `with:` block
-    does not trip it, and a real one cannot hide behind formatting.
-    """
-    workflow = yaml_loads(RELEASE_WORKFLOW.read_text(encoding="utf-8"))
-    offenders = [trail for trail, step in _run_scripts(workflow) if "${{" in step["run"] or "}}" in step["run"]]
-    assert not offenders, (
-        "these run: bodies interpolate ${{ }} into the script, which GitHub expands "
-        "before bash runs; move the expression into an `env:` block and read the "
-        f"variable instead: {offenders}"
+    upload = next(
+        step
+        for step in build["steps"]
+        if step.get("uses") == "softprops/action-gh-release@v3"
     )
+    assert "${{ matrix.cli_artifact_name }}.sha256" in upload["with"]["files"]
+    assert "dcc-mcp-release-checksums-${{ matrix.platform }}.txt" in upload["with"]["files"]

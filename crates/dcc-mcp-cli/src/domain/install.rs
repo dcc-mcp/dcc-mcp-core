@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
-use dcc_mcp_catalog::{CatalogAdobeInstall, CatalogEntry, CatalogInstall};
+use crate::application::dcc_discovery::DccInstallation;
+use dcc_mcp_catalog::{CatalogEntry, CatalogInstall};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -43,6 +44,8 @@ pub struct InstallPlan {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub catalog: Option<crate::domain::install_catalog::CatalogProvenance>,
     pub steps: Vec<InstallStep>,
+    #[serde(default)]
+    pub detected_installations: Vec<DccInstallation>,
     #[serde(default)]
     pub next_steps: Vec<InstallNextStep>,
     #[serde(default = "InstallPolicy::enabled")]
@@ -462,6 +465,7 @@ impl InstallPlanner {
             probe_tool,
             catalog: None,
             steps,
+            detected_installations: Vec::new(),
             install_policy: InstallPolicy::enabled(),
             python_source: Some(python_source),
         })
@@ -641,7 +645,7 @@ impl InstallPlanner {
             InstallStep {
                 name: "install-runtime".into(),
                 description:
-                    "Install the cross-platform dcc-mcp-cli and companion runtime binaries.".into(),
+                    "Install the cross-platform dccmcp and companion runtime binaries.".into(),
                 action: None,
             },
             InstallStep {
@@ -701,7 +705,7 @@ impl InstallPlanner {
                     "Inspect CLI, server binary, server version, gateway profile, and default registry diagnostics."
                         .into(),
                 url: None,
-                command: Some(command(["dcc-mcp-cli", "doctor"])),
+                command: Some(command(["dccmcp", "doctor"])),
                 requires_live_instance: false,
             },
             InstallNextStep {
@@ -710,7 +714,7 @@ impl InstallPlanner {
                     "Confirm the {dcc_type} plugin published a direct local MCP/server instance in the shared registry."
                 ),
                 url: None,
-                command: Some(command(["dcc-mcp-cli", "list"])),
+                command: Some(command(["dccmcp", "list"])),
                 requires_live_instance: false,
             },
             InstallNextStep {
@@ -725,7 +729,7 @@ impl InstallPlanner {
                 },
                 url: None,
                 command: Some(command_with_dcc(
-                    ["dcc-mcp-cli", "wait-ready", "--dcc-type"],
+                    ["dccmcp", "wait-ready", "--dcc-type"],
                     dcc_type,
                     [],
                 )),
@@ -738,7 +742,7 @@ impl InstallPlanner {
                 ),
                 url: None,
                 command: Some(command_with_dcc(
-                    ["dcc-mcp-cli", "search", "--dcc-type"],
+                    ["dccmcp", "search", "--dcc-type"],
                     dcc_type,
                     ["--query", "diagnostics"],
                 )),
@@ -751,7 +755,7 @@ impl InstallPlanner {
                 ),
                 url: None,
                 command: Some(command_with_dcc(
-                    ["dcc-mcp-cli", "marketplace", "search", "--dcc"],
+                    ["dccmcp", "marketplace", "search", "--dcc"],
                     dcc_type,
                     ["--query", "skills"],
                 )),
@@ -763,7 +767,7 @@ impl InstallPlanner {
                     "Inspect the selected marketplace skill package before installing it, replacing <package-name> with the chosen package."
                         .into(),
                 url: None,
-                command: Some(command(["dcc-mcp-cli", "marketplace", "inspect", "<package-name>"])),
+                command: Some(command(["dccmcp", "marketplace", "inspect", "<package-name>"])),
                 requires_live_instance: false,
             },
             InstallNextStep {
@@ -773,7 +777,7 @@ impl InstallPlanner {
                         .into(),
                 url: None,
                 command: Some(command_with_dcc(
-                    ["dcc-mcp-cli", "marketplace", "install", "<package-name>", "--dcc"],
+                    ["dccmcp", "marketplace", "install", "<package-name>", "--dcc"],
                     dcc_type,
                     [],
                 )),
@@ -786,7 +790,7 @@ impl InstallPlanner {
                 ),
                 url: None,
                 command: Some(command_with_dcc(
-                    ["dcc-mcp-cli", "reload-skills", "--dcc-type"],
+                    ["dccmcp", "reload-skills", "--dcc-type"],
                     dcc_type,
                     [],
                 )),
@@ -985,4 +989,418 @@ pub(crate) fn normalized_dcc_key(value: &str) -> String {
         .filter(|ch| ch.is_ascii_alphanumeric())
         .flat_map(char::to_lowercase)
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn catalog_entry(name: &str, dcc: &[&str], install: Option<CatalogInstall>) -> CatalogEntry {
+        CatalogEntry {
+            name: name.into(),
+            description: "Adapter".into(),
+            dcc: dcc.iter().map(|value| value.to_string()).collect(),
+            url: Some("https://example.invalid/adapter".into()),
+            tags: vec!["official".into()],
+            version: None,
+            min_core_version: None,
+            install,
+            maintainer: None,
+            category: None,
+            policy: None,
+            requires: None,
+            icon: None,
+            showcase: None,
+        }
+    }
+
+    fn argv(args: &[&str]) -> Vec<String> {
+        args.iter().map(|arg| (*arg).to_string()).collect()
+    }
+
+    #[test]
+    fn planner_selects_matching_dcc_case_insensitively() {
+        let entries = vec![catalog_entry("dcc-mcp-maya", &["maya"], None)];
+        let plan = InstallPlanner::plan(
+            &entries,
+            InstallRequest {
+                dcc_type: "MAYA".into(),
+                version: Some("2026".into()),
+                catalog_path: None,
+                python: None,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(plan.adapter.name, "dcc-mcp-maya");
+        assert_eq!(plan.steps.len(), 4);
+        // Without install metadata, steps have no action
+        assert!(plan.steps.iter().all(|s| s.action.is_none()));
+        assert_eq!(plan.next_steps[0].name, "start-dcc-plugin");
+        assert!(plan.next_steps[0].command.is_none());
+    }
+
+    #[test]
+    fn planner_rejects_unknown_dcc() {
+        let err = InstallPlanner::plan(
+            &[],
+            InstallRequest {
+                dcc_type: "custom".into(),
+                version: None,
+                catalog_path: None,
+                python: None,
+            },
+        )
+        .unwrap_err();
+
+        assert_eq!(err, InstallPlanError::UnsupportedDcc("custom".into()));
+    }
+
+    #[test]
+    fn planner_generates_executable_steps_for_pip_install() {
+        let install = CatalogInstall {
+            install_type: "pip".into(),
+            url: Some("https://pypi.org/project/dcc-mcp-maya".into()),
+            ref_: None,
+            sha256: None,
+            skill_roots: None,
+            pip_package: Some("dcc-mcp-maya".into()),
+            pip_extras: Some(vec!["maya".into()]),
+            python_path: Some("/usr/bin/mayapy".into()),
+            entry_point: Some("dcc_mcp_maya.cli:main".into()),
+            instructions_url: None,
+        };
+        let entries = vec![catalog_entry("dcc-mcp-maya", &["maya"], Some(install))];
+        let plan = InstallPlanner::plan(
+            &entries,
+            InstallRequest {
+                dcc_type: "maya".into(),
+                version: None,
+                catalog_path: None,
+                python: None,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(plan.steps.len(), 3);
+        assert_eq!(plan.steps[0].name, "install-pip");
+        assert!(matches!(
+            plan.steps[0].action,
+            Some(InstallStepAction::PipInstall { .. })
+        ));
+        if let Some(InstallStepAction::PipInstall {
+            package,
+            extras,
+            python,
+        }) = &plan.steps[0].action
+        {
+            assert_eq!(package, "dcc-mcp-maya");
+            assert_eq!(extras.as_deref(), Some(&["maya".into()][..]));
+            assert_eq!(python.as_deref(), Some("/usr/bin/mayapy"));
+        } else {
+            panic!("expected PipInstall action");
+        }
+
+        assert_eq!(plan.steps[1].name, "register-dcc");
+        assert!(matches!(
+            plan.steps[1].action,
+            Some(InstallStepAction::RegisterDcc { .. })
+        ));
+
+        assert_eq!(plan.steps[2].name, "verify");
+        assert!(
+            plan.steps[2]
+                .description
+                .contains("package or file artefacts")
+        );
+        assert!(matches!(
+            plan.steps[2].action,
+            Some(InstallStepAction::Verify)
+        ));
+    }
+
+    #[test]
+    fn planner_emits_cli_next_steps_for_live_control_and_skill_install() {
+        let entries = vec![catalog_entry("dcc-mcp-blender", &["blender"], None)];
+        let plan = InstallPlanner::plan(
+            &entries,
+            InstallRequest {
+                dcc_type: "blender".into(),
+                version: None,
+                catalog_path: None,
+                python: None,
+            },
+        )
+        .unwrap();
+
+        let wait_ready = plan
+            .next_steps
+            .iter()
+            .find(|step| step.name == "wait-ready")
+            .expect("wait-ready next step");
+        assert_eq!(
+            wait_ready.command.as_ref().unwrap(),
+            &argv(&["dccmcp", "wait-ready", "--dcc-type", "blender"])
+        );
+        assert!(wait_ready.requires_live_instance);
+
+        let search_skills = plan
+            .next_steps
+            .iter()
+            .find(|step| step.name == "search-community-skills")
+            .expect("search-community-skills next step");
+        assert_eq!(
+            search_skills.command.as_ref().unwrap(),
+            &argv(&[
+                "dccmcp",
+                "marketplace",
+                "search",
+                "--dcc",
+                "blender",
+                "--query",
+                "skills",
+            ])
+        );
+        assert!(!search_skills.requires_live_instance);
+
+        let inspect_skill = plan
+            .next_steps
+            .iter()
+            .find(|step| step.name == "inspect-community-skill")
+            .expect("inspect-community-skill next step");
+        assert_eq!(
+            inspect_skill.command.as_ref().unwrap(),
+            &argv(&["dccmcp", "marketplace", "inspect", "<package-name>"])
+        );
+        assert!(!inspect_skill.requires_live_instance);
+
+        let install_skill = plan
+            .next_steps
+            .iter()
+            .find(|step| step.name == "install-community-skill")
+            .expect("install-community-skill next step");
+        assert_eq!(
+            install_skill.command.as_ref().unwrap(),
+            &argv(&[
+                "dccmcp",
+                "marketplace",
+                "install",
+                "<package-name>",
+                "--dcc",
+                "blender",
+            ])
+        );
+        assert!(!install_skill.requires_live_instance);
+
+        let reload = plan
+            .next_steps
+            .iter()
+            .find(|step| step.name == "reload-skills")
+            .expect("reload-skills next step");
+        assert_eq!(
+            reload.command.as_ref().unwrap(),
+            &argv(&["dccmcp", "reload-skills", "--dcc-type", "blender"])
+        );
+        assert!(reload.requires_live_instance);
+    }
+
+    #[test]
+    fn planner_derives_agent_install_instructions_from_adapter_repo_url() {
+        let mut entry = catalog_entry("dcc-mcp-maya", &["maya"], None);
+        entry.url = Some("https://github.com/dcc-mcp/dcc-mcp-maya".into());
+        let plan = InstallPlanner::plan(
+            &[entry],
+            InstallRequest {
+                dcc_type: "maya".into(),
+                version: None,
+                catalog_path: None,
+                python: None,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(plan.next_steps[0].name, "read-install-instructions");
+        assert_eq!(
+            plan.next_steps[0].url.as_deref(),
+            Some("https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-maya/main/install.md")
+        );
+        assert!(plan.next_steps[0].command.is_none());
+    }
+
+    #[test]
+    fn planner_prefers_catalog_install_instructions_url() {
+        let install = CatalogInstall {
+            install_type: "pip".into(),
+            url: None,
+            ref_: None,
+            sha256: None,
+            skill_roots: None,
+            pip_package: Some("dcc-mcp-maya".into()),
+            pip_extras: None,
+            python_path: None,
+            entry_point: None,
+            instructions_url: Some("https://example.com/custom-install.md".into()),
+        };
+        let mut entry = catalog_entry("dcc-mcp-maya", &["maya"], Some(install));
+        entry.url = Some("https://github.com/dcc-mcp/dcc-mcp-maya".into());
+        let plan = InstallPlanner::plan(
+            &[entry],
+            InstallRequest {
+                dcc_type: "maya".into(),
+                version: None,
+                catalog_path: None,
+                python: None,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(
+            plan.next_steps[0].url.as_deref(),
+            Some("https://example.com/custom-install.md")
+        );
+    }
+
+    #[test]
+    fn planner_generates_executable_steps_for_git_install() {
+        let install = CatalogInstall {
+            install_type: "git".into(),
+            url: Some("https://github.com/dcc-mcp/dcc-mcp-maya-mgear".into()),
+            ref_: Some("main".into()),
+            sha256: None,
+            skill_roots: None,
+            pip_package: None,
+            pip_extras: None,
+            python_path: None,
+            entry_point: None,
+            instructions_url: None,
+        };
+        let entries = vec![catalog_entry(
+            "dcc-mcp-maya-mgear",
+            &["maya"],
+            Some(install),
+        )];
+        let plan = InstallPlanner::plan(
+            &entries,
+            InstallRequest {
+                dcc_type: "maya".into(),
+                version: None,
+                catalog_path: None,
+                python: None,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(plan.steps.len(), 3);
+        assert_eq!(plan.steps[0].name, "install-git");
+        assert!(matches!(
+            plan.steps[0].action,
+            Some(InstallStepAction::GitClone { .. })
+        ));
+    }
+
+    #[test]
+    fn planner_missing_install_metadata_uses_info_steps() {
+        let entries = vec![catalog_entry("dcc-mcp-blender", &["blender"], None)];
+        let plan = InstallPlanner::plan(
+            &entries,
+            InstallRequest {
+                dcc_type: "blender".into(),
+                version: None,
+                catalog_path: None,
+                python: None,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(plan.steps.len(), 4);
+        assert!(plan.steps.iter().all(|s| s.action.is_none()));
+    }
+
+    #[test]
+    fn planner_prefers_requested_python_for_pip_install() {
+        let install = CatalogInstall {
+            install_type: "pip".into(),
+            url: None,
+            ref_: None,
+            sha256: None,
+            skill_roots: None,
+            pip_package: Some("dcc-mcp-maya".into()),
+            pip_extras: None,
+            python_path: Some("/catalog/mayapy".into()),
+            entry_point: None,
+            instructions_url: None,
+        };
+        let entries = vec![catalog_entry("dcc-mcp-maya", &["maya"], Some(install))];
+        let plan = InstallPlanner::plan(
+            &entries,
+            InstallRequest {
+                dcc_type: "maya".into(),
+                version: None,
+                catalog_path: None,
+                python: Some("/custom/mayapy".into()),
+            },
+        )
+        .unwrap();
+
+        match &plan.steps[0].action {
+            Some(InstallStepAction::PipInstall { python, .. }) => {
+                assert_eq!(python.as_deref(), Some("/custom/mayapy"));
+            }
+            other => panic!("expected PipInstall action, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn planner_prefers_adapter_entry_over_skill_pack() {
+        let install = CatalogInstall {
+            install_type: "pip".into(),
+            url: None,
+            ref_: None,
+            sha256: None,
+            skill_roots: None,
+            pip_package: Some("dcc-mcp-photoshop".into()),
+            pip_extras: None,
+            python_path: None,
+            entry_point: Some("dcc_mcp_photoshop.cli:main".into()),
+            instructions_url: None,
+        };
+        let mut skill_pack = catalog_entry("dcc-mcp-photoshop-skills", &["photoshop"], None);
+        skill_pack.tags = vec!["skills".into(), "official".into()];
+        let mut adapter = catalog_entry("dcc-mcp-photoshop", &["photoshop"], Some(install));
+        adapter.tags = vec!["adapter".into(), "official".into()];
+
+        let plan = InstallPlanner::plan(
+            &[skill_pack, adapter],
+            InstallRequest {
+                dcc_type: "photoshop".into(),
+                version: None,
+                catalog_path: None,
+                python: None,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(plan.adapter.name, "dcc-mcp-photoshop");
+        assert!(matches!(
+            plan.steps[0].action,
+            Some(InstallStepAction::PipInstall { .. })
+        ));
+    }
+
+    #[test]
+    fn planner_accepts_normalized_dcc_aliases() {
+        let entries = vec![catalog_entry("dcc-mcp-3dsmax", &["3dsmax"], None)];
+        let plan = InstallPlanner::plan(
+            &entries,
+            InstallRequest {
+                dcc_type: "3ds Max".into(),
+                version: None,
+                catalog_path: None,
+                python: None,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(plan.adapter.name, "dcc-mcp-3dsmax");
+    }
 }

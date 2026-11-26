@@ -2,9 +2,15 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use anyhow::{Context, anyhow};
-use clap::Parser;
-use serde_json::Value;
+use anyhow::Context;
+#[cfg(test)]
+use base64::Engine;
+use clap::{Parser, Subcommand, ValueEnum};
+use dcc_mcp_client::McpHttpClient;
+use dcc_mcp_skills::validator::IssueSeverity;
+use dcc_mcp_skills::{SkillValidationReport, validate_skill_dir};
+use serde::Serialize;
+use serde_json::{Map, Value, json};
 
 use super::output::{ExitCode, OutputFormat, OutputWriter, failure_envelope, to_json};
 use super::update_maintenance::UpdateMaintenance;
@@ -16,7 +22,9 @@ use crate::application::call_attribution::{
 use crate::application::capabilities_result;
 use crate::application::client::DccMcpClient;
 use crate::application::control_plane::DccControlPlane;
-use crate::application::doctor::{DoctorContext, run_doctor};
+use crate::application::dcc_discovery::discover_dcc_installations;
+use crate::application::doctor::{DoctorRequest, run_doctor};
+use crate::application::gateway_ctrl;
 use crate::application::gateway_ensure;
 use crate::application::gateway_profile;
 use crate::application::host_capabilities::CapabilitiesCommand;
@@ -73,7 +81,7 @@ const DEFAULT_WAIT_READY_TIMEOUT_SECS: u64 = 30;
 const DEFAULT_START_INSTANCE_TIMEOUT_SECS: u64 = 300;
 
 #[derive(Debug, Parser)]
-#[command(name = "dcc-mcp-cli", about, version)]
+#[command(name = "dccmcp", about, version)]
 pub struct Args {
     #[arg(long, global = true, env = "DCC_MCP_BASE_URL")]
     base_url: Option<String>,
@@ -175,18 +183,324 @@ impl Args {
     }
 }
 
-pub async fn run() -> anyhow::Result<()> {
-    // Parse before any update side effect, even when this library entrypoint is
-    // called directly instead of through the executable's read-only gate.
-    let args =
-        Args::try_parse_annotated_from(std::env::args_os()).unwrap_or_else(|error| error.exit());
-    if UpdateMaintenance::from_skip_flag(args.no_update_maintenance)
-        .run(apply_staged_update)
-        .unwrap_or(false)
-    {
-        return restart_after_update();
-    }
-    run_with_args(args).await
+// clap keeps flattened command arguments by value; this parser enum is short-lived.
+#[allow(clippy::large_enum_variant)]
+#[derive(Debug, Subcommand)]
+enum Command {
+    /// Run health + MCP + REST smoke checks against a service.
+    Smoke {
+        /// MCP URL or base URL. Accepts either http://host:port or http://host:port/mcp.
+        #[arg(long)]
+        url: Option<String>,
+        /// Query used for the REST dynamic-capability search check.
+        #[arg(long, default_value = "sphere")]
+        query: String,
+        /// Result limit used for the REST dynamic-capability search check.
+        #[arg(long, default_value = "5")]
+        limit: usize,
+        /// Per-request timeout for smoke checks.
+        #[arg(long, default_value = "5")]
+        timeout_secs: u64,
+    },
+    /// Check the configured gateway or per-DCC REST endpoint.
+    Health,
+    /// Query persisted gateway tool-call statistics with composable filters.
+    Stats {
+        /// Time window: 1h, 24h, 7d, or all.
+        #[arg(long, default_value = "all", value_parser = ["1h", "24h", "7d", "all"])]
+        range: String,
+        #[arg(long)]
+        dcc_type: Option<String>,
+        #[arg(long)]
+        skill: Option<String>,
+        #[arg(long)]
+        tool: Option<String>,
+        #[arg(long, value_parser = ["success", "failure"])]
+        status: Option<String>,
+        #[arg(long)]
+        instance_id: Option<String>,
+        #[arg(long)]
+        session_id: Option<String>,
+    },
+    /// Report local defaults and startup diagnostics without launching services.
+    Doctor {
+        /// FileRegistry directory to inspect. Defaults to core's shared registry path.
+        #[arg(long)]
+        registry_dir: Option<PathBuf>,
+        /// Gateway host to probe without starting it.
+        #[arg(long, default_value = "127.0.0.1")]
+        gateway_host: String,
+        /// Gateway port to probe without starting it.
+        #[arg(long, default_value = "9765")]
+        gateway_port: u16,
+    },
+    /// List live DCC instances from the local registry or selected gateway profile.
+    List,
+    /// List adapter-backed DCC types from the release catalog.
+    DccTypes {
+        /// Read a custom adapter catalog instead of the release catalog.
+        #[arg(long, env = "DCC_MCP_CATALOG_PATH")]
+        catalog: Option<PathBuf>,
+    },
+    /// Detect locally installed DCC applications without launching them.
+    Discover {
+        /// Optional DCC type or human alias to filter, such as `maya` or `3ds Max`.
+        #[arg(long)]
+        dcc_type: Option<String>,
+        /// Additional roots to scan. Repeat for local or mounted volumes.
+        #[arg(long = "path")]
+        paths: Vec<PathBuf>,
+    },
+    /// Search callable tools through local MCP or the selected gateway profile.
+    Search {
+        #[arg(long)]
+        query: Option<String>,
+        #[arg(long)]
+        dcc_type: Option<String>,
+        /// Filter to a full instance UUID or unique >=4-character prefix.
+        #[arg(long)]
+        instance_id: Option<String>,
+        #[arg(long)]
+        limit: Option<usize>,
+    },
+    /// Describe one tool slug.
+    Describe { tool_slug: String },
+    /// Load a skill on a local or gateway-managed DCC instance.
+    LoadSkill {
+        #[arg(value_name = "SKILL_NAME")]
+        skill_name: Option<String>,
+        #[arg(long)]
+        dcc_type: Option<String>,
+        #[arg(long)]
+        dcc: Option<String>,
+        #[arg(long)]
+        instance_id: Option<String>,
+        #[arg(long, value_name = "BOOL")]
+        activate_groups: Option<bool>,
+        #[arg(long = "json")]
+        request_json: Option<String>,
+    },
+    /// Invoke one tool slug, or an ordered batch with --batch.
+    Call {
+        #[arg(value_name = "TOOL_SLUG", required_unless_present = "batch")]
+        tool_slug: Option<String>,
+        /// Invoke an ordered gateway batch instead of one tool.
+        #[arg(
+            long,
+            conflicts_with_all = ["tool_slug", "dcc_type", "instance_id", "meta_json"]
+        )]
+        batch: bool,
+        /// JSON array of batch call steps. Requires --batch.
+        #[arg(long, value_name = "JSON", requires = "batch", conflicts_with_all = ["arguments_json", "json_file"])]
+        steps: Option<String>,
+        /// DCC type for direct backend-tool calls without a dotted gateway slug.
+        #[arg(long)]
+        dcc_type: Option<String>,
+        /// Full instance UUID or unique >=4-character prefix for direct calls.
+        #[arg(long)]
+        instance_id: Option<String>,
+        #[arg(long = "json", default_value = "{}")]
+        arguments_json: String,
+        /// Read call arguments from a UTF-8 JSON file, or '-' for stdin.
+        #[arg(long, value_name = "PATH", conflicts_with = "arguments_json")]
+        json_file: Option<PathBuf>,
+        #[arg(long)]
+        meta_json: Option<String>,
+        /// Per-request timeout for the tool call. Increase for renders and other long-running sync tools.
+        #[arg(long, env = "DCC_MCP_CLI_CALL_TIMEOUT_SECS", default_value = "30")]
+        timeout_secs: u64,
+    },
+    /// Compatibility alias for `call --batch`.
+    #[command(hide = true)]
+    CallBatch {
+        /// JSON object containing `calls` and optional `stop_on_error`.
+        #[arg(long = "json", default_value = "{\"calls\":[]}")]
+        request_json: String,
+        /// Read the batch request from a UTF-8 JSON file, or '-' for stdin.
+        #[arg(long, value_name = "PATH", conflicts_with = "request_json")]
+        json_file: Option<PathBuf>,
+        #[arg(long, env = "DCC_MCP_CLI_CALL_TIMEOUT_SECS", default_value = "30")]
+        timeout_secs: u64,
+    },
+    /// Run the scoped DCC UI Control fallback through stable app-ui tools.
+    UiControl {
+        #[command(subcommand)]
+        action: UiControlAction,
+    },
+    /// Wait until a local or gateway-managed instance reports readiness bits.
+    WaitReady {
+        #[arg(long)]
+        dcc_type: Option<String>,
+        #[arg(long)]
+        instance_id: Option<String>,
+        #[arg(long, value_delimiter = ',')]
+        require: Vec<String>,
+        #[arg(long, default_value = "30")]
+        timeout_secs: u64,
+        #[arg(long, default_value = "1")]
+        interval_secs: u64,
+    },
+    /// Ask running DCC instances to re-scan installed skill paths.
+    ReloadSkills {
+        #[arg(long)]
+        dcc_type: Option<String>,
+        /// Full instance UUID or unique >=4-character prefix.
+        #[arg(long)]
+        instance_id: Option<String>,
+    },
+    /// Ask a test-owned instance to stop through its advertised safe-stop hook.
+    StopInstance {
+        #[arg(long)]
+        dcc_type: String,
+        #[arg(long)]
+        instance_id: String,
+        #[arg(long)]
+        expected_owner: Option<String>,
+        #[arg(long)]
+        expected_session: Option<String>,
+    },
+    /// Build an auditable DCC adapter installation plan.
+    Install {
+        #[arg(long)]
+        dcc_type: String,
+        #[arg(long)]
+        version: Option<String>,
+        #[arg(long, env = "DCC_MCP_CATALOG_PATH")]
+        catalog: Option<PathBuf>,
+        /// Python interpreter used for pip-based adapter package installs.
+        #[arg(long, env = "DCC_MCP_INSTALL_PYTHON")]
+        python: Option<String>,
+        /// Execute the install plan with consent gating.
+        #[arg(long, short = 'x')]
+        execute: bool,
+    },
+    /// Search and manage DCC-MCP marketplace sources.
+    Marketplace {
+        #[command(subcommand)]
+        action: MarketplaceAction,
+    },
+    /// Validate local SKILL.md packages before loading them at runtime.
+    Lint(LintArgs),
+    /// Check for and apply gateway-controlled binary updates.
+    Update {
+        #[command(subcommand)]
+        action: UpdateAction,
+    },
+    /// Gateway lifecycle management.
+    Gateway {
+        #[command(subcommand)]
+        action: Option<GatewayAction>,
+        #[command(flatten)]
+        daemon: dcc_mcp_sidecar::gateway_daemon::GatewayArgs,
+    },
+    /// Use the shared MCP client against any Streamable HTTP endpoint.
+    Mcp {
+        #[command(subcommand)]
+        action: McpAction,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum McpAction {
+    /// Perform the MCP initialize handshake and print the negotiated session.
+    Initialize(McpInitializeArgs),
+    /// Work with MCP tools.
+    Tools {
+        #[command(subcommand)]
+        action: McpToolsAction,
+    },
+    /// Work with MCP resources.
+    Resources {
+        #[command(subcommand)]
+        action: McpResourcesAction,
+    },
+    /// Work with MCP prompts.
+    Prompts {
+        #[command(subcommand)]
+        action: McpPromptsAction,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum McpToolsAction {
+    /// List all tools, following MCP pagination cursors.
+    List(McpConnectionArgs),
+    /// Call one MCP tool by its server-visible name.
+    Call(McpToolCallArgs),
+}
+
+#[derive(Debug, Subcommand)]
+enum McpResourcesAction {
+    /// List all resources, following MCP pagination cursors.
+    List(McpConnectionArgs),
+    /// Read one resource by URI.
+    Read(McpResourceReadArgs),
+}
+
+#[derive(Debug, Subcommand)]
+enum McpPromptsAction {
+    /// List all prompts, following MCP pagination cursors.
+    List(McpConnectionArgs),
+    /// Render one prompt with JSON arguments.
+    Get(McpPromptGetArgs),
+}
+
+#[derive(Debug, Clone, clap::Args)]
+struct McpConnectionArgs {
+    /// MCP endpoint, for example http://127.0.0.1:9765/mcp.
+    #[arg(long, env = "DCC_MCP_MCP_URL")]
+    url: Option<String>,
+    /// Timeout for each HTTP request.
+    #[arg(long, default_value = "30")]
+    timeout_secs: u64,
+}
+
+#[derive(Debug, Clone, clap::Args)]
+struct McpInitializeArgs {
+    #[command(flatten)]
+    connection: McpConnectionArgs,
+    /// Client name advertised in initialize.
+    #[arg(long, default_value = "dccmcp")]
+    client_name: String,
+    /// Client version advertised in initialize.
+    #[arg(long, default_value = env!("CARGO_PKG_VERSION"))]
+    client_version: String,
+}
+
+#[derive(Debug, Clone, clap::Args)]
+struct McpToolCallArgs {
+    #[command(flatten)]
+    connection: McpConnectionArgs,
+    /// Server-visible MCP tool name.
+    #[arg(long)]
+    name: String,
+    /// JSON object passed as MCP tool arguments.
+    #[arg(long = "json", default_value = "{}")]
+    arguments_json: String,
+    /// Optional JSON object passed as MCP `_meta`.
+    #[arg(long)]
+    meta_json: Option<String>,
+}
+
+#[derive(Debug, Clone, clap::Args)]
+struct McpResourceReadArgs {
+    #[command(flatten)]
+    connection: McpConnectionArgs,
+    /// Resource URI.
+    #[arg(long)]
+    uri: String,
+}
+
+#[derive(Debug, Clone, clap::Args)]
+struct McpPromptGetArgs {
+    #[command(flatten)]
+    connection: McpConnectionArgs,
+    /// Prompt name.
+    #[arg(long)]
+    name: String,
+    /// JSON object containing prompt argument values.
+    #[arg(long = "arguments-json", default_value = "{}")]
+    arguments_json: String,
 }
 
 fn apply_staged_update() -> bool {
@@ -224,21 +538,246 @@ fn refresh_marker_after_update() -> anyhow::Result<()> {
     crate::application::package_manager::record_self_updated_size(&executable)
 }
 
-/// Parse repeatable `--adapter-python <dcc_type>=<python>` values.
-fn parse_adapter_python(raw: &[String]) -> anyhow::Result<BTreeMap<String, PathBuf>> {
-    let mut parsed = BTreeMap::new();
-    for entry in raw {
-        let (dcc_type, python) = entry.split_once('=').context(
-            "--adapter-python expects <dcc_type>=<python>, e.g. maya=/usr/autodesk/maya2026/bin/mayapy",
-        )?;
-        let dcc_type = dcc_type.trim();
-        let python = python.trim();
-        if dcc_type.is_empty() || python.is_empty() {
-            anyhow::bail!(
-                "--adapter-python expects <dcc_type>=<python> with both sides non-empty, got '{entry}'"
-            );
-        }
-        parsed.insert(dcc_type.to_ascii_lowercase(), PathBuf::from(python));
+#[derive(Debug, Subcommand)]
+enum MarketplaceAction {
+    /// Add a marketplace source (raw URL, local file, or GitHub owner/repo).
+    Add {
+        #[arg(value_name = "SOURCE")]
+        source: String,
+    },
+    /// List configured marketplace sources.
+    List,
+    /// Search marketplace entries across configured sources.
+    Search {
+        #[arg(long)]
+        query: Option<String>,
+        #[arg(long)]
+        dcc: Option<String>,
+        /// Use this source for the query instead of configured sources.
+        #[arg(long = "source")]
+        sources: Vec<String>,
+        #[arg(long)]
+        limit: Option<usize>,
+        /// Bypass JSON Schema validation of marketplace entries.
+        #[arg(long)]
+        skip_validation: bool,
+    },
+    /// Inspect one marketplace entry by exact name.
+    Inspect {
+        name: String,
+        /// Use this source for the query instead of configured sources.
+        #[arg(long = "source")]
+        sources: Vec<String>,
+        /// Bypass JSON Schema validation of marketplace entries.
+        #[arg(long)]
+        skip_validation: bool,
+    },
+    /// Install a marketplace skill package to the local marketplace root.
+    Install {
+        name: String,
+        #[arg(long)]
+        dcc: Option<String>,
+        /// Use this source for the query instead of configured sources.
+        #[arg(long = "source")]
+        sources: Vec<String>,
+        /// Replace an existing installed package.
+        #[arg(long)]
+        force: bool,
+        /// Bypass JSON Schema validation of marketplace entries.
+        #[arg(long)]
+        skip_validation: bool,
+    },
+    /// Remove an installed marketplace skill package.
+    Uninstall {
+        name: String,
+        #[arg(long)]
+        dcc: String,
+    },
+    /// List installed marketplace skill packages.
+    ListInstalled {
+        #[arg(long)]
+        dcc: Option<String>,
+    },
+    /// List installed packages that have newer versions in the catalog.
+    Outdated {
+        #[arg(long)]
+        dcc: Option<String>,
+        /// Only check these package names.
+        #[arg(value_name = "NAME")]
+        names: Vec<String>,
+    },
+    /// Upgrade installed marketplace packages to the latest catalog version.
+    Update {
+        /// Upgrade a specific package by name.
+        name: Option<String>,
+        /// Upgrade all outdated packages.
+        #[arg(long, short = 'a')]
+        all: bool,
+        /// Filter to installed packages for this DCC.
+        #[arg(long)]
+        dcc: Option<String>,
+    },
+    /// Install a skill directly from a GitHub repo (no marketplace.json needed).
+    ///
+    /// Clones the repo, discovers SKILL.md files, and installs to the
+    /// marketplace root. Supports owner/repo, full URL, and @subpath syntax.
+    AddRepo {
+        /// GitHub owner/repo, full URL, or owner/repo@subpath.
+        repo_ref: String,
+        /// Override the DCC type (required when SKILL.md doesn't declare one).
+        #[arg(long)]
+        dcc: Option<String>,
+        /// List available skills in the repo without installing.
+        #[arg(long)]
+        list: bool,
+        /// Replace an existing installation.
+        #[arg(long)]
+        force: bool,
+    },
+    /// Create a zip package and SHA-256 digest for a local marketplace package.
+    Pack(marketplace_cmd::MarketplacePackArgs),
+    /// Upsert a package entry into a local marketplace.json catalog.
+    Publish(Box<marketplace_cmd::MarketplacePublishArgs>),
+}
+
+#[derive(Debug, clap::Args)]
+struct LintArgs {
+    /// Skill directory or directory tree to scan.
+    #[arg(value_name = "PATH", required = true)]
+    paths: Vec<PathBuf>,
+
+    /// Maximum recursion depth below each PATH.
+    #[arg(long, default_value = "2")]
+    max_depth: usize,
+
+    /// Exit non-zero when warnings are present.
+    #[arg(long, default_value = "false")]
+    warnings_as_errors: bool,
+}
+
+#[derive(Debug, Subcommand)]
+enum UpdateAction {
+    /// Check whether a newer version is available.
+    Check {
+        /// Binary name to check in the gateway update manifest.
+        #[arg(long)]
+        binary: Option<String>,
+        /// Current version to compare against. Defaults to this CLI version.
+        #[arg(long)]
+        current_version: Option<String>,
+    },
+    /// Download the latest CLI version and stage it for the next launch.
+    Apply,
+}
+
+#[derive(Debug, Clone, clap::Args)]
+struct GatewayStartArgs {
+    #[arg(long, default_value = "127.0.0.1")]
+    host: String,
+    #[arg(long, default_value = "9765")]
+    port: u16,
+    #[arg(long)]
+    name: Option<String>,
+    #[arg(long)]
+    registry_dir: Option<PathBuf>,
+    #[arg(long, default_value = "0.0.0.0")]
+    remote_host: String,
+    #[arg(long, default_value = "59765")]
+    remote_port: u16,
+    #[arg(long, default_value = "0")]
+    gateway_idle_timeout_secs: u64,
+    #[arg(long)]
+    gateway_bin: Option<PathBuf>,
+    #[arg(long, default_value = "30")]
+    wait_timeout_secs: u64,
+}
+
+#[derive(Debug, Clone, clap::Args)]
+struct GatewayStopArgs {
+    #[arg(long, default_value = "127.0.0.1")]
+    host: String,
+    #[arg(long, default_value = "9765")]
+    port: u16,
+    #[arg(long)]
+    registry_dir: Option<PathBuf>,
+    #[arg(long, default_value = "10")]
+    wait_timeout_secs: u64,
+}
+
+#[derive(Debug, Clone, clap::Args)]
+struct GatewayStatusArgs {
+    #[arg(long, default_value = "127.0.0.1")]
+    host: String,
+    #[arg(long, default_value = "9765")]
+    port: u16,
+    #[arg(long)]
+    registry_dir: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, clap::Args)]
+struct GatewayRestartArgs {
+    #[command(flatten)]
+    start: GatewayStartArgs,
+    #[arg(long, default_value = "10")]
+    stop_timeout_secs: u64,
+}
+
+#[derive(Debug, Subcommand)]
+enum GatewayAction {
+    /// Register a named remote gateway profile.
+    Register {
+        /// Gateway base URL, for example https://workstation.example:19293.
+        url: String,
+        /// Profile name to store.
+        #[arg(long)]
+        name: String,
+    },
+    /// List configured remote gateway profiles and the active selection.
+    List,
+    /// Select the active gateway profile (`local` switches back to local mode).
+    Set {
+        /// Profile name, or `local`.
+        name: String,
+    },
+    /// Manage the local machine-wide gateway daemon.
+    Daemon {
+        #[command(subcommand)]
+        action: GatewayDaemonAction,
+    },
+    /// Check gateway reachability; launch if it is not already running.
+    Ensure(GatewayStartArgs),
+    /// Start the gateway (alias for ensure with pidfile tracking).
+    Start(GatewayStartArgs),
+    /// Stop the running gateway (PID from pidfile).
+    Stop(GatewayStopArgs),
+    /// Query gateway health and process status.
+    Status(GatewayStatusArgs),
+}
+
+#[derive(Debug, Subcommand)]
+enum GatewayDaemonAction {
+    /// Start the gateway daemon.
+    Start(GatewayStartArgs),
+    /// Restart the gateway daemon using pidfile-based stop/start.
+    Restart(GatewayRestartArgs),
+    /// Stop the gateway daemon.
+    Stop(GatewayStopArgs),
+    /// Query gateway daemon health and PID status.
+    Status(GatewayStatusArgs),
+}
+
+pub async fn run() -> anyhow::Result<()> {
+    apply_staged_update();
+    run_with_args(Args::parse()).await
+}
+
+fn apply_staged_update() {
+    // Apply any staged binary update before running commands (CLI restart
+    // is the user's next invocation after `update apply`).
+    match dcc_mcp_updater::Updater::apply_staged_update(runtime_cli_name()) {
+        Ok(true) => eprintln!("info: staged binary update applied"),
+        Ok(false) => { /* no update was staged */ }
+        Err(e) => eprintln!("warning: failed to apply staged binary update: {e}"),
     }
     Ok(parsed)
 }
@@ -264,6 +803,19 @@ fn command_shows_maintenance(command: &Command, requested: bool) -> bool {
                 | Command::Capabilities { .. }
                 | Command::DescribeCapabilities { .. }
         )
+}
+
+pub(crate) fn runtime_cli_name() -> &'static str {
+    let name = std::env::current_exe().ok().and_then(|path| {
+        path.file_stem()
+            .and_then(|name| name.to_str())
+            .map(str::to_owned)
+    });
+    match name.as_deref() {
+        Some("dcc-mcp-cli") => "dcc-mcp-cli",
+        Some("dccmcp") => "dccmcp",
+        _ => "dccmcp",
+    }
 }
 
 async fn run_with_args(args: Args) -> anyhow::Result<()> {
@@ -516,6 +1068,9 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                 project.as_deref(),
             )
             .await?
+        }
+        Command::Discover { dcc_type, paths } => {
+            to_json(discover_dcc_installations(dcc_type.as_deref(), &paths))?
         }
         Command::Search {
             query,
@@ -1076,21 +1631,34 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
             }
             result.value
         }
-        Command::Lint(lint_args) => {
-            let result = lint::run_lint_cmd(&lint_args).await?;
-            failed = result.failed;
-            if failed {
-                exit_code = ExitCode::InvalidInput;
+        Command::Update { action } => match action {
+            UpdateAction::Check {
+                binary,
+                current_version,
+            } => {
+                let binary_name = binary.unwrap_or_else(|| runtime_cli_name().to_string());
+                let current_version =
+                    current_version.unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_string());
+                let service = crate::application::update::UpdateService::new(
+                    &base_url,
+                    &binary_name,
+                    &current_version,
+                );
+                let value = service.check_update().await?;
+                if value.get("error").is_some() {
+                    failed = true;
+                }
+                to_json(value)?
             }
-            result.value
-        }
-        Command::Components { action } => super::components_cmd::run(action).await?,
-        Command::Update { action } => {
-            let result = super::update_cmd::run(&base_url, action).await?;
-            failed = result.failed;
-            exit_code = result.exit_code;
-            result.value
-        }
+            UpdateAction::Apply => {
+                let service = crate::application::update::UpdateService::new(
+                    &base_url,
+                    runtime_cli_name(),
+                    env!("CARGO_PKG_VERSION"),
+                );
+                to_json(service.apply_update().await?)?
+            }
+        },
         Command::Gateway { action, daemon } => {
             if let Some(action) = action {
                 to_json(run_gateway_cmd(&base_url, action, &profile_path).await?)?
@@ -1103,21 +1671,433 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                 return Ok(());
             }
         }
+        Command::Mcp { action } => run_mcp_cmd(action, &base_url).await?,
     };
 
-    if let Some(marketplace_update_check) = marketplace_update_check
-        && let Ok(Ok(Some(updates))) =
-            tokio::time::timeout(Duration::from_millis(750), marketplace_update_check).await
-    {
-        if let Some(object) = value.as_object_mut() {
-            object.insert(
-                "marketplace_updates".into(),
-                serde_json::json!(updates.clone()),
+    print_value(&value, output)?;
+    if failed {
+        std::process::exit(1);
+    }
+    Ok(())
+}
+
+async fn run_mcp_cmd(action: McpAction, default_base_url: &str) -> anyhow::Result<Value> {
+    match action {
+        McpAction::Initialize(args) => {
+            let mut client = new_mcp_client(&args.connection, default_base_url)?
+                .with_client_info(args.client_name, args.client_version);
+            to_json(client.initialize().await?)
+        }
+        McpAction::Tools { action } => match action {
+            McpToolsAction::List(args) => {
+                let mut client = new_mcp_client(&args, default_base_url)?;
+                let tools = client.tools_list_all().await?;
+                Ok(json!({
+                    "count": tools.len(),
+                    "tools": tools,
+                }))
+            }
+            McpToolsAction::Call(args) => {
+                let arguments = parse_json_object(&args.arguments_json, "--json")?;
+                let meta = args
+                    .meta_json
+                    .as_deref()
+                    .map(|raw| parse_json_object(raw, "--meta"))
+                    .transpose()?;
+                let mut client = new_mcp_client(&args.connection, default_base_url)?;
+                to_json(client.tools_call(args.name, arguments, meta).await?)
+            }
+        },
+        McpAction::Resources { action } => match action {
+            McpResourcesAction::List(args) => {
+                let mut client = new_mcp_client(&args, default_base_url)?;
+                let resources = client.resources_list_all().await?;
+                Ok(json!({
+                    "count": resources.len(),
+                    "resources": resources,
+                }))
+            }
+            McpResourcesAction::Read(args) => {
+                let mut client = new_mcp_client(&args.connection, default_base_url)?;
+                to_json(client.resources_read(args.uri).await?)
+            }
+        },
+        McpAction::Prompts { action } => match action {
+            McpPromptsAction::List(args) => {
+                let mut client = new_mcp_client(&args, default_base_url)?;
+                let prompts = client.prompts_list_all().await?;
+                Ok(json!({
+                    "count": prompts.len(),
+                    "prompts": prompts,
+                }))
+            }
+            McpPromptsAction::Get(args) => {
+                let arguments = parse_json_object(&args.arguments_json, "--arguments-json")?
+                    .as_object()
+                    .cloned()
+                    .context("--arguments-json must be a JSON object")?;
+                let mut client = new_mcp_client(&args.connection, default_base_url)?;
+                to_json(client.prompts_get(args.name, arguments).await?)
+            }
+        },
+    }
+}
+
+fn new_mcp_client(
+    connection: &McpConnectionArgs,
+    default_base_url: &str,
+) -> anyhow::Result<McpHttpClient> {
+    let raw_url = connection.url.as_deref().unwrap_or(default_base_url);
+    let mcp_url = endpoint_for_mcp(raw_url);
+    Ok(McpHttpClient::with_timeout(
+        mcp_url,
+        Duration::from_secs(connection.timeout_secs.max(1)),
+    )?)
+}
+
+struct LintCommandResult {
+    value: Value,
+    failed: bool,
+}
+
+fn collect_skill_dirs(
+    root: &std::path::Path,
+    out: &mut BTreeSet<PathBuf>,
+    max_depth: usize,
+) -> anyhow::Result<()> {
+    collect_skill_dirs_at(root, out, max_depth, 0)
+}
+
+fn collect_skill_dirs_at(
+    root: &std::path::Path,
+    out: &mut BTreeSet<PathBuf>,
+    max_depth: usize,
+    depth: usize,
+) -> anyhow::Result<()> {
+    if root.join("SKILL.md").is_file() {
+        out.insert(root.to_path_buf());
+        return Ok(());
+    }
+
+    if !root.is_dir() {
+        anyhow::bail!(
+            "skill lint path does not exist or is not a directory: {}",
+            root.display()
+        );
+    }
+    if depth >= max_depth {
+        return Ok(());
+    }
+
+    let entries = std::fs::read_dir(root).map_err(|err| {
+        anyhow::anyhow!("cannot read skill lint path '{}': {err}", root.display())
+    })?;
+    for entry in entries {
+        let entry = entry?;
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if name.starts_with('.') || name == "node_modules" || name == "target" {
+            continue;
+        }
+        collect_skill_dirs_at(&path, out, max_depth, depth + 1)?;
+    }
+    Ok(())
+}
+
+fn issue_severity_label(severity: IssueSeverity) -> &'static str {
+    match severity {
+        IssueSeverity::Error => "error",
+        IssueSeverity::Warning => "warning",
+    }
+}
+
+fn lint_report_to_json(report: &SkillValidationReport) -> Value {
+    let (errors, warnings) = report.counts();
+    let issues: Vec<_> = report
+        .issues
+        .iter()
+        .map(|issue| {
+            serde_json::json!({
+                "severity": issue_severity_label(issue.severity),
+                "category": format!("{:?}", issue.category),
+                "message": issue.message,
+            })
+        })
+        .collect();
+    serde_json::json!({
+        "skill_dir": report.skill_dir.display().to_string(),
+        "errors": errors,
+        "warnings": warnings,
+        "issues": issues,
+    })
+}
+
+fn run_lint_cmd(args: &LintArgs) -> anyhow::Result<LintCommandResult> {
+    let mut skill_dirs = BTreeSet::new();
+    for root in &args.paths {
+        collect_skill_dirs(root, &mut skill_dirs, args.max_depth)?;
+    }
+
+    let reports: Vec<_> = skill_dirs
+        .iter()
+        .map(|skill_dir| validate_skill_dir(skill_dir))
+        .collect();
+    let (errors, warnings) = reports.iter().fold((0, 0), |(e_acc, w_acc), report| {
+        let (errors, warnings) = report.counts();
+        (e_acc + errors, w_acc + warnings)
+    });
+    let failed = errors > 0 || (args.warnings_as_errors && warnings > 0);
+    let reports_json: Vec<_> = reports.iter().map(lint_report_to_json).collect();
+    let value = serde_json::json!({
+        "checked": reports.len(),
+        "errors": errors,
+        "warnings": warnings,
+        "failed": failed,
+        "reports": reports_json,
+    });
+
+    Ok(LintCommandResult { value, failed })
+}
+
+async fn ensure_gateway_for_command(
+    base_url: &str,
+    command: &Command,
+    gateway_target: &GatewayTarget,
+    gateway_bin: Option<PathBuf>,
+    wait_timeout_secs: u64,
+) -> anyhow::Result<()> {
+    let Some(endpoint) = gateway_endpoint_for_command(base_url, command, gateway_target) else {
+        return Ok(());
+    };
+    let Some(result) =
+        gateway_ctrl::ensure_local_gateway_for_endpoint(&endpoint, gateway_bin, wait_timeout_secs)
+            .await?
+    else {
+        return Ok(());
+    };
+
+    if !result.already_running {
+        if let Some(pid) = result.pid {
+            eprintln!(
+                "info: auto-started gateway at http://{}:{} (pid {pid})",
+                result.host, result.port
+            );
+        } else {
+            eprintln!(
+                "info: auto-started gateway at http://{}:{}",
+                result.host, result.port
             );
         }
-        eprintln!(
-            "info: marketplace updates available for {}. Review and run `dcc-mcp-cli marketplace update` after confirmation.",
-            updates.join(", ")
+    }
+    Ok(())
+}
+
+fn gateway_endpoint_for_command(
+    base_url: &str,
+    command: &Command,
+    _gateway_target: &GatewayTarget,
+) -> Option<Endpoint> {
+    match command {
+        Command::Smoke { url: None, .. } => Some(Endpoint::new(base_url)),
+        Command::Smoke { url: Some(_), .. } => None,
+        Command::Health | Command::Stats { .. } | Command::Update { .. } => {
+            Some(Endpoint::new(base_url))
+        }
+        Command::Doctor { .. } | Command::DccTypes { .. } | Command::Discover { .. } => None,
+        Command::List
+        | Command::Search { .. }
+        | Command::Describe { .. }
+        | Command::LoadSkill { .. }
+        | Command::Call { .. }
+        | Command::CallBatch { .. }
+        | Command::UiControl { .. }
+        | Command::WaitReady { .. }
+        | Command::ReloadSkills { .. }
+        | Command::StopInstance { .. } => Some(Endpoint::new(base_url)),
+        Command::Mcp { action } if mcp_action_url(action).is_none() => {
+            Some(Endpoint::new(base_url))
+        }
+        Command::Mcp { .. } => None,
+        // Local mode still executes these commands through FileRegistry/direct
+        // MCP where that is the richer path, but the CLI owns gateway
+        // lifecycle by default so agents can rely on the admin/control plane.
+        Command::Install { .. }
+        | Command::Marketplace { .. }
+        | Command::Lint(_)
+        | Command::Gateway { .. } => None,
+    }
+}
+
+fn mcp_action_url(action: &McpAction) -> Option<&str> {
+    match action {
+        McpAction::Initialize(args) => args.connection.url.as_deref(),
+        McpAction::Tools { action } => match action {
+            McpToolsAction::List(args) => args.url.as_deref(),
+            McpToolsAction::Call(args) => args.connection.url.as_deref(),
+        },
+        McpAction::Resources { action } => match action {
+            McpResourcesAction::List(args) => args.url.as_deref(),
+            McpResourcesAction::Read(args) => args.connection.url.as_deref(),
+        },
+        McpAction::Prompts { action } => match action {
+            McpPromptsAction::List(args) => args.url.as_deref(),
+            McpPromptsAction::Get(args) => args.connection.url.as_deref(),
+        },
+    }
+}
+
+async fn run_gateway_cmd(
+    _base_url: &str,
+    action: GatewayAction,
+    profile_path: &std::path::Path,
+) -> anyhow::Result<Value> {
+    match action {
+        GatewayAction::Register { url, name } => {
+            gateway_profile::register_profile(profile_path, name, url)
+        }
+        GatewayAction::List => gateway_profile::list_profiles(profile_path),
+        GatewayAction::Set { name } => gateway_profile::set_current_profile(profile_path, name),
+        GatewayAction::Daemon { action } => {
+            gateway_ctrl::run_gateway_daemon(gateway_daemon_request(action)).await
+        }
+        GatewayAction::Ensure(args) => {
+            let request = gateway_ctrl::GatewayDaemonStartRequest::from(args);
+            let reg = request
+                .registry_dir
+                .clone()
+                .unwrap_or_else(gateway_ensure::default_registry_dir);
+            let args = gateway_ensure::EnsureGatewayArgs {
+                host: request.host,
+                port: request.port,
+                name: request.name,
+                registry_dir: reg,
+                remote_host: request.remote_host,
+                remote_port: request.remote_port,
+                gateway_idle_timeout_secs: request.gateway_idle_timeout_secs,
+                gateway_bin: request.gateway_bin,
+                wait_timeout_secs: request.wait_timeout_secs,
+                pidfile: None,
+            };
+            let result = gateway_ensure::ensure_gateway_running(&args).await?;
+            Ok(serde_json::to_value(result)?)
+        }
+        GatewayAction::Start(args) => {
+            gateway_ctrl::run_gateway_daemon(gateway_ctrl::GatewayDaemonRequest::Start(args.into()))
+                .await
+        }
+        GatewayAction::Stop(args) => {
+            gateway_ctrl::run_gateway_daemon(gateway_ctrl::GatewayDaemonRequest::Stop(args.into()))
+                .await
+        }
+        GatewayAction::Status(args) => {
+            gateway_ctrl::run_gateway_daemon(gateway_ctrl::GatewayDaemonRequest::Status(
+                args.into(),
+            ))
+            .await
+        }
+    }
+}
+
+fn gateway_daemon_request(action: GatewayDaemonAction) -> gateway_ctrl::GatewayDaemonRequest {
+    match action {
+        GatewayDaemonAction::Start(args) => gateway_ctrl::GatewayDaemonRequest::Start(args.into()),
+        GatewayDaemonAction::Restart(args) => gateway_ctrl::GatewayDaemonRequest::Restart {
+            start: args.start.into(),
+            stop_timeout_secs: args.stop_timeout_secs,
+        },
+        GatewayDaemonAction::Stop(args) => gateway_ctrl::GatewayDaemonRequest::Stop(args.into()),
+        GatewayDaemonAction::Status(args) => {
+            gateway_ctrl::GatewayDaemonRequest::Status(args.into())
+        }
+    }
+}
+
+impl From<GatewayStartArgs> for gateway_ctrl::GatewayDaemonStartRequest {
+    fn from(args: GatewayStartArgs) -> Self {
+        Self {
+            host: args.host,
+            port: args.port,
+            name: args.name,
+            registry_dir: args.registry_dir,
+            remote_host: args.remote_host,
+            remote_port: args.remote_port,
+            gateway_idle_timeout_secs: args.gateway_idle_timeout_secs,
+            gateway_bin: args.gateway_bin,
+            wait_timeout_secs: args.wait_timeout_secs,
+        }
+    }
+}
+
+impl From<GatewayStopArgs> for gateway_ctrl::GatewayDaemonStopRequest {
+    fn from(args: GatewayStopArgs) -> Self {
+        Self {
+            host: args.host,
+            port: args.port,
+            registry_dir: args.registry_dir,
+            wait_timeout_secs: args.wait_timeout_secs,
+        }
+    }
+}
+
+impl From<GatewayStatusArgs> for gateway_ctrl::GatewayDaemonStatusRequest {
+    fn from(args: GatewayStatusArgs) -> Self {
+        Self {
+            host: args.host,
+            port: args.port,
+            registry_dir: args.registry_dir,
+        }
+    }
+}
+
+fn parse_json_object(raw: &str, flag_name: &str) -> anyhow::Result<Value> {
+    let value: Value =
+        serde_json::from_str(raw).with_context(|| format!("{flag_name} must be valid JSON"))?;
+    if value.is_object() {
+        Ok(value)
+    } else {
+        anyhow::bail!("{flag_name} must be a JSON object")
+    }
+}
+
+fn read_call_arguments(raw: &str, json_file: Option<&std::path::Path>) -> anyhow::Result<Value> {
+    let Some(path) = json_file else {
+        return parse_json_object(raw, "--json");
+    };
+    let contents = if path == std::path::Path::new("-") {
+        let mut input = String::new();
+        std::io::stdin()
+            .read_to_string(&mut input)
+            .context("failed to read --json-file - from stdin")?;
+        input
+    } else {
+        std::fs::read_to_string(path)
+            .with_context(|| format!("failed to read --json-file {}", path.display()))?
+    };
+    parse_json_object(&contents, "--json-file")
+}
+
+fn read_batch_request(
+    raw: &str,
+    steps: Option<&str>,
+    json_file: Option<&std::path::Path>,
+) -> anyhow::Result<Value> {
+    if let Some(raw_steps) = steps {
+        let calls: Value =
+            serde_json::from_str(raw_steps).context("--steps must be a valid JSON array")?;
+        if !calls.is_array() {
+            anyhow::bail!("--steps must be a JSON array");
+        }
+        return Ok(serde_json::json!({"calls": calls}));
+    }
+
+    let request = read_call_arguments(raw, json_file)?;
+    if request.get("calls").and_then(Value::as_array).is_none() {
+        anyhow::bail!(
+            "call --batch requires --steps JSON_ARRAY or a --json/--json-file object containing calls"
         );
     }
 

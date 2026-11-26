@@ -21,15 +21,9 @@ openclaw skills install @loonghao/dcc-mcp
 npx --yes clawhub@0.23.1 install @loonghao/dcc-mcp
 ```
 
-Substitute a creator slug only for its matching development task. Start a new
-agent turn after installation.
-
-### CLI from the `dcc-mcp` Skill
-
-```bash
-# Run from the installed dcc-mcp Skill directory.
-python scripts/check_cli.py --ensure-cli --pretty
-```
+This installs the standalone `dccmcp` control-plane binary and its
+`dcc-mcp-cli` compatibility alias from the latest GitHub Release. Pin a
+release with `DCC_MCP_VERSION=v0.17.17`.
 
 For agents, obtain user consent before installing or downloading a new binary.
 The bundled helper is fixed to the official `dcc-mcp/dcc-mcp-core` release. It
@@ -66,8 +60,8 @@ Pin a release with `sh ./install-cli.sh --version v0.19.63` or
 Keep an official installation current with:
 
 ```bash
-dcc-mcp-cli update check
-dcc-mcp-cli update          # check, download, and stage in one step
+dccmcp update check
+dccmcp update apply
 ```
 
 Official release builds refresh their cached update status in a detached
@@ -82,8 +76,9 @@ staged bytes and restarts the CLI with the same arguments. It does not replace
 or restart a running `dcc-mcp-server`; update that server in its own
 environment. Set `DCC_MCP_DISABLE_UPDATE_CHECK=1` to disable passive checks.
 
-The CLI is also available as a standalone ZIP archive
-(`dcc-mcp-cli-<version>-<platform>.zip`) from each
+The CLI is also available as standalone ZIP archives
+(`dccmcp-<version>-<platform>.zip` and the compatibility
+`dcc-mcp-cli-<version>-<platform>.zip`) from each
 [GitHub Release](https://github.com/dcc-mcp/dcc-mcp-core/releases).
 
 ### MCP Registry

@@ -177,9 +177,9 @@ catalog 明确需要固定宿主 Python 解释器时才使用 `install.python_pa
 再更新 `marketplace.json`：
 
 ```bash
-dcc-mcp-cli marketplace pack . --out dist/
+dccmcp marketplace pack . --out dist/
 gh release upload v0.1.0 dist/my-skill.zip --clobber
-dcc-mcp-cli marketplace publish . \
+dccmcp marketplace publish . \
   --catalog ../marketplace/marketplace.json \
   --install-url https://github.com/<owner>/<repo>/releases/download/v0.1.0/my-skill.zip \
   --sha256 sha256:<digest>
@@ -203,7 +203,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Pack marketplace package
-        run: dcc-mcp-cli marketplace pack . --out dist/
+        run: dccmcp marketplace pack . --out dist/
       - name: Upload release asset
         run: gh release upload "${GITHUB_REF_NAME}" dist/*.zip --clobber
         env:
@@ -346,11 +346,9 @@ Marketplace 面板反映与 CLI 相同的来源配置。来源管理功能通过
 | 更新 | `marketplace update [name] --all` | Admin API (`POST /admin/api/marketplace/update`) |
 | 刷新运行中的 adapter | 安装时由 `--reload` 合并完成；更新/卸载后单独运行 | 后端报告 `reload_required` 时自动刷新 |
 
-两种界面共享同一套已安装包状态。已知准确 ID 时，CLI 用户可用
-`marketplace install <name> --dcc <dcc> --reload` 一次完成安装和运行时刷新；
-单 DCC 包可省略 `--dcc`，声明多宿主包同样可以省略，此时只安装一份到所有宿主
-都会搜索的共享目录。Admin UI 在后端报告 `reload_required` 时会自动触发
-相同刷新。更新和卸载如需立即生效，仍单独运行 `reload-skills`。
+两种界面共享同一套已安装包状态，但运行中的 adapter 只有在启动时，或显式运行
+`dccmcp reload-skills --dcc-type <dcc>` 后，才会看到 CLI 新安装的包。
+Admin UI 在后端报告 `reload_required` 时会自动触发该刷新。
 
 ## 参见
 

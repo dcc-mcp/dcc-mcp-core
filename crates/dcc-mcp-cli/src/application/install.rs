@@ -8,57 +8,16 @@ use dcc_mcp_catalog::{CatalogEntry, CoreRuntimeReport, derive_requirement};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
-use crate::application::adapter_import::{
-    AdapterImportTarget, core_compatibility_for_requirement, import_module, probe_target,
-};
+use crate::application::dcc_discovery::{discover_dcc_installations, preferred_python};
 use crate::domain::install::{
     InstallPlan, InstallPlanError, InstallPlanner, InstallPolicy, InstallRequest,
     InstallStepAction, normalized_dcc_key,
 };
 
 const BUNDLED_CATALOG: &str = include_str!("../../../../dcc-mcp-catalog.yml");
-
-mod acquire;
-mod adobe;
-#[cfg(test)]
-mod archive_http_tests;
-mod catalog;
-#[cfg(test)]
-mod catalog_contract_tests;
-mod discovery;
-mod file_ops;
-mod lifecycle;
-mod pip;
-mod policy;
-mod readiness;
-mod receipt;
-mod report;
-mod sidecar_preflight;
-mod uninstall;
-mod verify;
-#[cfg(test)]
-use uninstall::install_state_is_absent;
-
-use acquire::{execute_git_clone, execute_path_copy, execute_zip_extract};
-pub(crate) use catalog::{is_implicit_cwd_catalog, warn_if_implicit_cwd_catalog};
-pub use discovery::{DccAdapterSummary, DccTypeSummary, DccTypesCatalog};
-use pip::{
-    PipArtifact, pip_install_args, pip_restore_args_for_artifact, pip_show_args, pip_show_version,
-    pip_uninstall_args,
-};
-use policy::{AutoInstallPolicy, ask_consent, render_install_policy_prompt};
-use receipt::{
-    commit_install_receipt, commit_install_receipt_with_lock, lock_receipt_for_plan,
-    receipt_match_details, receipt_path_for_plan,
-};
-pub use report::{
-    InstallExecutionError, InstallExecutionReport, InstallReportNextStep, InstallRollbackReport,
-    InstallStepReport, InstallStepRollbackReport, InstallVerifyReport,
-};
-use report::{
-    action_failure, apply_readiness, execution_report_for_plan, failed_report,
-    safe_report_identifier, stable_step_id, success_next_steps, upgrade_requires_restart_report,
-};
+const INSTALL_DISABLED_ENV: &str = "DCC_MCP_INSTALL_DISABLED";
+const INSTALL_DISABLED_PROMPT_ENV: &str = "DCC_MCP_INSTALL_DISABLED_PROMPT";
+const DEFAULT_INSTALL_DISABLED_PROMPT: &str = "Automatic DCC adapter installation is disabled in this environment. Ask your Pipeline TD or studio deployment owner to deploy {adapter} for {dcc_type}, then start the DCC plugin and rerun `dccmcp list`.";
 
 #[derive(Debug, Error)]
 pub enum InstallError {
@@ -169,16 +128,15 @@ impl InstallService {
 
     /// Generate an install plan (display-only, no execution).
     pub fn plan(&self, request: InstallRequest) -> Result<InstallPlan, InstallError> {
-        let catalog = self.load_catalog(request.catalog_path.as_deref())?;
-        let install_env = crate::domain::install::python::InstallEnv::from_process();
-        let host_candidates = Self::host_candidates(&request);
-        let mut plan = InstallPlanner::plan_with_candidates(
-            &catalog.entries,
-            request,
-            &install_env,
-            &host_candidates,
-        )?;
-        plan.catalog = Some(catalog.provenance);
+        let entries = self.load_entries(request.catalog_path.as_deref())?;
+        let discovery = discover_dcc_installations(Some(&request.dcc_type), &[]);
+        let mut request = request;
+        if request.python.is_none() {
+            request.python = preferred_python(&request.dcc_type, &[])
+                .map(|path| path.to_string_lossy().into_owned());
+        }
+        let mut plan = InstallPlanner::plan(&entries, request)?;
+        plan.detected_installations = discovery.installations;
         Ok(self.apply_auto_install_policy(plan))
     }
 
@@ -706,16 +664,13 @@ fn execute_pip_install(
     artifact_url: Option<&str>,
     sha256: Option<&str>,
 ) -> Result<Option<StepRollback>, InstallError> {
-    let Some(python_cmd) = python.filter(|value| !value.trim().is_empty()) else {
-        return Err(InstallError::StepFailed {
-            step: format!("pip-install-{package}"),
-            message:
-                "no safe Python interpreter was selected; pass --python or DCC_MCP_INSTALL_PYTHON"
-                    .into(),
-        });
-    };
-    let package_spec = verified_pip_artifact_spec(package, version, extras, artifact_url, sha256)?;
-    let previous_artifact = discover_pip_artifact(python_cmd, package)?;
+    validate_pip_identifier(package, "package")?;
+    if let Some(extras) = extras {
+        for extra in extras {
+            validate_pip_identifier(extra, "extra")?;
+        }
+    }
+    let python_cmd = python.unwrap_or("python");
     let mut cmd = Command::new(python_cmd);
     cmd.args(pip_install_args(&package_spec))
         .stdout(Stdio::null())
@@ -1038,8 +993,195 @@ pub(super) fn resolve_install_source_path(source: &Path) -> PathBuf {
     if source.exists() {
         return std::fs::canonicalize(source).unwrap_or_else(|_| source.to_path_buf());
     }
-    if source.is_absolute() {
-        source.to_path_buf()
+
+    // Ensure parent directory exists
+    if let Some(parent) = dest.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    validate_remote_install_url(url)?;
+
+    let mut cmd = Command::new("git");
+    cmd.arg("clone").arg("--depth").arg("1");
+    if let Some(r) = ref_.filter(|v| !v.trim().is_empty()) {
+        cmd.arg("--branch").arg(r);
+    }
+    cmd.arg("--").arg(url).arg(dest);
+
+    let status = cmd.status().map_err(|e| InstallError::StepFailed {
+        step: "git-clone".into(),
+        message: format!("failed to launch git: {e}"),
+    })?;
+
+    if !status.success() {
+        return Err(InstallError::StepFailed {
+            step: "git-clone".into(),
+            message: format!("git clone exited with {status}"),
+        });
+    }
+
+    Ok(Some(StepRollback::RemovePath(dest.to_path_buf())))
+}
+
+fn execute_zip_extract(
+    url: &str,
+    sha256: Option<&str>,
+    dest: &Path,
+) -> Result<Option<StepRollback>, InstallError> {
+    if dest.exists() {
+        return Err(InstallError::StepFailed {
+            step: "zip-extract".into(),
+            message: format!("destination already exists: {}", dest.display()),
+        });
+    }
+
+    validate_remote_install_url(url)?;
+    if sha256.is_none() && is_remote_url(url) {
+        return Err(InstallError::StepFailed {
+            step: "zip-checksum".into(),
+            message: "remote ZIP installs require a SHA-256 digest".into(),
+        });
+    }
+
+    // Download the archive
+    let response = reqwest::blocking::get(url)
+        .and_then(reqwest::blocking::Response::error_for_status)
+        .map_err(|e| InstallError::StepFailed {
+            step: "zip-download".into(),
+            message: format!("failed to download {url}: {e}"),
+        })?;
+
+    let bytes = response.bytes().map_err(|e| InstallError::StepFailed {
+        step: "zip-download".into(),
+        message: format!("failed to read response from {url}: {e}"),
+    })?;
+
+    // Verify SHA-256 if requested
+    if let Some(expected) = sha256 {
+        use sha2::Digest;
+        let actual = sha2::Sha256::digest(&bytes);
+        let actual_hex = actual
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>();
+        let expected = expected
+            .trim()
+            .strip_prefix("sha256:")
+            .unwrap_or(expected.trim());
+        if expected.len() != 64 || !expected.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return Err(InstallError::StepFailed {
+                step: "zip-checksum".into(),
+                message: "SHA-256 digest must contain 64 hexadecimal characters".into(),
+            });
+        }
+        if !actual_hex.eq_ignore_ascii_case(expected) {
+            return Err(InstallError::StepFailed {
+                step: "zip-checksum".into(),
+                message: format!("SHA-256 mismatch: expected {expected}, got {actual_hex}"),
+            });
+        }
+    }
+
+    // Ensure parent directory exists
+    if let Some(parent) = dest.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    // Extract the archive
+    let reader = std::io::Cursor::new(&bytes);
+    let mut archive = zip::ZipArchive::new(reader).map_err(|e| InstallError::StepFailed {
+        step: "zip-extract".into(),
+        message: format!("failed to open zip archive: {e}"),
+    })?;
+
+    for index in 0..archive.len() {
+        let mut file = archive
+            .by_index(index)
+            .map_err(|e| InstallError::StepFailed {
+                step: "zip-extract".into(),
+                message: format!("failed to read ZIP entry: {e}"),
+            })?;
+        let Some(relative) = file.enclosed_name() else {
+            return Err(InstallError::StepFailed {
+                step: "zip-extract".into(),
+                message: format!("archive entry escapes install root: {}", file.name()),
+            });
+        };
+        let output = dest.join(relative);
+        if file.is_dir() {
+            std::fs::create_dir_all(&output)?;
+            continue;
+        }
+        if let Some(parent) = output.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let mut target = std::fs::File::create(&output)?;
+        std::io::copy(&mut file, &mut target)?;
+    }
+
+    Ok(Some(StepRollback::RemovePath(dest.to_path_buf())))
+}
+
+fn validate_pip_identifier(value: &str, kind: &str) -> Result<(), InstallError> {
+    if value.is_empty()
+        || !value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
+    {
+        return Err(InstallError::StepFailed {
+            step: "validate-install-metadata".into(),
+            message: format!("invalid pip {kind} '{value}'"),
+        });
+    }
+    Ok(())
+}
+
+fn is_remote_url(url: &str) -> bool {
+    url.starts_with("http://") || url.starts_with("https://")
+}
+
+fn validate_remote_install_url(url: &str) -> Result<(), InstallError> {
+    if !is_remote_url(url) {
+        return Ok(());
+    }
+    let parsed = reqwest::Url::parse(url).map_err(|error| InstallError::StepFailed {
+        step: "validate-install-metadata".into(),
+        message: format!("invalid install URL '{url}': {error}"),
+    })?;
+    let loopback = parsed
+        .host_str()
+        .is_some_and(|host| matches!(host, "localhost" | "127.0.0.1" | "::1"));
+    if parsed.scheme() != "https" && !(parsed.scheme() == "http" && loopback) {
+        return Err(InstallError::StepFailed {
+            step: "validate-install-metadata".into(),
+            message: format!("remote install URL must use HTTPS: {url}"),
+        });
+    }
+    Ok(())
+}
+
+fn execute_path_copy(source: &Path, dest: &Path) -> Result<Option<StepRollback>, InstallError> {
+    if dest.exists() {
+        return Err(InstallError::StepFailed {
+            step: "path-copy".into(),
+            message: format!("destination already exists: {}", dest.display()),
+        });
+    }
+
+    if !source.exists() {
+        return Err(InstallError::StepFailed {
+            step: "path-copy".into(),
+            message: format!("source does not exist: {}", source.display()),
+        });
+    }
+
+    // Ensure parent directory exists
+    if let Some(parent) = dest.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    if source.is_dir() {
+        copy_dir_recursive(source, dest)?;
     } else {
         std::env::current_dir()
             .map(|cwd| cwd.join(source))
@@ -1055,7 +1197,10 @@ fn execute_register_dcc(
     // Registration is owned by the DCC plugin's sidecar. The CLI can install
     // packages, but it must not pretend a host process is registered until the
     // plugin starts, stays alive, and advertises itself in the registry.
-    StepExecution::Deferred
+    eprintln!();
+    eprint!("    └─ note: start or enable the '{_dcc_type}' plugin, ");
+    eprintln!("then re-run `dccmcp list` to confirm self-registration.");
+    Ok(None)
 }
 
 fn execute_verify(plan: &InstallPlan) -> Result<Option<StepRollback>, InstallError> {
@@ -1369,5 +1514,277 @@ fn execute_rollback(rollback: &StepRollback) -> Result<(), InstallError> {
 #[path = "install/recovery_tests.rs"]
 mod recovery_tests;
 
-#[cfg(test)]
-mod tests;
+    #[test]
+    fn service_uses_bundled_catalog_when_default_path_is_missing() {
+        let service = InstallService::new(PathBuf::from("__missing_dcc_mcp_catalog__.yml"));
+        let plan = service
+            .plan(InstallRequest {
+                dcc_type: "maya".into(),
+                version: None,
+                catalog_path: None,
+                python: None,
+            })
+            .unwrap();
+
+        assert_eq!(plan.adapter.name, "dcc-mcp-maya");
+        assert!(matches!(
+            plan.steps[0].action,
+            Some(InstallStepAction::PipInstall { .. })
+        ));
+    }
+
+    #[test]
+    fn bundled_catalog_prefers_an_adapter_over_its_skill_pack() {
+        let service = InstallService::new(PathBuf::from("__missing_dcc_mcp_catalog__.yml"));
+        let plan = service
+            .plan(InstallRequest {
+                dcc_type: "unreal".into(),
+                version: None,
+                catalog_path: None,
+                python: None,
+            })
+            .unwrap();
+
+        assert_eq!(plan.adapter.name, "dcc-mcp-unreal");
+        assert!(matches!(
+            plan.steps[0].action,
+            Some(InstallStepAction::PipInstall { .. })
+        ));
+    }
+
+    #[test]
+    fn bundled_catalog_lists_adapter_dcc_types_and_collapses_aliases() {
+        let service = InstallService::new(PathBuf::from("__missing_dcc_mcp_catalog__.yml"));
+        let catalog = service.dcc_types(None).unwrap();
+
+        assert!(catalog.custom_types_supported);
+        assert_eq!(
+            catalog
+                .dcc_types
+                .iter()
+                .filter(|entry| entry.dcc_type == "3dsmax")
+                .count(),
+            1
+        );
+        for expected in ["godot", "renderdoc"] {
+            let entry = catalog
+                .dcc_types
+                .iter()
+                .find(|entry| entry.dcc_type == expected)
+                .unwrap_or_else(|| panic!("missing cataloged DCC type {expected}"));
+            assert!(
+                entry
+                    .adapters
+                    .iter()
+                    .any(|adapter| adapter.name == format!("dcc-mcp-{expected}"))
+            );
+        }
+    }
+
+    #[test]
+    fn install_plan_reports_disabled_auto_install_policy_with_custom_prompt() {
+        let service = InstallService::with_auto_install_policy(
+            PathBuf::from("__missing_dcc_mcp_catalog__.yml"),
+            AutoInstallPolicy::disabled(
+                "Auto install unavailable; contact PipelineTD to deploy {adapter} for {dcc_type}.",
+            ),
+        );
+        let plan = service
+            .plan(InstallRequest {
+                dcc_type: "maya".into(),
+                version: None,
+                catalog_path: None,
+                python: None,
+            })
+            .unwrap();
+
+        assert!(!plan.install_policy.auto_install_enabled);
+        assert_eq!(
+            plan.install_policy.prompt.as_deref(),
+            Some("Auto install unavailable; contact PipelineTD to deploy dcc-mcp-maya for maya.")
+        );
+    }
+
+    #[test]
+    fn execute_returns_plan_without_running_steps_when_auto_install_is_disabled() {
+        let service = InstallService::with_auto_install_policy(
+            PathBuf::from("__missing_dcc_mcp_catalog__.yml"),
+            AutoInstallPolicy::disabled(
+                "Automatic install disabled; ask PipelineTD for {adapter}.",
+            ),
+        );
+
+        let plan = service
+            .execute(InstallRequest {
+                dcc_type: "maya".into(),
+                version: None,
+                catalog_path: None,
+                python: Some("/__nonexistent__/python".into()),
+            })
+            .unwrap();
+
+        assert!(!plan.install_policy.auto_install_enabled);
+        assert_eq!(plan.steps[0].name, "install-pip");
+    }
+
+    #[test]
+    fn pip_install_missing_python_reports_error() {
+        let result =
+            execute_pip_install("nonexistent-package", None, Some("/__nonexistent__/python"));
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            matches!(&err, InstallError::StepFailed { step, .. } if step.contains("pip-install")),
+            "expected StepFailed, got {err}"
+        );
+    }
+
+    #[test]
+    fn git_clone_nonexistent_url_fails() {
+        let dest = PathBuf::from("/__nonexistent__/test-repo");
+        let result = execute_git_clone("https://__nonexistent__.invalid/repo.git", None, &dest);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn path_copy_missing_source_fails() {
+        let result = execute_path_copy(
+            &PathBuf::from("/__nonexistent__/source"),
+            &PathBuf::from("/__nonexistent__/dest"),
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn rollback_remove_path_does_not_error_on_nonexistent() {
+        let rb = StepRollback::RemovePath(PathBuf::from("/__nonexistent__/path"));
+        assert!(execute_rollback(&rb).is_ok());
+    }
+
+    #[test]
+    fn register_dcc_is_noop() {
+        let result = execute_register_dcc("maya", Some("dcc_mcp_maya.cli:main"));
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_none());
+    }
+
+    #[test]
+    fn pip_install_uses_python_module_invocation() {
+        assert_eq!(
+            pip_install_args("dcc-mcp-maya", Some(&["maya".to_string()])),
+            vec![
+                "-m".to_string(),
+                "pip".to_string(),
+                "install".to_string(),
+                "dcc-mcp-maya[maya]".to_string(),
+            ]
+        );
+        assert_eq!(
+            pip_uninstall_args("dcc-mcp-maya"),
+            vec![
+                "-m".to_string(),
+                "pip".to_string(),
+                "uninstall".to_string(),
+                "-y".to_string(),
+                "dcc-mcp-maya".to_string(),
+            ]
+        );
+        assert_eq!(
+            pip_show_args("dcc-mcp-maya"),
+            vec![
+                "-m".to_string(),
+                "pip".to_string(),
+                "show".to_string(),
+                "dcc-mcp-maya".to_string(),
+            ]
+        );
+    }
+
+    fn verify_plan(action: InstallStepAction) -> InstallPlan {
+        InstallPlan {
+            dcc_type: "maya".into(),
+            version: None,
+            adapter: dcc_mcp_catalog::CatalogEntry {
+                name: "dcc-mcp-maya".into(),
+                description: "Maya adapter".into(),
+                dcc: vec!["maya".into()],
+                url: None,
+                tags: vec![],
+                version: None,
+                min_core_version: None,
+                install: None,
+                maintainer: None,
+                category: None,
+                policy: None,
+                requires: None,
+                icon: None,
+                showcase: None,
+            },
+            detected_installations: Vec::new(),
+            steps: vec![
+                InstallStep {
+                    name: "install".into(),
+                    description: "Install adapter".into(),
+                    action: Some(action),
+                },
+                InstallStep {
+                    name: "verify".into(),
+                    description: "Verify adapter".into(),
+                    action: Some(InstallStepAction::Verify),
+                },
+            ],
+            next_steps: vec![],
+            install_policy: InstallPolicy::enabled(),
+        }
+    }
+
+    #[test]
+    fn verify_accepts_non_empty_installed_path() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let source = tmp.path().join("source");
+        let dest = tmp.path().join("dest");
+        fs::create_dir_all(&dest).unwrap();
+        fs::write(dest.join("adapter.txt"), "installed").unwrap();
+
+        let result = execute_verify(&verify_plan(InstallStepAction::PathCopy { source, dest }));
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_none());
+    }
+
+    #[test]
+    fn verify_rejects_missing_installed_path() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let source = tmp.path().join("source");
+        let dest = tmp.path().join("missing");
+
+        let err = execute_verify(&verify_plan(InstallStepAction::PathCopy {
+            source,
+            dest: dest.clone(),
+        }))
+        .unwrap_err();
+        assert!(
+            matches!(&err, InstallError::StepFailed { step, message }
+                if step == "verify" && message.contains(&dest.display().to_string())),
+            "expected verify StepFailed, got {err}"
+        );
+    }
+
+    #[test]
+    fn verify_rejects_empty_installed_directory() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let source = tmp.path().join("source");
+        let dest = tmp.path().join("empty");
+        fs::create_dir_all(&dest).unwrap();
+
+        let err = execute_verify(&verify_plan(InstallStepAction::PathCopy {
+            source,
+            dest: dest.clone(),
+        }))
+        .unwrap_err();
+        assert!(
+            matches!(&err, InstallError::StepFailed { step, message }
+                if step == "verify" && message.contains("installed directory is empty")),
+            "expected verify StepFailed, got {err}"
+        );
+    }
+}

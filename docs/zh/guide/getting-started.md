@@ -20,7 +20,9 @@ openclaw skills install @loonghao/dcc-mcp
 npx --yes clawhub@0.23.1 install @loonghao/dcc-mcp
 ```
 
-只有任务进入对应开发边界时才替换为 creator slug。安装后开启新的 agent turn。
+这会从最新 GitHub Release 安装独立的 `dccmcp` 控制面二进制，同时保留
+`dcc-mcp-cli` 兼容别名。
+需要固定版本时设置 `DCC_MCP_VERSION=v0.17.17`。
 
 ### 从 `dcc-mcp` Skill 安装 CLI
 
@@ -63,8 +65,8 @@ installer 与 bundled helper 使用相同的固定官方来源、manifest 和 SH
 官方安装可以通过以下命令保持最新：
 
 ```bash
-dcc-mcp-cli update check
-dcc-mcp-cli update          # 一步完成检查、下载并暂存
+dccmcp update check
+dccmcp update apply
 ```
 
 官方 release build 最多每 24 小时通过独立后台进程刷新一次更新状态缓存；检查失败

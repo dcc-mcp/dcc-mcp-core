@@ -101,7 +101,7 @@ dcc-mcp-core/
 │   ├── dcc-mcp-gateway-core/        # pure gateway domain/search/ranking types (#845)
 │   ├── dcc-mcp-gateway-search/      # reusable capability search/ranking engine
 │   ├── dcc-mcp-gateway/             # multi-instance gateway + minimal MCP surface
-│   ├── dcc-mcp-cli/                 # `dcc-mcp-cli` client/control-plane CLI
+│   ├── dcc-mcp-cli/                 # `dccmcp` client/control-plane CLI
 │   ├── dcc-mcp-server/              # `dcc-mcp-server` CLI
 │   ├── dcc-mcp-sidecar/             # per-DCC sidecar + gateway-daemon runtime
 │   ├── dcc-mcp-tunnel-protocol/     # tunnel frame format + JWT
@@ -192,7 +192,7 @@ Full symbol listing lives in the [API reference](/api/actions).
 
 ## Version / language support
 
-- **Current version**: 0.20.55 <!-- x-release-please-version -->
+- **Current version**: 0.21.0 <!-- x-release-please-version -->
 - **Python**: 3.7–3.14. Native cp37 wheels cover Linux/Windows, `py37-lite` is the sidecar fallback, and Python 3.8+ uses `abi3-py38`.
 - **Rust**: Edition 2024; MSRV pinned in `rust-toolchain.toml` at the repo root
 - **Build**: maturin + PyO3

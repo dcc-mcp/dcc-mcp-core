@@ -52,7 +52,9 @@ dcc-mcp-server --admin-path /dcc-admin
 | `DCC_MCP_GATEWAY_AUDIT_MAX_BYTES` | `52428800` | 每个持久化 JSONL 文件约 50 MiB 的字节上限。 |
 | `DCC_MCP_LOG_DIR` | 平台日志目录 | `/admin/api/logs` 扫描 `*.log` 文件的目录。 |
 
-### 分析仪表盘
+**DCC UI Control** 是对外统一的跨平台能力名。Shell Agent 使用
+`dccmcp ui-control`；`app_ui__*` 仅作为 MCP 原生客户端和现有适配器的兼容工具命名。
+不要把这项 DCC 范围内的能力称为通用 Computer Use。
 
 独立分析仪表盘提供 KPI 时序、热力图、工具排名及 CSV/JSONL 导出。
 详见 [analytics-dashboard.md](../../guide/analytics-dashboard.md)。
@@ -81,11 +83,9 @@ dcc-mcp-server --admin-path /dcc-admin
 `dcc-mcp-cli ui-control` 子命令通过 Shell 暴露相同的能力：
 
 ```bash
-dcc-mcp-cli ui-control snapshot --instance-id <id> --json '{"session_id":"ui","process_id":1234}'
-dcc-mcp-cli ui-control act --instance-id <id> --json '{"session_id":"ui","control_id":"ok","action":"click","snapshot_id":"<snapshot_id>"}'
-dcc-mcp-cli ui-control record-clip --instance-id <id> --json '{"session_id":"pv","process_id":1234,"duration_ms":5000}'
-dcc-mcp-cli ui-control stop --instance-id <id> --json '{"session_id":"ui"}'
-dcc-mcp-cli ui-control system-operation --instance-id <id> --json '{"operation_id":"enable-remote-control"}'
+dccmcp ui-control snapshot --instance-id <id> --json '{"session_id":"ui","process_id":1234}'
+dccmcp ui-control act --instance-id <id> --json '{"session_id":"ui","control_id":"ok","action":"click","snapshot_id":"<snapshot_id>"}'
+dccmcp ui-control stop --instance-id <id> --json '{"session_id":"ui"}'
 ```
 
 ## 相关文档

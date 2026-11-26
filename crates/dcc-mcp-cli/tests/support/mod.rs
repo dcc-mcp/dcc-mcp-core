@@ -734,40 +734,58 @@ pub(crate) fn spawn_local_mcp_fixture() -> LocalMcpFixture {
 
                 let method = body.get("method").and_then(Value::as_str).unwrap_or("");
                 match method {
-                    "tools/list" => {
-                        tools_list_calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                        (
-                            StatusCode::OK,
-                            Json(json!({
-                                "jsonrpc": "2.0",
-                                "id": body.get("id").cloned().unwrap_or(json!(null)),
-                                "result": {
-                                    "tools": [
-                                        {
-                                            "name": "search_tools",
-                                            "description": "Search local tools",
-                                            "inputSchema": {"type": "object"}
-                                        },
-                                        {
-                                            "name": "load_skill",
-                                            "description": "Load local skill",
-                                            "inputSchema": {"type": "object"}
-                                        },
-                                        {
-                                            "name": "maya_scene__get_session_info",
-                                            "description": "Read scene session info",
-                                            "inputSchema": {"type": "object", "properties": {}}
-                                        },
-                                        {
-                                            "name": "workflow__run",
-                                            "description": "Run workflow",
-                                            "inputSchema": {"type": "object", "properties": {"name": {"type": "string"}}}
-                                        }
-                                    ]
+                    "initialize" => (
+                        StatusCode::OK,
+                        Json(json!({
+                            "jsonrpc": "2.0",
+                            "id": body.get("id").cloned().unwrap_or(json!(null)),
+                            "result": {
+                                "protocolVersion": "2025-03-26",
+                                "capabilities": {
+                                    "tools": {"listChanged": true}
+                                },
+                                "serverInfo": {
+                                    "name": "fixture-local",
+                                    "version": "0.0.0-test"
                                 }
-                            })),
-                        )
-                    }
+                            }
+                        })),
+                    ),
+                    "notifications/initialized" => (
+                        StatusCode::ACCEPTED,
+                        Json(json!({})),
+                    ),
+                    "tools/list" => (
+                        StatusCode::OK,
+                        Json(json!({
+                            "jsonrpc": "2.0",
+                            "id": body.get("id").cloned().unwrap_or(json!(null)),
+                            "result": {
+                                "tools": [
+                                    {
+                                        "name": "search_tools",
+                                        "description": "Search local tools",
+                                        "inputSchema": {"type": "object"}
+                                    },
+                                    {
+                                        "name": "load_skill",
+                                        "description": "Load local skill",
+                                        "inputSchema": {"type": "object"}
+                                    },
+                                    {
+                                        "name": "maya_scene__get_session_info",
+                                        "description": "Read scene session info",
+                                        "inputSchema": {"type": "object", "properties": {}}
+                                    },
+                                    {
+                                        "name": "workflow__run",
+                                        "description": "Run workflow",
+                                        "inputSchema": {"type": "object", "properties": {"name": {"type": "string"}}}
+                                    }
+                                ]
+                            }
+                        })),
+                    ),
                     "tools/call" => {
                         let params = body.get("params").cloned().unwrap_or_else(|| json!({}));
                         let name = params.get("name").and_then(Value::as_str).unwrap_or("");

@@ -49,36 +49,14 @@ cross build --release --bin dcc-mcp-server --target x86_64-unknown-linux-gnu
 
 GitHub Releases attach deployable bundles named
 `dcc-mcp-server-<version>-<platform>.zip`, for example
-`dcc-mcp-server-0.18.12-linux-x86_64.zip`. Each zip contains
-`dcc-mcp-server` and `dcc-mcp-cli` at its root (`.exe` on Windows).
+`dcc-mcp-server-0.18.12-linux-x86_64.zip`. Each zip contains both
+`dcc-mcp-server`, `dccmcp`, and the `dcc-mcp-cli` compatibility alias at its
+root (`.exe` on Windows), so a deployment host can unpack one archive and put
+the binaries on `PATH`.
 
-A CLI-only ZIP (`dcc-mcp-cli-<version>-<platform>.zip`) is published alongside
-the server bundle for environments that only need the CLI binary. Native
-application control is installed separately from the
-`dcc-mcp/dcc-cua` project as `dcc-cua`; Core validates its
-machine manifest at runtime and does not package or update it. The manifest must
-declare `runtime.separate_driver_required=false`, so deployment never adds a
-standalone `cua-driver` asset.
-
-### Server self-update transaction
-
-Run `dcc-mcp-server update apply` from the exact target installation. On every
-platform an available manifest entry must contain a URL and valid SHA-256. The
-server verifies the downloaded asset, stages only one installation-bound server
-binary, and re-verifies it before replacement. The next launch applies it with
-rollback/journal recovery and starts the new server image. Invalid v2 staging
-and legacy unsigned markers are quarantined while the existing server remains
-available. `dcc-cua` has its own release lifecycle.
-
-The Admin Instances panel is check-only. A gateway cannot prove the selected
-local or remote instance's executable directory, so it never stages any binary
-update by name alone.
-
-The first upgrade from an older release still runs that older release's update
-code. High-assurance deployments should install the first digest-enforcing
-release through an externally SHA-256-verified release asset. Digest validation
-proves consistency with the manifest, not publisher authenticity; detached
-manifest signatures are a separate trust layer.
+A CLI-only ZIP (`dccmcp-<version>-<platform>.zip`) is published alongside the
+server bundle for environments that only need the CLI binary. The
+`dcc-mcp-cli-<version>-<platform>.zip` compatibility package remains available.
 
 ### Install Location
 

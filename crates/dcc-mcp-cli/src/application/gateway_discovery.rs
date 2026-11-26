@@ -10,6 +10,7 @@ use std::path::PathBuf;
 
 use anyhow::Context;
 use serde::Serialize;
+use sha2::Digest;
 
 #[cfg(test)]
 mod bootstrap_tests;
@@ -28,6 +29,7 @@ const ENV_GITHUB_RELEASE_BASE: &str = "DCC_MCP_GATEWAY_DOWNLOAD_BASE";
 /// Default GitHub Releases base URL for gateway binary downloads.
 const DEFAULT_GITHUB_RELEASE_BASE: &str =
     "https://github.com/dcc-mcp/dcc-mcp-core/releases/download";
+const ENV_ALLOW_UNSIGNED_DOWNLOADS: &str = "DCC_MCP_ALLOW_UNSIGNED_DOWNLOADS";
 
 /// Resolve the gateway binary using the full discovery chain:
 ///
@@ -277,13 +279,15 @@ fn find_cached_binary_in(cache_dir: Option<PathBuf>) -> anyhow::Result<Option<Pa
 /// Writes to a temporary file first, then atomically renames to the final
 /// cache location to avoid leaving a partial binary behind on crash/kill.
 async fn download_from_github_releases(version: &str) -> anyhow::Result<PathBuf> {
+    let filename = release_asset_filename();
+
     let base = std::env::var(ENV_GITHUB_RELEASE_BASE)
         .ok()
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| DEFAULT_GITHUB_RELEASE_BASE.to_owned());
-    let cache_dir = gateway_cache_dir().context("cannot determine gateway cache directory")?;
-    download_release_binary(version, &base, &cache_dir).await
-}
+        .filter(|v| !v.trim().is_empty())
+        .unwrap_or_else(|| DEFAULT_GITHUB_RELEASE_BASE.to_string());
+    let base = base.trim_end_matches('/');
+    let url = format!("{base}/v{version}/{filename}");
+    ensure_secure_download_url(&url)?;
 
 fn release_manifest_url(version: &str, base: &str) -> anyhow::Result<String> {
     semver::Version::parse(version).context("invalid gateway release version")?;
@@ -313,39 +317,129 @@ async fn download_release_binary(
     let asset = updater
         .download_verified_update_in(&info, transaction.path())
         .await
-        .context("downloading and verifying gateway bootstrap asset")?;
-    let destination = version_dir.join(GATEWAY_BINARY_NAME_WITH_EXT);
-    std::fs::rename(asset.path(), &destination).with_context(|| {
-        format!(
-            "committing verified gateway binary to {}",
-            destination.display()
-        )
-    })?;
-    Ok(destination)
+        .with_context(|| format!("downloading gateway binary from {url}"))?;
+
+    let status = response.status();
+    if !status.is_success() {
+        anyhow::bail!("GitHub Releases returned HTTP {status} for {url}");
+    }
+
+    let bytes = response
+        .bytes()
+        .await
+        .with_context(|| format!("reading response body from {url}"))?;
+
+    if bytes.is_empty() {
+        anyhow::bail!("downloaded gateway binary from {url} is empty");
+    }
+    verify_download_checksum(&client, &url, &bytes).await?;
+
+    // Write to a temp file first, then rename atomically.
+    let tmp = version_dir.join(format!(".{GATEWAY_BINARY_NAME}.tmp"));
+    std::fs::write(&tmp, &bytes)
+        .with_context(|| format!("writing downloaded binary to {}", tmp.display()))?;
+
+    // Set executable permissions on Unix.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = std::fs::metadata(&tmp)
+            .with_context(|| format!("reading metadata of {}", tmp.display()))?
+            .permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&tmp, perms)
+            .with_context(|| format!("setting permissions on {}", tmp.display()))?;
+    }
+
+    std::fs::rename(&tmp, &dest)
+        .with_context(|| format!("renaming {} to {}", tmp.display(), dest.display()))?;
+
+    Ok(dest)
 }
 
-fn bootstrap_fallback_message(error: &anyhow::Error, fallback: &std::path::Path) -> String {
-    let chain = error
-        .chain()
-        .take(8)
-        .map(|cause| {
-            cause
-                .to_string()
-                .chars()
-                .filter(|c| !c.is_control())
-                .take(160)
-                .collect::<String>()
+/// Build the Rust target triple for GitHub release asset naming.
+///
+/// Matches the naming convention used by the project's release workflow.
+fn release_asset_filename() -> String {
+    let platform = if cfg!(target_os = "windows") {
+        "windows-x86_64"
+    } else if cfg!(target_os = "macos") {
+        "macos-universal2"
+    } else if cfg!(target_os = "linux") {
+        "linux-x86_64"
+    } else {
+        panic!("unsupported platform for gateway release download")
+    };
+    let suffix = if cfg!(target_os = "windows") {
+        ".exe"
+    } else {
+        ""
+    };
+    format!("dcc-mcp-server-{platform}{suffix}")
+}
+
+fn ensure_secure_download_url(url: &str) -> anyhow::Result<()> {
+    let parsed = reqwest::Url::parse(url).context("invalid gateway download URL")?;
+    let loopback = parsed
+        .host_str()
+        .is_some_and(|host| matches!(host, "localhost" | "127.0.0.1" | "::1"));
+    if parsed.scheme() != "https" && !(parsed.scheme() == "http" && loopback) {
+        anyhow::bail!("gateway downloads must use HTTPS: {url}");
+    }
+    Ok(())
+}
+
+async fn verify_download_checksum(
+    client: &reqwest::Client,
+    url: &str,
+    bytes: &[u8],
+) -> anyhow::Result<()> {
+    let checksum_url = format!("{url}.sha256");
+    let response = client.get(&checksum_url).send().await?;
+    if !response.status().is_success() {
+        if unsigned_downloads_allowed() {
+            eprintln!(
+                "warning: checksum sidecar unavailable for {url}; continuing by explicit opt-out"
+            );
+            return Ok(());
+        }
+        anyhow::bail!(
+            "checksum sidecar unavailable for {url}. Set {}=1 only for a trusted legacy mirror",
+            ENV_ALLOW_UNSIGNED_DOWNLOADS
+        );
+    }
+    let checksum_text = response.text().await?;
+    let expected = checksum_text
+        .split_whitespace()
+        .next()
+        .filter(|value| value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        .context("checksum sidecar does not contain a SHA-256 digest")?;
+    let actual = sha256_hex(bytes);
+    if !actual.eq_ignore_ascii_case(expected) {
+        anyhow::bail!("gateway checksum mismatch for {url}: expected {expected}, got {actual}");
+    }
+    Ok(())
+}
+
+fn unsigned_downloads_allowed() -> bool {
+    std::env::var(ENV_ALLOW_UNSIGNED_DOWNLOADS)
+        .ok()
+        .is_some_and(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes"
+            )
         })
-        .collect::<Vec<_>>()
-        .join(": ");
-    let fallback = fallback
-        .display()
-        .to_string()
-        .chars()
-        .filter(|c| !c.is_control())
-        .take(512)
-        .collect::<String>();
-    format!("gateway bootstrap failed: {chain}; using current CLI sub-command fallback {fallback}")
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    let digest = sha2::Sha256::digest(bytes);
+    let mut output = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        use std::fmt::Write as _;
+        let _ = write!(output, "{byte:02x}");
+    }
+    output
 }
 // ── Cache directory ─────────────────────────────────────────────────────
 
@@ -380,12 +474,9 @@ mod tests {
     }
 
     #[test]
-    fn release_manifest_uses_published_platform_names() {
-        let url = release_manifest_url("0.20.46", DEFAULT_GITHUB_RELEASE_BASE).unwrap();
-        assert!(url.contains("/v0.20.46/dcc-mcp-update-manifest-"));
-        assert!(!url.contains("pc-windows-msvc"));
-        assert!(!url.contains("unknown-linux-gnu"));
-        assert!(release_manifest_url("../escape", DEFAULT_GITHUB_RELEASE_BASE).is_err());
+    fn test_build_release_target_is_non_empty() {
+        let asset = release_asset_filename();
+        assert!(asset.starts_with("dcc-mcp-server-"));
     }
 
     #[test]

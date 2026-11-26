@@ -92,7 +92,7 @@ first `User-Agent` product token when no explicit `client_platform` is present.
 Use the three observability surfaces according to their delivery contract:
 
 - the gateway Admin SQLite database is the durable workstation source for
-  retained call traces and powers `dcc-mcp-cli stats`;
+  retained call traces and powers `dccmcp stats`;
 - OTLP is the primary studio aggregation path because it batches the same DCC,
   skill, tool, instance, session, outcome, and latency dimensions for an
   OpenTelemetry Collector;

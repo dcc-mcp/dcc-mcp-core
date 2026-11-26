@@ -85,16 +85,47 @@ def test_build_server_bundle_preserves_windows_exe_names(tmp_path) -> None:
         assert set(zf.namelist()) == _expected_notice_members() | {"dcc-mcp-server.exe", "dcc-mcp-cli.exe"}
 
 
-def test_build_server_bundle_includes_supplied_license_text(tmp_path, monkeypatch) -> None:
-    for name, content in {
-        "LICENSE": "license\n",
-        "NOTICE": "notice\n",
-        "THIRD_PARTY_NOTICES.txt": "third-party notices\n",
-        "THIRD_PARTY_LICENSES.txt": "controlled license text\n",
-    }.items():
-        (tmp_path / name).write_bytes(content.encode("utf-8"))
-    server = tmp_path / "server"
-    cli = tmp_path / "cli"
+def test_build_server_bundle_can_include_primary_dccmcp_binary(tmp_path) -> None:
+    server = tmp_path / "dcc-mcp-server-linux-x86_64"
+    cli = tmp_path / "dcc-mcp-cli-linux-x86_64"
+    dccmcp = tmp_path / "dccmcp-linux-x86_64"
+    server.write_bytes(b"server")
+    cli.write_bytes(b"compatibility")
+    dccmcp.write_bytes(b"primary")
+
+    out_dir = tmp_path / "dist"
+    subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT),
+            "--version",
+            "0.18.12",
+            "--platform",
+            "linux-x86_64",
+            "--server-bin",
+            str(server),
+            "--cli-bin",
+            str(cli),
+            "--dccmcp-bin",
+            str(dccmcp),
+            "--out-dir",
+            str(out_dir),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    bundle = out_dir / "dcc-mcp-server-0.18.12-linux-x86_64.zip"
+    with zipfile.ZipFile(bundle) as zf:
+        assert set(zf.namelist()) == {"dcc-mcp-server", "dcc-mcp-cli", "dccmcp"}
+        assert zf.read("dccmcp") == b"primary"
+
+
+def test_build_server_bundle_rejects_windows_without_capture_helper(tmp_path) -> None:
+    server = tmp_path / "dcc-mcp-server-windows-x86_64.exe"
+    cli = tmp_path / "dcc-mcp-cli-windows-x86_64.exe"
+    host = tmp_path / "dcc-mcp-ui-control-host.exe"
     server.write_bytes(b"server")
     cli.write_bytes(b"cli")
     monkeypatch.setattr(build_server_bundle, "REPO_ROOT", tmp_path)

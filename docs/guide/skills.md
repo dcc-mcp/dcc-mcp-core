@@ -12,8 +12,7 @@ narrowest useful gateway window, then invoke the first-class
 `review_skill_improvement` prompt:
 
 ```bash
-dcc-mcp-cli call <slug> --require-gateway --agent-session-id task-42 --json '{}'
-dcc-mcp-cli stats --range 24h --dcc-type maya --session-id task-42
+dccmcp stats --range 24h --dcc-type maya --session-id task-42
 ```
 
 The prompt is defined in the public

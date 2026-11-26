@@ -1589,47 +1589,82 @@ fn gateway_daemon_restart_defaults_to_persistent_daemon() {
     assert_eq!(restart.stop_timeout_secs, 10);
 }
 
-/// `AmbiguousReuse` tells the operator to pass `--instance-id`, so the flag has
-/// to exist or the advertised recovery step fails with an unknown argument.
 #[test]
-fn start_instance_accepts_the_advertised_instance_id_flag() {
+fn dccmcp_mcp_tools_call_contract_parses_shared_client_arguments() {
     let args = Args::try_parse_from([
-        "dcc-mcp-cli",
-        "start-instance",
-        "--dcc-type",
-        "unity",
-        "--project",
-        "/work/MyProject",
-        "--instance-id",
-        "11111111-2222-3333-4444-555555555555",
+        "dccmcp",
+        "mcp",
+        "tools",
+        "call",
+        "--url",
+        "http://127.0.0.1:9765/mcp",
+        "--name",
+        "create_sphere",
+        "--json",
+        r#"{"radius":2}"#,
+        "--meta-json",
+        r#"{"trace":"task-1"}"#,
     ])
-    .expect("--instance-id must parse on start-instance");
+    .expect("parse generic MCP tools call");
 
-    let Command::StartInstance { instance_id, .. } = args.command else {
-        panic!("expected start-instance");
+    let Command::Mcp {
+        action: McpAction::Tools {
+            action: McpToolsAction::Call(call),
+        },
+    } = args.command
+    else {
+        panic!("expected MCP tools call");
     };
+
     assert_eq!(
-        instance_id.as_deref(),
-        Some("11111111-2222-3333-4444-555555555555")
+        call.connection.url.as_deref(),
+        Some("http://127.0.0.1:9765/mcp")
     );
+    assert_eq!(call.name, "create_sphere");
+    assert_eq!(call.arguments_json, r#"{"radius":2}"#);
 }
 
 #[test]
-fn start_instance_omits_instance_id_by_default() {
-    let args = Args::try_parse_from([
-        "dcc-mcp-cli",
-        "start-instance",
-        "--dcc-type",
-        "unity",
-        "--project",
-        "/work/MyProject",
+fn dccmcp_mcp_resources_and_prompts_contracts_parse() {
+    let resources = Args::try_parse_from([
+        "dccmcp",
+        "mcp",
+        "resources",
+        "read",
+        "--url",
+        "http://127.0.0.1:9765/mcp",
+        "--uri",
+        "scene://active",
     ])
-    .expect("start-instance must parse without --instance-id");
+    .expect("parse resource read");
+    assert!(matches!(
+        resources.command,
+        Command::Mcp {
+            action: McpAction::Resources {
+                action: McpResourcesAction::Read(_)
+            }
+        }
+    ));
 
-    let Command::StartInstance { instance_id, .. } = args.command else {
-        panic!("expected start-instance");
-    };
-    assert_eq!(instance_id, None);
+    let prompts = Args::try_parse_from([
+        "dccmcp",
+        "mcp",
+        "prompts",
+        "get",
+        "--name",
+        "render_review",
+        "--arguments-json",
+        r#"{"frame":"1001"}"#,
+    ])
+    .expect("parse prompt get");
+    assert!(matches!(
+        prompts.command,
+        Command::Mcp {
+            action: McpAction::Prompts {
+                action: McpPromptsAction::Get(_)
+            }
+        }
+    ));
 }
 
 fn default_gateway_daemon_args() -> dcc_mcp_sidecar::gateway_daemon::GatewayArgs {

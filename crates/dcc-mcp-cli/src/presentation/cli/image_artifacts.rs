@@ -12,7 +12,7 @@ const IMAGE_ARTIFACT_RETENTION: Duration = Duration::from_secs(24 * 60 * 60);
 const IMAGE_ARTIFACT_MAX_TOTAL_BYTES: u64 = 256 * 1024 * 1024;
 const IMAGE_ARTIFACT_SIZE_PRUNE_GRACE: Duration = Duration::from_secs(60);
 pub(super) const MATERIALIZED_IMAGE_PLACEHOLDER: &str =
-    "<omitted; materialized by dcc-mcp-cli; see artifact_path>";
+    "<omitted; materialized by dccmcp; see artifact_path>";
 
 pub(super) fn default_image_artifact_root() -> PathBuf {
     dirs::cache_dir()

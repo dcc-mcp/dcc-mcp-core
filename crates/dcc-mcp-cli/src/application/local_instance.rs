@@ -1,4 +1,4 @@
-//! Shared local FileRegistry instance helpers for `dcc-mcp-cli`.
+//! Shared local FileRegistry instance helpers for `dccmcp`.
 //!
 //! Local inventory and direct MCP control must interpret registry rows the same
 //! way. Keep ID matching, `mcp_url`, summaries, and gateway-sentinel filtering
