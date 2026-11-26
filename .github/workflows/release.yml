@@ -140,9 +140,11 @@ jobs:
             tag_name="$RP_TAG_NAME"
             version="$RP_VERSION"
           fi
-          echo "release_created=$release_created" >> "$GITHUB_OUTPUT"
-          echo "tag_name=$tag_name" >> "$GITHUB_OUTPUT"
-          echo "version=$version" >> "$GITHUB_OUTPUT"
+          {
+            echo "release_created=$release_created"
+            echo "tag_name=$tag_name"
+            echo "version=$version"
+          } >> "$GITHUB_OUTPUT"
           echo "Release decision: created=$release_created tag=$tag_name version=$version"
 
   build-admin-ui:
@@ -1211,7 +1213,7 @@ jobs:
       needs.release-please.outputs.release_created == 'true' &&
       needs.build-wheels.result == 'success' &&
       needs.build-binaries.result == 'success' &&
-      needs.build-semantic-wheels.result == 'success'
+      needs.build-semantic-wheels.result == 'success' &&
       needs.validate-release-notices.result == 'success'
     runs-on: ubuntu-latest
     permissions:
