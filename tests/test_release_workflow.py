@@ -298,21 +298,16 @@ def test_release_workflow_builds_deployable_zips_per_platform() -> None:
     bundle = next(step for step in build["steps"] if step.get("id") == "server-bundle")
     run = bundle["run"]
     assert "scripts/release/build_server_bundle.py" in run
-    assert '--version "${{ needs.release-please.outputs.version }}"' in run
-    assert '--platform "${{ matrix.platform }}"' in run
-    assert '--server-bin "${{ matrix.artifact_name }}"' in run
+    assert '--version "$RELEASE_VERSION"' in run
+    assert '--platform "$MATRIX_PLATFORM"' in run
+    assert '--server-bin "$MATRIX_ARTIFACT_NAME"' in run
+    assert bundle["env"]["RELEASE_VERSION"] == "${{ needs.release-please.outputs.version }}"
+    assert bundle["env"]["MATRIX_PLATFORM"] == "${{ matrix.platform }}"
+    assert bundle["env"]["MATRIX_ARTIFACT_NAME"] == "${{ matrix.artifact_name }}"
     assert "--cli-bin" not in run
     assert "--dccmcp-bin" not in run
     assert "--capture-helper target/x86_64-pc-windows-msvc/release/dcc-mcp-capture-helper.exe" in run
     assert "--ui-control-host target/x86_64-pc-windows-msvc/release/dcc-mcp-ui-control-host.exe" in run
-
-    host_inject = next(
-        step for step in build["steps"] if step.get("name") == "Inject Windows runtime hosts into server wheel"
-    )
-    assert host_inject["if"] == "matrix.os == 'windows-latest'"
-    assert "scripts/release/inject_capture_helper.py" in host_inject["run"]
-    assert "target/x86_64-pc-windows-msvc/release/dcc-mcp-capture-helper.exe" in host_inject["run"]
-    assert "target/x86_64-pc-windows-msvc/release/dcc-mcp-ui-control-host.exe" in host_inject["run"]
 
     raw_upload = next(
         step
@@ -330,18 +325,18 @@ def test_release_workflow_builds_deployable_zips_per_platform() -> None:
     assert r"^dcc-mcp-server-[0-9A-Za-z.+-]+-(linux-x86_64|windows-x86_64|macos-universal2)\.zip$" in notify["run"]
 
 
-def test_release_workflow_publishes_checksum_sidecars_for_downloadable_assets() -> None:
+def test_release_workflow_publishes_server_manifests_without_cli_assets() -> None:
     jobs = _release_jobs()
     build = jobs["build-binaries"]
-    checksum = next(step for step in build["steps"] if step.get("id") == "release-checksums")
-    assert "scripts/release/generate_asset_checksums.py" in checksum["run"]
-    assert "${{ matrix.artifact_name }}" in checksum["run"]
-    assert "${{ matrix.cli_artifact_name }}" not in checksum["run"]
+    manifest = next(step for step in build["steps"] if step.get("id") == "update-manifest")
+    assert "scripts/release/generate_update_manifest.py" in manifest["run"]
+    assert '"$MATRIX_ARTIFACT_NAME"' in manifest["run"]
+    assert "cli_artifact" not in manifest["run"]
 
     upload = next(
         step
         for step in build["steps"]
         if step.get("uses") == "softprops/action-gh-release@v3"
     )
-    assert "${{ matrix.cli_artifact_name }}.sha256" not in upload["with"]["files"]
-    assert "dcc-mcp-release-checksums-${{ matrix.platform }}.txt" in upload["with"]["files"]
+    assert "${{ steps.update-manifest.outputs.manifest_path }}" in upload["with"]["files"]
+    assert "dcc-mcp-cli" not in upload["with"]["files"]

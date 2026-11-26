@@ -653,7 +653,7 @@ jobs:
       always() &&
       needs.build-wheels.result == 'success' &&
       needs.build-binaries.result == 'success' &&
-      needs.build-semantic-wheels.result == 'success' &&
+      needs.build-semantic-wheels.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -1202,7 +1202,6 @@ jobs:
       - build-wheels
       - build-binaries
       - build-semantic-wheels
-      - build-cli-wheels
       - validate-release-notices
       - publish-core-pypi
       - publish-server-pypi
@@ -1212,7 +1211,7 @@ jobs:
       needs.release-please.outputs.release_created == 'true' &&
       needs.build-wheels.result == 'success' &&
       needs.build-binaries.result == 'success' &&
-      needs.build-semantic-wheels.result == 'success' &&
+      needs.build-semantic-wheels.result == 'success'
       needs.validate-release-notices.result == 'success'
     runs-on: ubuntu-latest
     permissions:

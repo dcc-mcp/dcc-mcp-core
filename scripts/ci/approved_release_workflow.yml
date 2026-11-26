@@ -43,6 +43,8 @@ concurrency:
 permissions:
   contents: write
   pull-requests: write
+  id-token: write
+  attestations: write
   actions: read
 
 jobs:
@@ -181,19 +183,19 @@ jobs:
           name: admin-ui-bundle
           path: crates/dcc-mcp-gateway-admin/src/generated/index.html
 
-  # ── Build standalone server binaries and the server PyPI wheel ──
+  # ── Build standalone binaries (raw Release assets + server PyPI wheel) ──
   #
-  # One job, one native cargo target/ (plus an isolated manylinux target/), four outputs:
+  # One job, one native cargo target (plus an isolated manylinux target), three outputs:
   #   1. Raw binary `dcc-mcp-server[-linux-x86_64|-windows-x86_64.exe|-macos-universal2]`
   #      attached to the GitHub Release. Backward-compat artefact for
   #      ops / docker users who don't want to `pip install`.
   #   2. Deployable zip `dcc-mcp-server-<ver>-<platform>.zip` containing
-  #      the unsuffixed `dcc-mcp-server` binary and optional Windows helpers.
-  #   3. PyPI wheel `dcc_mcp_server-<ver>-py3-none-<plat>.whl` built from
+  #      the unsuffixed server binary and optional Windows runtime helpers.
+  #   3. PyPI wheel
   #      pkg/dcc-mcp-server-bin/ via maturin's `bindings = "bin"`. It has
   #      no Python extension ABI and declares Python 3.7+ compatibility so
   #      Maya 2022's embedded Python can install it. maturin reuses the
-  #      just-built binary from the native release target on macOS/Windows so we do
+  #      just-built binary from `target/release/` on macOS/Windows so we do
   #      NOT compile twice (#1003 review feedback). Linux manylinux wheels use
   #      an isolated `target-manylinux2014/` because host-built Cargo build
   #      scripts cannot run inside the older manylinux2014 glibc environment.
@@ -235,6 +237,7 @@ jobs:
         with:
           toolchain: '1.95.0'
           targets: aarch64-apple-darwin  # needed for macOS universal2 lipo
+
       - name: Pin Windows builds to the MSVC target
         if: matrix.os == 'windows-latest'
         shell: pwsh
@@ -308,7 +311,7 @@ jobs:
           if [ "${{ matrix.os }}" = "windows-latest" ]; then
             build_dir="target/x86_64-pc-windows-msvc/release"
           fi
-          cp "$build_dir/${{ matrix.binary }}" "${{ matrix.artifact_name }}"
+          cp "$build_dir/$MATRIX_BINARY" "$MATRIX_ARTIFACT_NAME"
         shell: bash
 
       - name: Create deployable server bundle
@@ -327,9 +330,9 @@ jobs:
             )
           fi
           python scripts/release/build_server_bundle.py \
-            --version "${{ needs.release-please.outputs.version }}" \
-            --platform "${{ matrix.platform }}" \
-            --server-bin "${{ matrix.artifact_name }}" \
+            --version "$RELEASE_VERSION" \
+            --platform "$MATRIX_PLATFORM" \
+            --server-bin "$MATRIX_ARTIFACT_NAME" \
             "${helper_args[@]}" \
             --out-dir .
 
@@ -344,22 +347,12 @@ jobs:
           MATRIX_ARTIFACT_NAME: ${{ matrix.artifact_name }}
         run: |
           python scripts/release/generate_update_manifest.py \
-            --version "${{ needs.release-please.outputs.version }}" \
-            --platform "${{ matrix.platform }}" \
-            --release-tag "${{ needs.release-please.outputs.tag_name }}" \
-            --repo "${{ github.repository }}" \
-            --server-bin "${{ matrix.artifact_name }}" \
+            --version "$RELEASE_VERSION" \
+            --platform "$MATRIX_PLATFORM" \
+            --release-tag "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY_SLUG" \
+            --server-bin "$MATRIX_ARTIFACT_NAME" \
             --out-dir .
-
-      - name: Generate release checksums
-        id: release-checksums
-        shell: bash
-        run: |
-          python scripts/release/generate_asset_checksums.py \
-            --output "dcc-mcp-release-checksums-${{ matrix.platform }}.txt" \
-            --asset "${{ matrix.artifact_name }}" \
-            --asset "${{ steps.server-bundle.outputs.bundle_path }}" \
-            --asset "${{ steps.update-manifest.outputs.manifest_path }}"
 
       # ── PyPI wheel build ──────────────────────────────────────────
       # macOS / Windows reuse the same target/ directory the raw-binary
@@ -397,14 +390,6 @@ jobs:
           python -m pip install "maturin>=1.5,<2.0" "wheel>=0.46"
           maturin build --release --out wheels
 
-      - name: Inject Windows runtime hosts into server wheel
-        if: matrix.os == 'windows-latest'
-        shell: bash
-        run: >-
-          python scripts/release/inject_capture_helper.py
-          --helper target/x86_64-pc-windows-msvc/release/dcc-mcp-capture-helper.exe
-          --ui-control-host target/x86_64-pc-windows-msvc/release/dcc-mcp-ui-control-host.exe
-
       - name: Retag server binary wheel as Python-version independent
         shell: bash
         run: |
@@ -423,10 +408,6 @@ jobs:
             ${{ matrix.artifact_name }}
             ${{ steps.server-bundle.outputs.bundle_path }}
             ${{ steps.update-manifest.outputs.manifest_path }}
-            dcc-mcp-release-checksums-${{ matrix.platform }}.txt
-            ${{ matrix.artifact_name }}.sha256
-            ${{ steps.server-bundle.outputs.bundle_path }}.sha256
-            ${{ steps.update-manifest.outputs.manifest_path }}.sha256
 
       - name: Upload server wheel artefact (for cross-job collection)
         uses: actions/upload-artifact@v4
@@ -450,10 +431,6 @@ jobs:
             ${{ matrix.artifact_name }}
             ${{ steps.server-bundle.outputs.bundle_path }}
             ${{ steps.update-manifest.outputs.manifest_path }}
-            dcc-mcp-release-checksums-${{ matrix.platform }}.txt
-            ${{ matrix.artifact_name }}.sha256
-            ${{ steps.server-bundle.outputs.bundle_path }}.sha256
-            ${{ steps.update-manifest.outputs.manifest_path }}.sha256
             pkg/dcc-mcp-server-bin/wheels/*.whl
 
   # ── Build dcc-mcp-core-semantic companion wheels (issue #1395) ──
@@ -526,13 +503,6 @@ jobs:
         with:
           toolchain: '1.95.0'
           components: clippy, rustfmt
-      - name: Pin Windows semantic wheels to the MSVC target
-        if: startsWith(matrix.target, 'windows-')
-        shell: pwsh
-        run: |
-          $target = "x86_64-pc-windows-msvc"
-          rustup target add $target
-          "CARGO_BUILD_TARGET=$target" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Verify Windows uses the MSVC Rust target
         if: startsWith(matrix.target, 'windows-')
@@ -733,13 +703,6 @@ jobs:
           path: dist-semantic
           merge-multiple: true
 
-      - name: Download CLI distribution archives
-        uses: actions/download-artifact@v8
-        with:
-          name: cli-wheel-all
-          path: dist-cli
-          merge-multiple: true
-
       - name: Validate release archive notices
         shell: bash
         run: |
@@ -749,7 +712,6 @@ jobs:
             dist/*.whl dist/*.tar.gz
             dist-server/*.whl
             dist-semantic/*.whl
-            dist-cli/*.whl
             dist-binaries/*.zip
           )
           python scripts/ci/check_release_notices.py . "${archives[@]}"
@@ -1249,7 +1211,7 @@ jobs:
       needs.release-please.outputs.release_created == 'true' &&
       needs.build-wheels.result == 'success' &&
       needs.build-binaries.result == 'success' &&
-      needs.build-semantic-wheels.result == 'success' &&
+      needs.build-semantic-wheels.result == 'success'
       needs.validate-release-notices.result == 'success'
     runs-on: ubuntu-latest
     permissions:
@@ -1460,9 +1422,11 @@ jobs:
               echo "::error::Core-only backfill unexpectedly ran another publication route."
               failed=1
             fi
-            # A green core-only run must not read as every route being current.
+            # A green core-only run must not read as "all four routes are current":
+            # the other three are skipped by design here, so name them and give the
+            # command that republishes them.
             if [ "$failed" -eq 0 ]; then
-              echo "::warning::Core-only backfill published dcc-mcp-core only; dcc-mcp-server and dcc-mcp-core-semantic were NOT republished and stay at their previous version. Re-run with the same release_tag and backfill_assets=true to publish all server routes."
+              echo "::warning::Core-only backfill published dcc-mcp-core only; dcc-mcp-server, dcc-mcp-core-semantic were NOT republished and stay at their previous version. Re-run with the same release_tag and backfill_assets=true to publish all Core routes."
             fi
           else
             if [ "$core" != "success" ] || [ "$server" != "success" ] || [ "$semantic" != "success" ]; then
@@ -1507,7 +1471,7 @@ jobs:
             '^dcc-mcp-server-'
             '^dcc-mcp-server-[0-9A-Za-z.+-]+-(linux-x86_64|windows-x86_64|macos-universal2)\.zip$'
             '^dcc-mcp-update-manifest-(linux-x86_64|windows-x86_64|macos-universal2)\.json$'
-            '^dcc-mcp-release-checksums-(linux-x86_64|windows-x86_64|macos-universal2)\.txt$'
+            '^dcc-mcp-update-manifest-(linux-x86_64|windows-x86_64|macos-universal2)\.sigstore\.json$'
           )
 
           release_json=""
