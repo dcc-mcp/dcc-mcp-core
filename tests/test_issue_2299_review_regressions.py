@@ -222,8 +222,8 @@ def test_gateway_guidance_uses_the_current_discovery_flow() -> None:
     guide = _read("AGENTS.md")
     assert '`search_tools("materialize script")`' not in guide
     assert "POST /v1/search" in guide
-    assert "dcc-mcp-cli search" in guide
-    assert "dcc-mcp-cli call" in guide
+    assert "dccmcp search" in guide
+    assert "dccmcp call" in guide
 
 
 def test_thin_harness_additional_properties_wording_is_accurate() -> None:

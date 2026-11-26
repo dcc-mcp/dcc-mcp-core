@@ -81,11 +81,11 @@ dcc-mcp-server --admin-path /dcc-admin
 `dccmcp ui-control` 子命令通过 Shell 暴露相同的能力：
 
 ```bash
-dcc-mcp-cli ui-control snapshot --instance-id <id> --json '{"session_id":"ui","process_id":1234}'
-dcc-mcp-cli ui-control act --instance-id <id> --json '{"session_id":"ui","control_id":"ok","action":"click","snapshot_id":"<snapshot_id>"}'
-dcc-mcp-cli ui-control record-clip --instance-id <id> --json '{"session_id":"pv","process_id":1234,"duration_ms":5000}'
-dcc-mcp-cli ui-control stop --instance-id <id> --json '{"session_id":"ui"}'
-dcc-mcp-cli ui-control system-operation --instance-id <id> --json '{"operation_id":"enable-remote-control"}'
+dccmcp ui-control snapshot --instance-id <id> --json '{"session_id":"ui","process_id":1234}'
+dccmcp ui-control act --instance-id <id> --json '{"session_id":"ui","control_id":"ok","action":"click","snapshot_id":"<snapshot_id>"}'
+dccmcp ui-control record-clip --instance-id <id> --json '{"session_id":"pv","process_id":1234,"duration_ms":5000}'
+dccmcp ui-control stop --instance-id <id> --json '{"session_id":"ui"}'
+dccmcp ui-control system-operation --instance-id <id> --json '{"operation_id":"enable-remote-control"}'
 ```
 
 ## 相关文档
