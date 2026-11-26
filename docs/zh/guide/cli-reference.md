@@ -5,33 +5,38 @@
 本页记录它与 core server binary 共同使用的运维契约。每个二进制的旗标都一对一
 映射到一个 `DCC_MCP_*` 环境变量，所以任何部署清单都能驱动同一套配置面板。
 
-`dccmcp` 与 `dcc-mcp-server` 会在每个 Release 作为原生 GitHub
-Release 资产发布。旧的 `dcc-mcp-cli` 继续作为兼容别名保留。DCCMCP
+`dccmcp` 与 `dcc-mcp-cli` 由独立的 CLI 仓库作为原生 GitHub Release
+资产发布。旧的 `dcc-mcp-cli` 继续作为兼容别名保留。`dcc-mcp-server`
+由 Core 仓库发布。DCCMCP
 是所有具备 shell 能力的 Agent 的首选控制路径。如果尚未
 安装，先征得用户同意，再通过官方 URL 安装：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-cli/main/scripts/install-cli.sh | sh
+curl -fL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-cli/main/scripts/install-cli.sh -o install-cli.sh
+cat install-cli.sh
+sh ./install-cli.sh
 
 # Windows PowerShell
-powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-cli/main/scripts/install-cli.ps1 | iex"
+Invoke-WebRequest https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-cli/main/scripts/install-cli.ps1 -OutFile .\install-cli.ps1
+Get-Content -Raw .\install-cli.ps1
+& .\install-cli.ps1
 ```
 
-这个 bundled helper 固定使用 `dcc-mcp/dcc-mcp-core` 官方 release，先验证
+这个 bundled helper 固定使用 `dcc-mcp/dcc-mcp-cli` 官方 release，先验证
 当前平台的 update manifest 和 CLI SHA-256，再替换二进制。URL、manifest、
 摘要或下载异常时会 fail closed，不会覆盖已有 CLI。SHA-256 是完整性检查，
 不等同于数字签名。如果没有安装 Skill，请把官方 installer 下载为本地文件，
 先检查，再执行：
 
 ```bash
-curl -fL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.sh -o install-cli.sh
+curl -fL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-cli/main/scripts/install-cli.sh -o install-cli.sh
 cat install-cli.sh
 # 检查完成后：
 sh ./install-cli.sh
 ```
 
 ```powershell
-Invoke-WebRequest https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.ps1 -OutFile .\install-cli.ps1
+Invoke-WebRequest https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-cli/main/scripts/install-cli.ps1 -OutFile .\install-cli.ps1
 Get-Content -Raw .\install-cli.ps1
 # 检查完成后，遵循当前执行策略：
 & .\install-cli.ps1
@@ -40,8 +45,15 @@ Get-Content -Raw .\install-cli.ps1
 本地 installer 使用相同的固定来源和验证契约。不要把它通过管道直接交给 shell，
 也不要绕过机器的脚本执行策略。
 
-固定版本可运行 `sh ./install-cli.sh --version v0.19.63`，或
-`& .\install-cli.ps1 -Version v0.19.63`。
+安装只用于首次部署或修复。安装完成后使用 `dccmcp update` 执行带校验的
+分阶段自更新。`dccmcp update check` 只读检查，`dccmcp update apply` 下载并
+暂存下一次启动使用的 CLI。设置 `DCC_MCP_CLI_AUTO_UPDATE=true` 或传入
+`--auto-update`，即可在普通命令前执行同样的尽力更新。DCC-CUA 是独立发布的
+运行时，使用 `dccmcp cua -- manifest` 和 `dccmcp cua -- ping` 检查。缺少或需要
+更新时，使用 `dcc-cua` 仓库自己的官方安装流程。
+
+固定版本可运行 `sh ./install-cli.sh --version v0.21.1`，或
+`& .\install-cli.ps1 -Version v0.21.1`。
 
 | 二进制 | 角色 | 源码位置 |
 |---|---|---|
@@ -188,7 +200,7 @@ dccmcp lint path/to/skills
 ### MCP inventory smoke 检查
 
 ```bash
-dcc-mcp-cli --no-auto-gateway --output json smoke --url http://127.0.0.1:19293/mcp --timeout-secs 30 --max-pages 16
+dccmcp --no-auto-gateway --output json smoke --url http://127.0.0.1:19293/mcp --timeout-secs 30 --max-pages 16
 ```
 
 `smoke` 初始化一个 MCP session，并沿 `tools/list` cursor 读取到终页。
@@ -249,16 +261,16 @@ UTF-8 文本（UTF-8 无效时保留字节）。这些是传输解码后的 HTTP
 
 ### `start-instance`（项目绑定启动与等待就绪）
 
-adapter 可能已经安装并记录了精确项目根目录，但 `dcc-mcp-cli list` 仍报
+adapter 可能已经安装并记录了精确项目根目录，但 `dccmcp list` 仍报
 `total: 0`，因为没有宿主进程在跑。`start-instance` 用于补上这个零实例缺口：
 按项目启动 DCC 宿主，并等到它就绪。
 
 ```bash
-dcc-mcp-cli start-instance --dcc-type unity --project /abs/path/MyProject --dry-run
-dcc-mcp-cli start-instance --dcc-type unity --project /abs/path/MyProject --wait-ready --yes
-dcc-mcp-cli start-instance --dcc-type unity --project /abs/path/MyProject \
+dccmcp start-instance --dcc-type unity --project /abs/path/MyProject --dry-run
+dccmcp start-instance --dcc-type unity --project /abs/path/MyProject --wait-ready --yes
+dccmcp start-instance --dcc-type unity --project /abs/path/MyProject \
   --wait-ready --require skill_catalog --timeout-secs 600 --yes
-dcc-mcp-cli stop-instance --operation-id <operation-id>
+dccmcp stop-instance --operation-id <operation-id>
 ```
 
 职责划分：**core 定义生命周期与就绪契约，adapter 提供经过校验的启动计划。**
@@ -324,24 +336,24 @@ Adapter 作者：启动计划 schema、argv 占位符、注册行 metadata key�
 1. 保留失败调用的 `request_id`、trace/job id、tool slug、instance、脱敏后的参数、
    error code 和验证结果；不要直接重放有副作用的调用。
 2. profile、registry、daemon、binary 或 readiness 异常先运行
-   `dcc-mcp-cli doctor`；任务范围内的失败证据运行
-   `dcc-mcp-cli stats --range 24h --status failure --session-id <session-id>`。
-3. 运行 `dcc-mcp-cli feedback`，提交 `tool_name`、`intent`、`attempt`、
+   `dccmcp doctor`；任务范围内的失败证据运行
+   `dccmcp stats --range 24h --status failure --session-id <session-id>`。
+3. 运行 `dccmcp feedback`，提交 `tool_name`、`intent`、`attempt`、
    `blocker` 和 `severity`，已知时附带 DCC/instance/request/job id。该
    Gateway 路由在实例退出后仍可用，只记录有界事件，不会创建 GitHub issue。
-4. 使用 `dcc-mcp-cli feedback list --range 7d --dcc <dcc> --json` 检查持久化
+4. 使用 `dccmcp feedback list --range 7d --dcc <dcc> --json` 检查持久化
    反馈；需要最大有界机器可读窗口时使用 `feedback export`。
 5. 已有 Finding v1 JSON 时运行
-   `dcc-mcp-cli feedback route finding.json --json`。该离线命令只使用精确的
+   `dccmcp feedback route finding.json --json`。该离线命令只使用精确的
    catalog 或 Skill 元数据归属，不会创建外部 Issue；路由失败时不得猜测仓库。
 6. 人工审查 Finding 并设置所有 public-safe 排除标志后，运行
-   `dcc-mcp-cli feedback bundle finding.json --install-report install-report.json --json`。
+   `dccmcp feedback bundle finding.json --install-report install-report.json --json`。
    如果 `install --execute --json` 生成了单一 JSON stdout 对象，应把该终态报告
    原样保存并传入。命令会组合 safe issue report、脱敏 doctor、版本矩阵、准确文件的
    有界 host-error tail，以及 public-safe Install SOP v1 报告；报告必须是最大
    256 KiB 的常规非符号链接文件，且 DCC/Core/adapter 身份与 Finding 一致。
    验证失败会 fail-closed；任何 `unavailable` 组件或 `complete=false` 都表示证据不完整。
-7. 运行 `dcc-mcp-cli feedback file finding.json --json` 做只读去重。只有在
+7. 运行 `dccmcp feedback file finding.json --json` 做只读去重。只有在
    人工审查并获得用户授权后，才可原样执行返回的 `next_step.argv`；禁止根据
    `--existing`/`--create` 手工重建。CLI 会在写入前复核规范 Finding 路径、规范
    catalog 路径或精确内置 sentinel、Finding 内容 SHA-256、fingerprint、责任仓库、

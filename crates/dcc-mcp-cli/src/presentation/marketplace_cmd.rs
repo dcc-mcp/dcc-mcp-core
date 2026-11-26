@@ -3,98 +3,6 @@ use std::path::PathBuf;
 use anyhow::Context;
 use serde_json::Value;
 
-#[derive(Debug, clap::Subcommand)]
-pub(crate) enum MarketplaceAction {
-    Add {
-        source: String,
-    },
-    List,
-    Search {
-        #[arg(short, long, conflicts_with = "query_terms")]
-        query: Option<String>,
-        #[arg(value_name = "QUERY", num_args = 1.., conflicts_with = "query")]
-        query_terms: Vec<String>,
-        #[arg(long, visible_alias = "dcc-type")]
-        dcc: Option<String>,
-        #[arg(long, conflicts_with = "dcc")]
-        target: Option<String>,
-        #[arg(long = "source")]
-        sources: Vec<String>,
-        #[arg(long)]
-        limit: Option<usize>,
-        #[arg(long)]
-        skip_validation: bool,
-    },
-    Inspect {
-        name: String,
-        #[arg(long = "source")]
-        sources: Vec<String>,
-        #[arg(long)]
-        skip_validation: bool,
-    },
-    Install {
-        name: String,
-        /// Host to install for. Omit it, or pass `all`, to install an entry
-        /// that declares several hosts once into the shared directory every
-        /// host searches instead of copying it per host.
-        #[arg(long)]
-        dcc: Option<String>,
-        #[arg(long, conflicts_with = "dcc")]
-        target: Option<String>,
-        #[arg(long)]
-        reload: bool,
-        #[arg(long = "source")]
-        sources: Vec<String>,
-        #[arg(long)]
-        force: bool,
-        #[arg(long)]
-        skip_validation: bool,
-    },
-    Uninstall {
-        name: String,
-        #[arg(long)]
-        dcc: Option<String>,
-        #[arg(long, conflicts_with = "dcc")]
-        target: Option<String>,
-        #[arg(long)]
-        reload: bool,
-    },
-    ListInstalled {
-        /// Host to list. Packages installed into the shared directory are
-        /// listed for every host, because every host loads them.
-        #[arg(long)]
-        dcc: Option<String>,
-        #[arg(long, conflicts_with = "dcc")]
-        target: Option<String>,
-    },
-    Outdated {
-        #[arg(long)]
-        dcc: Option<String>,
-        names: Vec<String>,
-    },
-    Update {
-        name: Option<String>,
-        #[arg(long, short = 'a')]
-        all: bool,
-        #[arg(long)]
-        dcc: Option<String>,
-    },
-    AddRepo {
-        repo_ref: String,
-        /// Full 40-character commit object ID. Required for installation.
-        #[arg(long, required_unless_present = "list")]
-        commit: Option<String>,
-        #[arg(long)]
-        dcc: Option<String>,
-        #[arg(long)]
-        list: bool,
-        #[arg(long)]
-        force: bool,
-    },
-    Pack(MarketplacePackArgs),
-    Publish(Box<MarketplacePublishArgs>),
-}
-
 #[derive(Debug, clap::Args)]
 pub(crate) struct MarketplacePackArgs {
     #[arg(value_name = "PATH")]
@@ -117,14 +25,14 @@ pub(crate) struct MarketplacePublishArgs {
     /// Install source type.
     #[arg(long = "install-type", default_value = "zip")]
     pub(crate) install_type: String,
-    /// Full 40-character commit object ID for git installs.
-    #[arg(long = "install-ref", required_if_eq("install_type", "git"))]
+    /// Git ref/tag for git installs.
+    #[arg(long = "install-ref")]
     pub(crate) install_ref: Option<String>,
     /// Skill directories to install from the source. Repeat for multi-skill packages.
     #[arg(long = "skill-root")]
     pub(crate) skill_roots: Vec<String>,
     /// Archive SHA-256, optionally prefixed with sha256:.
-    #[arg(long, required_if_eq("install_type", "zip"))]
+    #[arg(long)]
     pub(crate) sha256: Option<String>,
     /// Override package name when PATH has no root SKILL.md.
     #[arg(long)]
@@ -135,15 +43,6 @@ pub(crate) struct MarketplacePublishArgs {
     /// Target DCC. Repeat for multi-DCC packages.
     #[arg(long)]
     pub(crate) dcc: Vec<String>,
-    /// Generic target in KIND:ID form. Repeat for multi-target packages.
-    #[arg(long = "target")]
-    pub(crate) targets: Vec<String>,
-    /// Typed package format.
-    #[arg(long = "format")]
-    pub(crate) package_format: Option<String>,
-    /// Typed component in KIND:ID=ROOT form. Repeat for composite packages.
-    #[arg(long = "component")]
-    pub(crate) components: Vec<String>,
     #[arg(long)]
     pub(crate) version: Option<String>,
     #[arg(long)]
@@ -185,24 +84,6 @@ pub(crate) fn run_pack(args: MarketplacePackArgs) -> anyhow::Result<Value> {
 }
 
 pub(crate) fn run_publish(args: MarketplacePublishArgs) -> anyhow::Result<Value> {
-    let targets = args
-        .targets
-        .iter()
-        .map(|value| {
-            dcc_mcp_marketplace::parse_target(value)
-                .map_err(|_| anyhow::anyhow!("invalid target '{value}'; expected KIND:ID"))
-        })
-        .collect::<anyhow::Result<Vec<_>>>()?;
-    let package_format = args
-        .package_format
-        .as_deref()
-        .map(parse_package_format)
-        .transpose()?;
-    let components = args
-        .components
-        .iter()
-        .map(|value| parse_component(value))
-        .collect::<anyhow::Result<Vec<_>>>()?;
     let result = dcc_mcp_marketplace::publish_marketplace_package(
         dcc_mcp_marketplace::MarketplacePublishOptions {
             package_dir: args.path,
@@ -215,9 +96,6 @@ pub(crate) fn run_publish(args: MarketplacePublishArgs) -> anyhow::Result<Value>
             name: args.name,
             description: args.description,
             dcc: args.dcc,
-            targets,
-            package_format,
-            components,
             version: args.version,
             maintainer: args.maintainer,
             tags: args.tags,
@@ -232,41 +110,6 @@ pub(crate) fn run_publish(args: MarketplacePublishArgs) -> anyhow::Result<Value>
         },
     )?;
     to_json(result)
-}
-
-fn parse_package_format(value: &str) -> anyhow::Result<dcc_mcp_catalog::CatalogPackageFormat> {
-    use dcc_mcp_catalog::CatalogPackageFormat;
-    match value {
-        "skill" => Ok(CatalogPackageFormat::Skill),
-        "skill-bundle" => Ok(CatalogPackageFormat::SkillBundle),
-        "agent-plugin" => Ok(CatalogPackageFormat::AgentPlugin),
-        "cua-profile" => Ok(CatalogPackageFormat::CuaProfile),
-        "composite" => Ok(CatalogPackageFormat::Composite),
-        _ => anyhow::bail!("invalid package format '{value}'"),
-    }
-}
-
-fn parse_component(value: &str) -> anyhow::Result<dcc_mcp_catalog::CatalogComponent> {
-    use dcc_mcp_catalog::CatalogComponentKind;
-    let (identity, root) = value
-        .split_once('=')
-        .ok_or_else(|| anyhow::anyhow!("invalid component '{value}'; expected KIND:ID=ROOT"))?;
-    let (kind, id) = identity
-        .split_once(':')
-        .ok_or_else(|| anyhow::anyhow!("invalid component '{value}'; expected KIND:ID=ROOT"))?;
-    let kind = match kind {
-        "skill" => CatalogComponentKind::Skill,
-        "cua-profile" => CatalogComponentKind::CuaProfile,
-        _ => anyhow::bail!("invalid component kind '{kind}'"),
-    };
-    if id.is_empty() || root.is_empty() {
-        anyhow::bail!("invalid component '{value}'; id and root are required");
-    }
-    Ok(dcc_mcp_catalog::CatalogComponent {
-        kind,
-        id: id.to_string(),
-        root: root.to_string(),
-    })
 }
 
 fn to_json(value: impl serde::Serialize) -> anyhow::Result<Value> {

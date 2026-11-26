@@ -19,7 +19,7 @@ metadata:
       workflow_stage: automation
       task_category: mutate
     layer: infrastructure
-    compatibility: Cross-platform routing contract. The current DCC-CUA host is installed and verified through the official dcc-mcp-cli component manifest; exact platform capabilities remain runtime-discovered.
+    compatibility: Cross-platform routing contract. The current DCC-CUA host is independently released and verified through its runtime manifest; exact platform capabilities remain runtime-discovered.
     version: "0.1.0"
     search-hint: "dcc-cua DCC CUA dcc cua our dcc-cua our dcc cua 我们的 dcc-cua 我们的 dcc cua project-owned UI control browser DOM exact PID HWND computer use automation"
     tags: "dcc-cua, dcc-ui-control, ui-control, browser-dom, exact-window, computer-use, infrastructure"
@@ -85,50 +85,30 @@ coefficient: the route is explicit, not a ranking effect.
 
 ## Runtime preflight
 
-Use the official component contract; do not download an arbitrary executable:
+Use the independently released CUA runtime. The `dccmcp` command only forwards
+to that runtime and does not install or embed it:
 
 ```bash
-dcc-mcp-cli components status dcc-cua
-dcc-mcp-cli components ensure dcc-cua --yes
-dcc-cua manifest
-dcc-cua ping
+dccmcp cua -- manifest
+dccmcp cua -- ping
 ```
 
-Run `components ensure` only when installation or repair is authorized. It
-consumes the official versionless manifest, verifies the declared SHA-256, and
-reconciles the independently released companion executable.
+If the forwarding command reports that `dcc-cua` is missing, obtain user
+authorization and install the official runtime from
+[`dcc-mcp/dcc-cua`](https://github.com/dcc-mcp/dcc-cua). Keep the runtime on
+`PATH` or set `DCC_MCP_CUA_BINARY` to its absolute path.
 
-The two binaries come from different releases: `dcc-mcp-cli` ships with
-`dcc-mcp-core` (`https://github.com/dcc-mcp/dcc-mcp-core/releases`), while the
+The installed `dccmcp` control plane can stage its own verified update with
+`dccmcp update` or `dccmcp update apply`. Set
+`DCC_MCP_CLI_AUTO_UPDATE=true` or pass `--auto-update` when the host should
+perform the same best-effort check before a normal command. This updates the
+control plane only. The historical `dcc-mcp-cli` binary remains a compatibility
+alias and accepts the same forwarding command.
+
+The two binaries come from different releases: `dccmcp` ships from
+`https://github.com/dcc-mcp/dcc-mcp-cli/releases`, while the
 `dcc-cua` runtime is an independent companion released from
-`https://github.com/dcc-mcp/dcc-cua/releases`. `components ensure dcc-cua`
-fetches the runtime from that dcc-cua release, never from a Core release.
-
-For an exact, already qualified offline package, use
-`dcc-mcp-cli components install-verified dcc-cua --help`. Supply the canonical
-`--target-core-cli` and its `--expected-core-cli-sha256`, `--source-root`, exact
-`--version`, new and `--previous-manifest` paths and their pinned SHA-256 values,
-plus `--expected-current-sha256`, `--expected-new-sha256`, and `--yes`.
-Obtain manifest digests from independently verified official publications.
-The command disables automatic update maintenance and gateway startup, copies
-only declared files into a private verified staging tree, and checks the Core
-anchor and old foreground under the installation lock. It preserves historical
-backup files and rejects a pending package journal with `recovery required`;
-recovery is a separate operation. An error after commit can require cleanup;
-read back installed hashes and the journal before reporting an unchanged
-installation or retrying. Installing files does not reconnect loaded callers.
-
-Retryable rename/delete failures retain prepared ownership only when a live
-OS file identity still matches. Windows requires the OS and filesystem to
-support [`FileIdInfo` / 128-bit file IDs](https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_id_info);
-availability of the older basic handle-information API alone is insufficient.
-An unsupported or unreadable initial identity check preserves the ownership
-ticket without attempting consumption. If identity cannot be rechecked after
-a failed operation, the ticket remains relinquished and inspection is required.
-Do not assume compatibility with every older Windows version or filesystem,
-or delete an ambiguous sidecar to force recovery.
-These checks complement the installation lock, not a filesystem sandbox
-against unrelated writers that ignore that lock.
+`https://github.com/dcc-mcp/dcc-cua/releases`.
 
 For semantic application profiles:
 
@@ -164,11 +144,11 @@ For a registered DCC instance, use the DCC-MCP UI Control tools or their CLI
 projection:
 
 ```bash
-dcc-mcp-cli load-skill ui-control --instance-id <instance-id> --output toon
-dcc-mcp-cli ui-control snapshot --instance-id <instance-id> --json '{"session_id":"ui","process_id":1234,"window_handle":5678}'
-dcc-mcp-cli ui-control act --instance-id <instance-id> --json '{"session_id":"ui","control_id":"ok","action":"click","snapshot_id":"<snapshot-id>"}'
-dcc-mcp-cli ui-control act --instance-id <instance-id> --json '{"session_id":"ui","action":"invoke_menu","menu_path":["Window","Arrange","Left"]}'
-dcc-mcp-cli ui-control stop --instance-id <instance-id> --json '{"session_id":"ui"}'
+dccmcp load-skill ui-control --instance-id <instance-id> --output toon
+dccmcp ui-control snapshot --instance-id <instance-id> --json '{"session_id":"ui","process_id":1234,"window_handle":5678}'
+dccmcp ui-control act --instance-id <instance-id> --json '{"session_id":"ui","control_id":"ok","action":"click","snapshot_id":"<snapshot-id>"}'
+dccmcp ui-control act --instance-id <instance-id> --json '{"session_id":"ui","action":"invoke_menu","menu_path":["Window","Arrange","Left"]}'
+dccmcp ui-control stop --instance-id <instance-id> --json '{"session_id":"ui"}'
 ```
 
 Use the same exact instance and session throughout the action chain. Do not

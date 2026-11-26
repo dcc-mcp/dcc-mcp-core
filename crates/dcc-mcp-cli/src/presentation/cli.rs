@@ -1,6 +1,7 @@
-use std::collections::BTreeMap;
+use std::collections::BTreeSet;
+use std::io::Read;
 use std::path::PathBuf;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use anyhow::Context;
 #[cfg(test)]
@@ -12,73 +13,31 @@ use dcc_mcp_skills::{SkillValidationReport, validate_skill_dir};
 use serde::Serialize;
 use serde_json::{Map, Value, json};
 
-use super::output::{ExitCode, OutputFormat, OutputWriter, failure_envelope, to_json};
-use super::update_maintenance::UpdateMaintenance;
-
-use crate::application::adapter_import;
-use crate::application::call_attribution::{
-    attach_agent_session_id, attach_batch_agent_session_id,
-};
-use crate::application::capabilities_result;
 use crate::application::client::DccMcpClient;
 use crate::application::control_plane::DccControlPlane;
 use crate::application::dcc_discovery::discover_dcc_installations;
 use crate::application::doctor::{DoctorRequest, run_doctor};
 use crate::application::gateway_ctrl;
 use crate::application::gateway_ensure;
-use crate::application::gateway_profile;
-use crate::application::host_capabilities::CapabilitiesCommand;
+use crate::application::gateway_profile::{self, GatewayTarget};
 use crate::application::install::InstallService;
-use crate::application::marketplace::check_marketplace_updates;
 use crate::application::marketplace::new_service;
 use crate::domain::install::InstallRequest;
 use crate::domain::rest::{
-    Endpoint, ReloadSkillsRequest, SearchRequest, StatsRequest, StopInstanceRequest,
-    WaitReadyRequest,
+    Endpoint, LoadSkillRequest, ReloadSkillsRequest, SearchRequest, StatsRequest,
+    StopInstanceRequest, WaitReadyRequest,
 };
-use crate::domain::start_instance::StartInstanceRequest;
 use crate::infra::http::HttpGateway;
 
-pub(crate) mod capabilities_output;
-mod cli_args;
-mod dcc_types_output;
-mod gateway_cmd;
 mod image_artifacts;
-mod job_progress;
-mod lint;
-mod marketplace_output;
-mod record_replay;
-pub(crate) mod result_output;
-mod transport_args;
-mod ui_control;
-mod ui_control_output;
 
 #[cfg(test)]
 use image_artifacts::{BASE64_STANDARD, MATERIALIZED_IMAGE_PLACEHOLDER, prune_image_artifacts};
 use image_artifacts::{default_image_artifact_root, materialize_call_images};
-use job_progress::JobProgressReporter;
-use marketplace_output::reload_marketplace_value;
-use record_replay::run_record_replay;
-use transport_args::TransportArgs;
-use ui_control_output::compact_ui_control_result;
 
-pub(crate) use cli_args::{Command, UiControlAction, UiControlArgs};
-use cli_args::{
-    build_load_skill_request, command_has_configured_timeout_env, command_has_distinct_per_timeout,
-    endpoint_for_mcp, parse_json_object, parse_marketplace_target, parse_output_format,
-    read_batch_request, read_call_arguments, resolve_query,
-};
-use gateway_cmd::{ensure_gateway_for_command, run_gateway_cmd};
-
-use super::marketplace_cmd::{self, MarketplaceAction};
-#[cfg(test)]
-use super::update_cmd::UpdateAction;
+use super::marketplace_cmd;
 
 const DEFAULT_BASE_URL: &str = "http://127.0.0.1:9765";
-const DEFAULT_SMOKE_TIMEOUT_SECS: u64 = 5;
-const DEFAULT_CALL_TIMEOUT_SECS: u64 = 30;
-const DEFAULT_WAIT_READY_TIMEOUT_SECS: u64 = 30;
-const DEFAULT_START_INSTANCE_TIMEOUT_SECS: u64 = 300;
 
 #[derive(Debug, Parser)]
 #[command(name = "dccmcp", about, version)]
@@ -109,68 +68,16 @@ pub struct Args {
         default_value = "10"
     )]
     auto_gateway_timeout_secs: u64,
-    /// Output format: human, json, ndjson, or toon. Auto-detects from TTY when omitted.
-    #[arg(
-        long,
-        global = true,
-        env = "DCC_MCP_OUTPUT",
-        value_parser = parse_output_format
-    )]
-    output: Option<OutputFormat>,
-    /// Keep redundant MCP JSON text mirrors in CLI output for legacy consumers.
-    #[arg(long, global = true)]
-    raw_result: bool,
-    /// Select a JSON pointer from the output; repeat for multiple fields. Missing = null.
-    #[arg(long, global = true, value_parser = result_output::parse_pointer)]
-    select: Vec<String>,
-    /// Non-interactive mode: zero prompts, missing input fails immediately (exit code 2).
-    #[arg(long, global = true, env = "DCC_MCP_NON_INTERACTIVE")]
-    non_interactive: bool,
-    /// Timeout override: per request for call; total budget for wait-ready/start-instance.
-    /// call --wait-timeout-secs independently limits total job polling.
-    #[arg(long, global = true, env = "DCC_MCP_TIMEOUT_SECS")]
-    timeout_secs: Option<u64>,
-    #[command(flatten)]
-    transport: TransportArgs,
+    #[arg(long, value_enum, default_value_t = OutputFormat::Json)]
+    output: OutputFormat,
     #[command(subcommand)]
     command: Command,
 }
 
-impl Args {
-    /// Keep clap's value sources so explicit gateway booleans override env values.
-    fn try_parse_annotated_from<I, T>(argv: I) -> Result<Self, clap::Error>
-    where
-        I: IntoIterator<Item = T>,
-        T: Into<std::ffi::OsString> + Clone,
-    {
-        use clap::{CommandFactory, FromArgMatches};
-
-        let matches = Self::command().try_get_matches_from(argv)?;
-        let mut args = Self::from_arg_matches(&matches)?;
-        if matches!(
-            &args.command,
-            Command::Verify { .. }
-                | Command::Components {
-                    action: super::components_cmd::ComponentsAction::InstallVerified(_)
-                }
-        ) {
-            // A fixed-byte offline installation cannot apply an unrelated staged
-            // update, launch a gateway, or refresh an update cache on entry.
-            args.no_update_maintenance = true;
-            args.no_auto_gateway = true;
-        }
-        if matches!(&args.command, Command::Doctor { .. }) {
-            // Diagnostics must not mutate the inspected installation or update caches.
-            // Keep the existing bounded version and adapter-import probes unchanged.
-            args.no_update_maintenance = true;
-        }
-        if let Command::Gateway { ref mut daemon, .. } = args.command
-            && let Some(gateway_matches) = matches.subcommand_matches("gateway")
-        {
-            daemon.note_value_sources(gateway_matches);
-        }
-        Ok(args)
-    }
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum OutputFormat {
+    Json,
+    Pretty,
 }
 
 // clap keeps flattened command arguments by value; this parser enum is short-lived.
@@ -493,39 +400,52 @@ struct McpPromptGetArgs {
     arguments_json: String,
 }
 
-fn apply_staged_update() -> bool {
-    // Apply any staged binary update before running commands (CLI restart
-    // is the user's next invocation after `update apply`). Package-managed
-    // installs are not excluded: `dcc-mcp-cli update` is the supported flow
-    // everywhere, and the replacement lands on the running binary. See
-    // application::package_manager for the provenance marker and the
-    // metadata drift it reports.
-    match dcc_mcp_updater::Updater::apply_staged_update(env!("CARGO_PKG_NAME")) {
-        Ok(true) => {
-            if let Err(e) = refresh_marker_after_update() {
-                // Never fatal: the replacement already landed, so failing to
-                // re-record it only costs an extra unpack on a later launch.
-                eprintln!("warning: could not refresh the package manager marker: {e}");
-            }
-            eprintln!("info: staged binary update applied; restarting");
-            true
-        }
-        Ok(false) => false,
-        Err(e) => {
-            eprintln!("warning: failed to apply staged binary update: {e}");
-            false
+#[derive(Debug, Subcommand)]
+enum UiControlAction {
+    /// Capture the exact scoped DCC window and start its visible control session.
+    Snapshot(UiControlArgs),
+    /// Resolve a semantic control from the latest scoped snapshot.
+    Find(UiControlArgs),
+    /// Perform one scoped semantic, pointer, or keyboard action.
+    Act(UiControlArgs),
+    /// Wait for one semantic UI condition inside the scoped DCC window.
+    Wait(UiControlArgs),
+    /// Stop the scoped session and release its visible effects and input owner.
+    Stop(UiControlArgs),
+}
+
+impl UiControlAction {
+    fn into_call(self) -> (&'static str, UiControlArgs) {
+        match self {
+            Self::Snapshot(args) => ("app_ui__snapshot", args),
+            Self::Find(args) => ("app_ui__find", args),
+            Self::Act(args) => ("app_ui__act", args),
+            Self::Wait(args) => ("app_ui__wait_for", args),
+            Self::Stop(args) => ("app_ui__stop_computer_use", args),
         }
     }
 }
 
-/// Keep the package manager marker in sync with a binary that was replaced.
-///
-/// Only package-managed installs keep a marker, and only those installs have
-/// a wrapper that fingerprints the binary, so a direct install has nothing to
-/// update and the helper stays quiet.
-fn refresh_marker_after_update() -> anyhow::Result<()> {
-    let executable = crate::application::current_exe::current_exe()?;
-    crate::application::package_manager::record_self_updated_size(&executable)
+#[derive(Debug, Clone, clap::Args)]
+struct UiControlArgs {
+    /// DCC type when more than one ready instance may expose UI Control.
+    #[arg(long)]
+    dcc_type: Option<String>,
+    /// Full instance UUID or unique >=4-character prefix.
+    #[arg(long)]
+    instance_id: Option<String>,
+    /// Operation arguments using the underlying app-ui tool schema.
+    #[arg(long = "json", default_value = "{}")]
+    arguments_json: String,
+    /// Read operation arguments from a UTF-8 JSON file, or '-' for stdin.
+    #[arg(long, value_name = "PATH", conflicts_with = "arguments_json")]
+    json_file: Option<PathBuf>,
+    /// Optional tool-call metadata such as agent context or lease owner.
+    #[arg(long)]
+    meta_json: Option<String>,
+    /// Per-request timeout for the UI operation.
+    #[arg(long, env = "DCC_MCP_CLI_CALL_TIMEOUT_SECS", default_value = "30")]
+    timeout_secs: u64,
 }
 
 #[derive(Debug, Subcommand)]
@@ -769,30 +689,6 @@ fn apply_staged_update() {
         Ok(false) => { /* no update was staged */ }
         Err(e) => eprintln!("warning: failed to apply staged binary update: {e}"),
     }
-    Ok(parsed)
-}
-
-fn restart_after_update() -> anyhow::Result<()> {
-    let executable = std::env::current_exe()?;
-    std::process::Command::new(executable)
-        .args(std::env::args_os().skip(1))
-        .env("DCC_MCP_UPDATE_JUST_APPLIED", "1")
-        .spawn()?;
-    Ok(())
-}
-
-fn command_shows_maintenance(command: &Command, requested: bool) -> bool {
-    requested
-        || !matches!(
-            command,
-            Command::Call { .. }
-                | Command::CallBatch { .. }
-                | Command::List
-                | Command::Search { .. }
-                | Command::Describe { .. }
-                | Command::Capabilities { .. }
-                | Command::DescribeCapabilities { .. }
-        )
 }
 
 pub(crate) fn runtime_cli_name() -> &'static str {
@@ -817,77 +713,8 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
         auto_gateway_bin,
         auto_gateway_timeout_secs,
         output,
-        raw_result,
-        select,
-        non_interactive,
-        timeout_secs: global_timeout_secs,
-        transport: transport_args,
         command,
     } = args;
-
-    let transport = transport_args.transport;
-    let output = match &command {
-        Command::Feedback(args) => args.resolve_output(output),
-        Command::Install { json: true, .. }
-        | Command::Uninstall { json: true, .. }
-        | Command::Verify { json: true, .. } => Ok(OutputFormat::Json),
-        _ => Ok(output.unwrap_or_else(OutputFormat::auto_detect)),
-    };
-    let writer = OutputWriter::new(output.map_err(anyhow::Error::msg)?);
-    if let Command::Verify {
-        dcc_type,
-        python,
-        catalog,
-        dcc_path,
-        ..
-    } = &command
-    {
-        let report = InstallService::bundled().verify(InstallRequest {
-            dcc_type: dcc_type.clone(),
-            version: None,
-            catalog_path: catalog.clone(),
-            python: Some(python.clone()),
-            dcc_path: dcc_path.clone(),
-            plugin_source: None,
-            adobe_debug_root: None,
-        });
-        let code = report.exit_code;
-        writer.write_data(&result_output::select_fields(to_json(report)?, &select))?;
-        if code != 0 {
-            std::process::exit(code);
-        }
-        return Ok(());
-    }
-    if let Command::Components {
-        action: action @ super::components_cmd::ComponentsAction::InstallVerified(_),
-    } = command
-    {
-        // Dispatch before constructing gateway/profile/doctor infrastructure.
-        let value = super::components_cmd::run(action).await?;
-        return writer.write_data(&result_output::select_fields(value, &select));
-    }
-    let explicit_update_command = matches!(&command, Command::Update { .. });
-    let canonicalize_result =
-        !raw_result && matches!(&command, Command::Call { .. } | Command::CallBatch { .. });
-    let quiet_control = !command_shows_maintenance(&command, show_maintenance);
-    // Staged application already ran in run(), controlled only by the explicit skip flag.
-    let output_maintenance =
-        UpdateMaintenance::from_skip_flag(no_update_maintenance || quiet_control);
-    let marketplace_update_check = output_maintenance
-        .run(|| {
-            (!crate::application::update::is_background_refresh())
-                .then(|| tokio::spawn(check_marketplace_updates()))
-        })
-        .flatten();
-
-    if global_timeout_secs.is_some()
-        && (command_has_distinct_per_timeout(&command, global_timeout_secs)
-            || command_has_configured_timeout_env(&command))
-    {
-        let _ = writer.diagnostic(
-            "warning: --timeout-secs is set globally; per-command timeout flags are ignored",
-        );
-    }
 
     let profile_path = gateway_profile::default_profile_path();
     let profile_store = gateway_profile::GatewayProfileStore::load(&profile_path)?;
@@ -897,20 +724,9 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
     let control = DccControlPlane::new(
         gateway_target.clone(),
         endpoint.clone(),
-        None,
-        require_gateway,
-    )
-    .with_auto_gateway_enabled(!no_auto_gateway)
-    .with_transport(transport);
-    let doctor = DoctorContext::new(
-        profile_path.clone(),
-        profile_store,
-        gateway_target.clone(),
-        auto_gateway_bin.clone(),
-        !no_auto_gateway,
-        require_gateway,
-        &endpoint,
-    )?;
+        gateway_ensure::default_registry_dir(),
+    );
+
     if !no_auto_gateway {
         ensure_gateway_for_command(
             &base_url,
@@ -945,20 +761,13 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
     }
 
     let mut failed = false;
-    let mut exit_code = ExitCode::GeneralError;
-    let mut explicit_exit_code = None;
-    let mut human_capabilities_view = None;
-    let mut value = match command {
+    let value = match command {
         Command::Smoke {
             url,
             query,
             limit,
-            max_pages,
             timeout_secs,
         } => {
-            let effective_timeout = global_timeout_secs
-                .or(timeout_secs)
-                .unwrap_or(DEFAULT_SMOKE_TIMEOUT_SECS);
             let endpoint = url
                 .as_deref()
                 .map(Endpoint::from_mcp_url)
@@ -966,15 +775,10 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
             let mcp_url = url.as_ref().map(|raw| endpoint_for_mcp(raw));
             let client = DccMcpClient::with_gateway(
                 endpoint,
-                HttpGateway::with_timeout(Duration::from_secs(effective_timeout.max(1))),
+                HttpGateway::with_timeout(Duration::from_secs(timeout_secs.max(1))),
             );
-            let result = client
-                .smoke(mcp_url, query, limit, usize::from(max_pages))
-                .await;
+            let result = client.smoke(mcp_url, query, limit).await;
             failed = !result.get("ok").and_then(Value::as_bool).unwrap_or(false);
-            if failed {
-                exit_code = ExitCode::Unavailable;
-            }
             result
         }
         Command::Health => {
@@ -1002,99 +806,42 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                 })
                 .await?
         }
-        Command::Feedback(args) => args.run(&control, &doctor).await?,
         Command::Doctor {
             registry_dir,
             gateway_host,
             gateway_port,
-            adapter_python,
-            adapter_catalog,
         } => {
-            let overrides = parse_adapter_python(&adapter_python)?;
-            let value = run_doctor(doctor.request_with_adapter_probes(
+            run_doctor(DoctorRequest {
+                profile_path: profile_path.clone(),
+                profile_store: profile_store.clone(),
+                gateway_target: gateway_target.clone(),
                 registry_dir,
-                Some(gateway_host),
-                Some(gateway_port),
-                overrides,
-                adapter_catalog,
-            ))
-            .await?;
-            // A broken adapter install is a real finding: surface it through the
-            // exit code instead of reporting `ok` for an unusable host.
-            failed =
-                adapter_import::has_failures(value.get("adapter_imports").unwrap_or(&Value::Null));
-            value
+                server_bin: auto_gateway_bin.clone(),
+                auto_gateway_enabled: !no_auto_gateway,
+                gateway_host,
+                gateway_port,
+            })
+            .await?
         }
         Command::List => control.list_instances().await?,
-        Command::Capabilities {
-            dcc_type,
-            instance_id,
-            keys,
-            force_refresh,
-            invalidate,
-        }
-        | Command::DescribeCapabilities {
-            dcc_type,
-            instance_id,
-            keys,
-            force_refresh,
-            invalidate,
-        } => {
-            let effective_timeout = global_timeout_secs
-                .unwrap_or(DEFAULT_CALL_TIMEOUT_SECS)
-                .max(1);
-            let meta = attach_agent_session_id(None, agent_session_id.as_deref())?;
-            let result = CapabilitiesCommand::new(
-                dcc_type,
-                instance_id,
-                keys,
-                force_refresh,
-                invalidate,
-                meta,
-            )
-            .run(&control, Duration::from_secs(effective_timeout))
-            .await?;
-            failed = !capabilities_result::command_succeeded(&result);
-            if failed {
-                exit_code = ExitCode::Unavailable;
-            }
-            let result = capabilities_result::project_result(result);
-            if writer.format() == OutputFormat::Human {
-                human_capabilities_view = Some(capabilities_output::render_human(&result));
-            }
-            result
-        }
-        Command::DccTypes {
-            catalog,
-            dcc_type,
-            offline,
-            project,
-        } => {
-            dcc_types_output::run(
-                catalog.as_deref(),
-                dcc_type.as_deref(),
-                offline,
-                project.as_deref(),
-            )
-            .await?
+        Command::DccTypes { catalog } => {
+            let service = InstallService::new(PathBuf::from("dcc-mcp-catalog.yml"));
+            to_json(service.dcc_types(catalog.as_deref())?)?
         }
         Command::Discover { dcc_type, paths } => {
             to_json(discover_dcc_installations(dcc_type.as_deref(), &paths))?
         }
         Command::Search {
             query,
-            query_terms,
             dcc_type,
             instance_id,
             limit,
-            gateway_only,
         } => {
             let request = SearchRequest {
-                query: resolve_query(query, query_terms),
+                query,
                 dcc_type,
                 instance_id,
                 limit,
-                gateway_only,
             };
             control.search(request).await?
         }
@@ -1126,19 +873,13 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
             arguments_json,
             json_file,
             meta_json,
-            wait,
-            wait_timeout_secs,
             timeout_secs,
         } => {
-            let effective_timeout = global_timeout_secs
-                .or(timeout_secs)
-                .unwrap_or(DEFAULT_CALL_TIMEOUT_SECS);
             let mut result = if batch {
-                let mut request =
+                let request =
                     read_batch_request(&arguments_json, steps.as_deref(), json_file.as_deref())?;
-                attach_batch_agent_session_id(&mut request, agent_session_id.as_deref())?;
                 control
-                    .call_batch(request, Duration::from_secs(effective_timeout.max(1)))
+                    .call_batch(request, Duration::from_secs(timeout_secs.max(1)))
                     .await?
             } else {
                 let tool_slug = tool_slug
@@ -1149,44 +890,19 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                     .as_deref()
                     .map(|raw| parse_json_object(raw, "--meta-json"))
                     .transpose()?;
-                let meta = attach_agent_session_id(meta, agent_session_id.as_deref())?;
-                let request_timeout = Duration::from_secs(effective_timeout.max(1));
-                if wait {
-                    let mut progress = JobProgressReporter::default();
-                    control
-                        .call_and_wait_with_progress(
-                            tool_slug,
-                            dcc_type,
-                            instance_id,
-                            arguments,
-                            meta,
-                            request_timeout,
-                            Duration::from_secs(wait_timeout_secs.max(1)),
-                            |update| {
-                                if let Some(line) = progress.next_line(update, Instant::now()) {
-                                    let _ = writer.diagnostic(&line);
-                                }
-                            },
-                        )
-                        .await?
-                } else {
-                    control
-                        .call(
-                            tool_slug,
-                            dcc_type,
-                            instance_id,
-                            arguments,
-                            meta,
-                            request_timeout,
-                        )
-                        .await?
-                }
+                control
+                    .call(
+                        tool_slug,
+                        dcc_type,
+                        instance_id,
+                        arguments,
+                        meta,
+                        Duration::from_secs(timeout_secs.max(1)),
+                    )
+                    .await?
             };
             materialize_call_images(&mut result, &default_image_artifact_root());
             failed = !crate::application::local_control::call_result_succeeded(&result);
-            if failed {
-                exit_code = ExitCode::GeneralError;
-            }
             result
         }
         Command::CallBatch {
@@ -1194,32 +910,22 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
             json_file,
             timeout_secs,
         } => {
-            let effective_timeout = global_timeout_secs
-                .or(timeout_secs)
-                .unwrap_or(DEFAULT_CALL_TIMEOUT_SECS);
-            let mut request = read_call_arguments(&request_json, json_file.as_deref())?;
-            attach_batch_agent_session_id(&mut request, agent_session_id.as_deref())?;
+            let request = read_call_arguments(&request_json, json_file.as_deref())?;
             let mut result = control
-                .call_batch(request, Duration::from_secs(effective_timeout.max(1)))
+                .call_batch(request, Duration::from_secs(timeout_secs.max(1)))
                 .await?;
             materialize_call_images(&mut result, &default_image_artifact_root());
             failed = !crate::application::local_control::call_result_succeeded(&result);
-            if failed {
-                exit_code = ExitCode::GeneralError;
-            }
             result
         }
         Command::UiControl { action } => {
-            let effective_timeout = action.effective_timeout_secs(global_timeout_secs);
             let (tool_name, args) = action.into_call();
-            let full_output = args.full_output;
             let arguments = read_call_arguments(&args.arguments_json, args.json_file.as_deref())?;
             let meta = args
                 .meta_json
                 .as_deref()
                 .map(|raw| parse_json_object(raw, "--meta-json"))
                 .transpose()?;
-            let meta = attach_agent_session_id(meta, agent_session_id.as_deref())?;
             let mut result = control
                 .call(
                     tool_name.to_string(),
@@ -1227,28 +933,12 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                     args.instance_id,
                     arguments,
                     meta,
-                    Duration::from_secs(effective_timeout.max(1)),
+                    Duration::from_secs(args.timeout_secs.max(1)),
                 )
                 .await?;
             materialize_call_images(&mut result, &default_image_artifact_root());
             failed = !crate::application::local_control::call_result_succeeded(&result);
-            if failed {
-                exit_code = ExitCode::GeneralError;
-            }
-            if full_output {
-                result
-            } else {
-                compact_ui_control_result(tool_name, &result)
-            }
-        }
-        Command::RecordReplay { action } => {
-            let result =
-                run_record_replay(action, agent_session_id.as_deref(), &endpoint, &control).await?;
-            failed = result.failed;
-            if failed {
-                exit_code = ExitCode::GeneralError;
-            }
-            result.value
+            result
         }
         Command::WaitReady {
             dcc_type,
@@ -1257,14 +947,11 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
             timeout_secs,
             interval_secs,
         } => {
-            let effective_timeout = global_timeout_secs
-                .or(timeout_secs)
-                .unwrap_or(DEFAULT_WAIT_READY_TIMEOUT_SECS);
             let request = WaitReadyRequest {
                 dcc_type,
                 instance_id,
                 required: require,
-                timeout: Duration::from_secs(effective_timeout),
+                timeout: Duration::from_secs(timeout_secs),
                 interval: Duration::from_secs(interval_secs.max(1)),
             };
             let result = control.wait_ready(request).await?;
@@ -1272,9 +959,6 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                 .get("ready")
                 .and_then(Value::as_bool)
                 .unwrap_or(false);
-            if failed {
-                exit_code = ExitCode::Timeout;
-            }
             result
         }
         Command::ReloadSkills {
@@ -1287,9 +971,6 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
             };
             let result = control.reload_skills(request).await?;
             failed = !result.get("ok").and_then(Value::as_bool).unwrap_or(false);
-            if failed {
-                exit_code = ExitCode::Unavailable;
-            }
             result
         }
         Command::StopInstance {
@@ -1297,174 +978,34 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
             instance_id,
             expected_owner,
             expected_session,
-            operation_id,
         } => {
-            // A stop scoped to a lifecycle operation may only touch the
-            // instance that operation launched and owns. Any supplied
-            // --operation-id must resolve to a locally owned operation before
-            // it constrains the stop: the local path re-checks ownership in
-            // stop_instance_local, but the remote path would otherwise forward
-            // a caller-supplied operation id that nothing has validated.
-            // Resolving first also means the routing pair comes from the
-            // operation record rather than straight from the caller, so
-            // supplying both --dcc-type and --instance-id can no longer
-            // short-circuit the ownership check.
-            let owned_operation = if let Some(operation_id) =
-                operation_id.as_deref().filter(|id| !id.trim().is_empty())
-            {
-                crate::application::instance_launch::resolve_owned_operation(
-                    &gateway_ensure::default_registry_dir()?,
-                    dcc_type.as_deref(),
-                    instance_id.as_deref(),
-                    Some(operation_id),
-                )?
-            } else {
-                None
-            };
-            let (resolved_dcc_type, resolved_instance_id) = match owned_operation {
-                Some(operation) => {
-                    let instance_id = operation.instance_id.clone().ok_or_else(|| {
-                        anyhow!(
-                            "--operation-id resolves to an operation without a registered instance"
-                        )
-                    })?;
-                    (operation.dcc_type.clone(), instance_id)
-                }
-                None => match (dcc_type.as_deref(), instance_id.as_deref()) {
-                    (Some(dcc_type), Some(instance_id)) => {
-                        (dcc_type.to_string(), instance_id.to_string())
-                    }
-                    _ => anyhow::bail!(
-                        "stop-instance requires both --dcc-type and --instance-id, or an --operation-id that owns a registered instance"
-                    ),
-                },
-            };
             let request = StopInstanceRequest {
-                dcc_type: resolved_dcc_type,
-                instance_id: resolved_instance_id,
+                dcc_type,
+                instance_id,
                 expected_owner,
                 expected_session,
-                operation_id,
             };
             control.stop_instance(request).await?
         }
-        Command::StartInstance {
-            dcc_type,
-            project,
-            launch_plan,
-            version,
-            wait_ready,
-            require,
-            timeout_secs,
-            interval_secs,
-            dry_run,
-            yes,
-            instance_id,
-        } => {
-            let effective_timeout = global_timeout_secs
-                .or(timeout_secs)
-                .unwrap_or(DEFAULT_START_INSTANCE_TIMEOUT_SECS);
-            let request = StartInstanceRequest {
-                dcc_type,
-                project,
-                launch_plan,
-                version,
-                wait_ready,
-                timeout: Duration::from_secs(effective_timeout),
-                interval: Duration::from_secs(interval_secs.max(1)),
-                required: require,
-                authorized: yes,
-                dry_run,
-                registry_dir: gateway_ensure::default_registry_dir()?,
-                instance_id,
-            };
-            let result = crate::application::instance_launch::start_instance(request).await?;
-            if !result.get("ok").and_then(Value::as_bool).unwrap_or(false) {
-                failed = true;
-                exit_code = ExitCode::Unavailable;
-            } else if wait_ready
-                && !dry_run
-                && !result
-                    .get("ready")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false)
-            {
-                // A dry run never spawns a host, so it reports `ready: false` by
-                // design. Waiting on it would turn a successful plan resolution
-                // into a spurious timeout exit code.
-                failed = true;
-                exit_code = ExitCode::Timeout;
-            }
-            result
-        }
-        Command::Verify { .. } => anyhow::bail!("verify must run before control-plane setup"),
         Command::Install {
-            offline,
             dcc_type,
             version,
             catalog,
             python,
-            dcc_path,
-            plugin_source,
-            adobe_debug_root,
             execute,
-            json,
         } => {
-            let service = if catalog.is_some() {
-                InstallService::bundled()
-            } else {
-                InstallService::refreshed(offline).await
-            };
+            let service = InstallService::new(PathBuf::from("dcc-mcp-catalog.yml"));
             let req = InstallRequest {
                 dcc_type,
                 version,
                 catalog_path: catalog,
                 python,
-                dcc_path,
-                plugin_source,
-                adobe_debug_root,
             };
             if execute {
-                // `--execute` is the mutation opt-in; JSON mode must never add
-                // an interactive prompt to the machine-readable contract.
-                let report = service.execute(req, non_interactive || json);
-                explicit_exit_code = Some(report.exit_code);
-                to_json(report)?
+                to_json(service.execute(req)?)?
             } else {
                 to_json(service.plan(req)?)?
             }
-        }
-        Command::Uninstall {
-            offline,
-            dcc_type,
-            version,
-            catalog,
-            python,
-            dcc_path,
-            plugin_source,
-            adobe_debug_root,
-            yes,
-            json,
-        } => {
-            let service = if catalog.is_some() {
-                InstallService::bundled()
-            } else {
-                InstallService::refreshed(offline).await
-            };
-            let report = service.uninstall(
-                InstallRequest {
-                    dcc_type,
-                    version,
-                    catalog_path: catalog,
-                    python,
-                    dcc_path,
-                    plugin_source,
-                    adobe_debug_root,
-                },
-                non_interactive || json || yes,
-            );
-            explicit_exit_code = Some(report.exit_code);
-            to_json(report)?
         }
         Command::Marketplace { action } => {
             let service = new_service()?;
@@ -1473,29 +1014,15 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                 MarketplaceAction::List => to_json(service.list_sources()?)?,
                 MarketplaceAction::Search {
                     query,
-                    query_terms,
                     dcc,
-                    target,
                     sources,
                     limit,
                     skip_validation,
-                } => {
-                    let query = resolve_query(query, query_terms);
-                    if let Some(target) = target {
-                        let target = parse_marketplace_target(&target)?;
-                        to_json(
-                            service
-                                .search_for_target(query, target, sources, limit, skip_validation)
-                                .await?,
-                        )?
-                    } else {
-                        to_json(
-                            service
-                                .search(query, dcc, sources, limit, skip_validation)
-                                .await?,
-                        )?
-                    }
-                }
+                } => to_json(
+                    service
+                        .search(query, dcc, sources, limit, skip_validation)
+                        .await?,
+                )?,
                 MarketplaceAction::Inspect {
                     name,
                     sources,
@@ -1504,104 +1031,19 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                 MarketplaceAction::Install {
                     name,
                     dcc,
-                    target,
-                    reload,
                     sources,
                     force,
                     skip_validation,
-                } => {
-                    let installed = if let Some(target) = target {
-                        service
-                            .install_for_target(
-                                name,
-                                parse_marketplace_target(&target)?,
-                                sources,
-                                force,
-                                skip_validation,
-                            )
-                            .await?
-                    } else {
-                        service
-                            .install(name, dcc, sources, force, skip_validation)
-                            .await?
-                    };
-                    // A shared install is loaded by every host, so the reload
-                    // targets all of them. The pseudo-host `any` would match no
-                    // live instance: the selectors compare host names exactly.
-                    let installed_dcc = (!dcc_mcp_marketplace::is_host_neutral_dcc(&installed.dcc))
-                        .then(|| installed.dcc.clone());
-                    let skill_reload = installed.activation
-                        == dcc_mcp_marketplace::MarketplaceActivation::SkillReload;
-                    if !installed.superseded.is_empty() {
-                        eprintln!(
-                            "note: {} installs into the shared directory; per-host copies still \
-                             shadow it and still cost disk: {}",
-                            installed.name,
-                            installed.superseded.join(", ")
-                        );
-                        eprintln!(
-                            "      remove them with: dcc-mcp-cli marketplace uninstall {} --dcc \
-                             <host>",
-                            installed.name
-                        );
-                    }
-                    let mut value = to_json(installed)?;
-                    if reload && skill_reload {
-                        let (reloaded_value, reload_failed) =
-                            reload_marketplace_value(&control, value, installed_dcc).await;
-                        value = reloaded_value;
-                        if reload_failed {
-                            failed = true;
-                            exit_code = ExitCode::Unavailable;
-                        }
-                    }
-                    value
+                } => to_json(
+                    service
+                        .install(name, dcc, sources, force, skip_validation)
+                        .await?,
+                )?,
+                MarketplaceAction::Uninstall { name, dcc } => {
+                    to_json(service.uninstall(&name, &dcc)?)?
                 }
-                MarketplaceAction::Uninstall {
-                    name,
-                    dcc,
-                    target,
-                    reload,
-                } => {
-                    let requested_target = target
-                        .as_deref()
-                        .map(parse_marketplace_target)
-                        .transpose()?;
-                    let installed_target = if requested_target.is_some() || dcc.is_none() {
-                        service.resolve_installed_target(&name, requested_target.as_ref())?
-                    } else {
-                        dcc_mcp_catalog::CatalogTarget {
-                            kind: dcc_mcp_catalog::CatalogTargetKind::Dcc,
-                            id: dcc.clone().unwrap_or_default(),
-                        }
-                    };
-                    // Host-neutral packages are recorded under `any`, which no
-                    // live instance is named; refresh every host instead.
-                    let installed_dcc =
-                        (!dcc_mcp_marketplace::is_host_neutral_dcc(&installed_target.id))
-                            .then(|| installed_target.id.clone());
-                    let result = service.uninstall_for_target(&name, &installed_target)?;
-                    let skill_reload = result.activation
-                        == dcc_mcp_marketplace::MarketplaceActivation::SkillReload;
-                    let mut value = to_json(result)?;
-                    if reload && skill_reload {
-                        let (reloaded_value, reload_failed) =
-                            reload_marketplace_value(&control, value, installed_dcc).await;
-                        value = reloaded_value;
-                        if reload_failed {
-                            failed = true;
-                            exit_code = ExitCode::Unavailable;
-                        }
-                    }
-                    value
-                }
-                MarketplaceAction::ListInstalled { dcc, target } => {
-                    if let Some(target) = target {
-                        let target = parse_marketplace_target(&target)?;
-                        to_json(service.list_installed_for_target(Some(&target))?)?
-                    } else {
-                        to_json(service.list_installed(dcc.as_deref())?)?
-                    }
+                MarketplaceAction::ListInstalled { dcc } => {
+                    to_json(service.list_installed(dcc.as_deref())?)?
                 }
                 MarketplaceAction::Outdated { dcc, names } => {
                     to_json(service.outdated(dcc.as_deref(), names).await?)?
@@ -1611,7 +1053,6 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                 }
                 MarketplaceAction::AddRepo {
                     repo_ref,
-                    commit,
                     dcc,
                     list,
                     force,
@@ -1619,25 +1060,16 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                     if list {
                         to_json(service.list_repo_skills(&repo_ref)?)?
                     } else {
-                        let commit = commit.expect("clap requires --commit unless --list is set");
-                        to_json(service.add_repo_at_commit(
-                            &repo_ref,
-                            &commit,
-                            dcc.as_deref(),
-                            force,
-                        )?)?
+                        to_json(service.add_repo(&repo_ref, dcc.as_deref(), force)?)?
                     }
                 }
                 MarketplaceAction::Pack(args) => marketplace_cmd::run_pack(args)?,
                 MarketplaceAction::Publish(args) => marketplace_cmd::run_publish(*args)?,
             }
         }
-        Command::Host { action } => {
-            let result = super::host_cmd::run(&action)?;
+        Command::Lint(lint_args) => {
+            let result = run_lint_cmd(&lint_args)?;
             failed = result.failed;
-            if failed {
-                exit_code = ExitCode::Unavailable;
-            }
             result.value
         }
         Command::Update { action } => match action.unwrap_or(UpdateAction::Apply) {
@@ -2109,55 +1541,191 @@ fn read_batch_request(
             "call --batch requires --steps JSON_ARRAY or a --json/--json-file object containing calls"
         );
     }
+    Ok(request)
+}
 
-    output_maintenance
-        .run(|| {
-            super::update_cmd::surface_cached_cli_update(
-                &mut value,
-                &writer,
-                &base_url,
-                !explicit_update_command,
-            )
-        })
-        .transpose()?;
-
-    let failure = failed.then(|| failure_envelope(&value, exit_code));
-    if let Some(rendered) = human_capabilities_view {
-        if let Some(envelope) = failure {
-            writer.write_error(&envelope)?;
-            std::process::exit(exit_code.as_i32());
+fn build_load_skill_request(
+    skill_name: Option<String>,
+    dcc_type: Option<String>,
+    dcc: Option<String>,
+    instance_id: Option<String>,
+    activate_groups: Option<bool>,
+    request_json: Option<String>,
+) -> anyhow::Result<LoadSkillRequest> {
+    if let Some(raw) = request_json {
+        if skill_name.is_some()
+            || dcc_type.is_some()
+            || dcc.is_some()
+            || instance_id.is_some()
+            || activate_groups.is_some()
+        {
+            anyhow::bail!("load-skill --json cannot be combined with positional or routing flags");
         }
-        return writer.write_human(&rendered);
+        return Ok(LoadSkillRequest {
+            body: parse_json_object(&raw, "--json")?,
+        });
     }
-    if canonicalize_result {
-        result_output::canonical_result(&mut value);
+
+    let skill_name = skill_name
+        .filter(|name| !name.trim().is_empty())
+        .ok_or_else(|| {
+            anyhow::anyhow!("load-skill requires SKILL_NAME unless --json is provided")
+        })?;
+
+    let mut body = Map::new();
+    body.insert("skill_name".to_string(), Value::String(skill_name));
+    if let Some(dcc_type) = dcc_type {
+        body.insert("dcc_type".to_string(), Value::String(dcc_type));
     }
-    let value = result_output::select_fields(value, &select);
-    writer.write_data(&value)?;
-    if let Some(code) = explicit_exit_code
-        && code != 0
-    {
-        std::process::exit(code);
+    if let Some(dcc) = dcc {
+        body.insert("dcc".to_string(), Value::String(dcc));
     }
-    if let Some(envelope) = failure {
-        writer.write_error(&envelope)?;
-        std::process::exit(exit_code.as_i32());
+    if let Some(instance_id) = instance_id {
+        body.insert("instance_id".to_string(), Value::String(instance_id));
+    }
+    if let Some(activate_groups) = activate_groups {
+        body.insert("activate_groups".to_string(), Value::Bool(activate_groups));
+    }
+    Ok(LoadSkillRequest {
+        body: Value::Object(body),
+    })
+}
+
+fn endpoint_for_mcp(raw: &str) -> String {
+    let trimmed = raw.trim_end_matches('/');
+    if trimmed.ends_with("/mcp") {
+        trimmed.to_string()
+    } else {
+        format!("{trimmed}/mcp")
+    }
+}
+
+fn to_json(value: impl Serialize) -> anyhow::Result<Value> {
+    serde_json::to_value(value).context("failed to serialize command output")
+}
+
+fn print_value(value: &Value, output: OutputFormat) -> anyhow::Result<()> {
+    match output {
+        OutputFormat::Json => println!("{}", serde_json::to_string(value)?),
+        OutputFormat::Pretty if is_list_payload(value) => print_list_pretty(value),
+        OutputFormat::Pretty => println!("{}", serde_json::to_string_pretty(value)?),
     }
     Ok(())
+}
+
+fn is_list_payload(value: &Value) -> bool {
+    value.get("instances").is_some() && value.get("gateway").is_some()
+}
+
+fn print_list_pretty(value: &Value) {
+    let gateway = value.get("gateway").unwrap_or(&Value::Null);
+    println!("Gateway");
+    if let Some(current) = gateway.get("current").filter(|v| !v.is_null()) {
+        println!(
+            "  owner      {}",
+            gateway_summary(
+                current,
+                current
+                    .get("role")
+                    .and_then(Value::as_str)
+                    .unwrap_or("active")
+            )
+        );
+    } else if let Some(error) = gateway.get("error").and_then(Value::as_str) {
+        println!("  owner      unknown ({error})");
+    } else {
+        println!("  owner      unknown");
+    }
+
+    let candidates = gateway
+        .get("candidates")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    if candidates.is_empty() {
+        println!("  candidates none");
+    } else {
+        println!("  candidates");
+        for candidate in candidates {
+            println!("    {}", gateway_summary(&candidate, "challenger"));
+        }
+    }
+
+    println!();
+    println!("Instances");
+    let instances = value
+        .get("instances")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    if instances.is_empty() {
+        println!("  none");
+        return;
+    }
+    for instance in instances {
+        let dcc = instance
+            .get("dcc_type")
+            .and_then(Value::as_str)
+            .unwrap_or("-");
+        let short = instance
+            .get("instance_short")
+            .or_else(|| instance.get("instance_id"))
+            .and_then(Value::as_str)
+            .unwrap_or("-");
+        let name = instance
+            .get("display_name")
+            .and_then(Value::as_str)
+            .unwrap_or("-");
+        let pid = instance
+            .get("pid")
+            .and_then(Value::as_u64)
+            .map(|v| v.to_string())
+            .unwrap_or_else(|| "-".to_string());
+        let status = instance
+            .get("status")
+            .and_then(Value::as_str)
+            .unwrap_or("available");
+        let mcp_url = instance
+            .get("mcp_url")
+            .and_then(Value::as_str)
+            .unwrap_or("-");
+        println!("  {dcc:<12} {short:<12} {status:<12} pid={pid:<8} name={name} mcp={mcp_url}");
+    }
+}
+
+fn gateway_summary(value: &Value, fallback_role: &str) -> String {
+    let name = value
+        .get("name")
+        .or_else(|| value.get("display_name"))
+        .and_then(Value::as_str)
+        .unwrap_or("unknown");
+    let role = value
+        .get("role")
+        .and_then(Value::as_str)
+        .unwrap_or(fallback_role);
+    let pid = value
+        .get("pid")
+        .and_then(Value::as_u64)
+        .map(|v| v.to_string())
+        .unwrap_or_else(|| "-".to_string());
+    let dcc = value
+        .get("adapter_dcc")
+        .and_then(Value::as_str)
+        .unwrap_or("-");
+    let version = value
+        .get("adapter_version")
+        .or_else(|| value.get("version"))
+        .and_then(Value::as_str)
+        .unwrap_or("-");
+    let host = value.get("host").and_then(Value::as_str).unwrap_or("-");
+    let port = value
+        .get("port")
+        .and_then(Value::as_u64)
+        .map(|v| v.to_string())
+        .unwrap_or_else(|| "-".to_string());
+    format!("{name} role={role} pid={pid} dcc={dcc} version={version} addr={host}:{port}")
 }
 
 #[cfg(test)]
 #[path = "cli/tests.rs"]
 mod tests;
-
-#[cfg(test)]
-#[path = "cli/confirmation_timeout_tests.rs"]
-mod confirmation_timeout_tests;
-
-#[cfg(test)]
-#[path = "cli/gateway_precedence_tests.rs"]
-mod gateway_precedence_tests;
-
-#[cfg(test)]
-#[path = "cli/verified_component_tests.rs"]
-mod verified_component_tests;

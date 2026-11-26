@@ -30,8 +30,8 @@ PACKAGE_IDENTIFIER = "DccMcp.DccMcpCli"
 PACKAGE_PATH = "d/DccMcp/DccMcpCli"
 
 # crates/dcc-mcp-cli/src/application/current_exe.rs landed after the v0.20.36
-# tag, so v0.20.36 still fails `components ensure` when it is started through
-# the WinGet Links\ symlink. v0.20.37 is the first usable version.
+# tag, so v0.20.36 does not resolve companion binaries correctly when it is
+# started through the WinGet Links\ symlink. v0.20.37 is the first usable version.
 MIN_VERSION = (0, 20, 37)
 
 MANIFEST_VERSION = "1.12.0"

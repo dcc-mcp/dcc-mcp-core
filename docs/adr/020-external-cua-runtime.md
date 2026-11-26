@@ -34,16 +34,13 @@ The standalone CUA project owns:
 - trajectory recording and application-specific profiles.
 
 Core neither embeds nor releases the CUA executable in Core release assets.
-The official CLI installer reconciles the independently released executable,
-and operators can run `dcc-mcp-cli components status dcc-cua` or
-`dcc-mcp-cli components ensure dcc-cua --yes`. Component installation consumes
-only the versionless per-target manifest from `dcc-mcp/dcc-cua`, requires a
-SHA-256, strictly binds the version, target, asset name, and official asset URL,
-extracts into a bounded transaction directory, validates the candidate runtime
-manifest, and installs it beside `dcc-mcp-cli`. The Python bridge prefers this
-CLI sibling before falling back to `dcc-cua` on `PATH`; an explicit
-`DCC_MCP_CUA_BINARY` remains authoritative. Core validates `manifest`, prefers
-shared memory when available, and falls back to bounded binary attachments.
+The dedicated CLI repository releases `dccmcp` and provides the thin
+`dccmcp cua -- ...` forwarding command. The forwarding command does not install
+or own the CUA executable. Operators install the independently released runtime
+from `dcc-mcp/dcc-cua`, keep it on `PATH`, or set `DCC_MCP_CUA_BINARY` to an
+absolute path. The Python bridge prefers this explicit path and the discovered
+runtime before failing closed. Core validates `manifest`, prefers shared memory
+when available, and falls back to bounded binary attachments.
 Core requires stable `dcc-cua` 0.4.0 or newer so the external runtime includes
 the hardened long-session health and recovery contract while preserving Host
 protocol v1 compatibility.
@@ -55,10 +52,8 @@ are removed rather than emulated.
 ## Consequences
 
 - Core and CUA can release, fail, and evolve independently.
-- CLI installation converges both executables, but the current two-step
-  installer is not crash-atomic across the Core CLI and CUA binary. Each binary
-  replacement is verified and recoverable independently; a future install-set
-  journal may make the pair one crash-recoverable transaction.
+- CLI installation and CUA installation are independent operations with separate
+  release and update ownership.
 - Windows, Linux, and macOS use one integration contract.
 - Browser content continues to prefer CDP; native application surfaces use CUA.
 - Existing consumers must install CUA separately and migrate recording calls to

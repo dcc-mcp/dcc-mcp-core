@@ -1,13 +1,10 @@
 #![allow(dead_code)]
 
 use std::process::Command;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 use axum::Router;
-use axum::extract::{Json, Path, Query, Request, State};
+use axum::extract::{Json, Path, Query};
 use axum::http::{HeaderMap, StatusCode, header};
-use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use serde_json::{Value, json};
@@ -34,8 +31,6 @@ pub(crate) struct LocalMcpFixture {
     pub(crate) base_url: String,
     pub(crate) shutdown: Option<oneshot::Sender<()>>,
     pub(crate) thread: Option<std::thread::JoinHandle<()>>,
-    pub(crate) tools_list_calls: std::sync::Arc<std::sync::atomic::AtomicUsize>,
-    pub(crate) activate_group_calls: std::sync::Arc<std::sync::atomic::AtomicUsize>,
 }
 
 impl LocalMcpFixture {
@@ -45,16 +40,6 @@ impl LocalMcpFixture {
 
     pub(crate) fn safe_stop_url(&self) -> String {
         format!("{}/safe-stop", self.base_url)
-    }
-
-    pub(crate) fn tools_list_calls(&self) -> usize {
-        self.tools_list_calls
-            .load(std::sync::atomic::Ordering::SeqCst)
-    }
-
-    pub(crate) fn activate_group_calls(&self) -> usize {
-        self.activate_group_calls
-            .load(std::sync::atomic::Ordering::SeqCst)
     }
 }
 
@@ -90,17 +75,7 @@ pub(crate) fn json_or_compact_fixture_response(
     }
 }
 
-async fn echo_request_id(request: Request, next: Next) -> Response {
-    let request_id = request.headers().get("x-request-id").cloned();
-    let mut response = next.run(request).await;
-    if let Some(request_id) = request_id {
-        response.headers_mut().insert("x-request-id", request_id);
-    }
-    response
-}
-
 pub(crate) fn spawn_gateway_fixture() -> GatewayFixture {
-    let async_polls = Arc::new(AtomicUsize::new(0));
     let app = Router::new()
         .route(
             "/health",
@@ -113,7 +88,7 @@ pub(crate) fn spawn_gateway_fixture() -> GatewayFixture {
                     "dcc-mcp-server": {
                         "version": "9.9.9",
                         "url": "https://example.invalid/dcc-mcp-server.zip",
-                        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                        "sha256": "abc123",
                         "release_notes": "Fixture update"
                     }
                 }))
@@ -286,31 +261,6 @@ pub(crate) fn spawn_gateway_fixture() -> GatewayFixture {
             }),
         )
         .route(
-            "/admin/api/feedback",
-            get(|Query(query): Query<std::collections::HashMap<String, String>>| async move {
-                Json(json!({
-                    "success": true,
-                    "source": "registry-jsonl",
-                    "total": 1,
-                    "count": 1,
-                    "truncated": false,
-                    "skipped_invalid": 0,
-                    "deduplicated": 0,
-                    "files_scanned": 1,
-                    "filters": query,
-                    "entries": [{
-                        "id": "feedback-42",
-                        "timestamp": 1787536800.0,
-                        "tool_name": "houdini.ui_control__act",
-                        "intent": "Open the render menu",
-                        "blocker": "The owner exited",
-                        "severity": "blocked",
-                        "dcc_type": "houdini"
-                    }]
-                }))
-            }),
-        )
-        .route(
             "/v1/instances",
             get(|| async {
                 Json(json!({
@@ -320,12 +270,6 @@ pub(crate) fn spawn_gateway_fixture() -> GatewayFixture {
                         "instance_short": "abc12345",
                         "dcc_type": "maya",
                         "mcp_url": "http://127.0.0.1:18080/mcp",
-                        "capabilities": {
-                            "source": "capability_index",
-                            "loaded_skills": ["maya-modeling"],
-                            "loaded_skill_count": 1,
-                            "tool_count": 7
-                        },
                         "metadata": {
                             "owner": "release-smoke-test",
                             "session": "test"
@@ -347,41 +291,6 @@ pub(crate) fn spawn_gateway_fixture() -> GatewayFixture {
                             }
                         }
                     }]
-                }))
-            }),
-        )
-        .route(
-            "/v1/feedback",
-            post(|Json(body): Json<Value>| async move {
-                (
-                    StatusCode::CREATED,
-                    Json(json!({
-                        "ok": true,
-                        "success": true,
-                        "feedback_id": "11111111-1111-4111-8111-111111111111",
-                        "recorded_at": "2026-08-24T00:00:00.000Z",
-                        "event_resource_uri": "resources://gateway/events",
-                        "report": body
-                    })),
-                )
-            }),
-        )
-        .route(
-            "/v1/debug/issue-reports/request-42",
-            get(|| async {
-                Json(json!({
-                    "schema_version": "dcc-mcp.admin.issue-report.v1",
-                    "report_type": "github_issue_public_safe",
-                    "privacy_mode": "public-safe",
-                    "request_id": "request-42",
-                    "summary": {
-                        "status": "failed",
-                        "dcc_type": "godot",
-                        "redaction_status": {
-                            "mode": "public-safe",
-                            "raw_payloads_excluded": true
-                        }
-                    }
                 }))
             }),
         )
@@ -440,91 +349,38 @@ pub(crate) fn spawn_gateway_fixture() -> GatewayFixture {
         )
         .route(
             "/v1/call",
-            post(move |Json(body): Json<Value>| {
-                let async_polls = Arc::clone(&async_polls);
-                async move {
-                    if body["tool_slug"] == "jobs_get_status" {
-                        return (
-                            StatusCode::BAD_REQUEST,
-                            Json(json!({
-                                "kind": "bad-request",
-                                "message": "invalid tool slug 'jobs_get_status' — expected '<dcc>.<skill>.<action>' or bare action name"
-                            })),
-                        );
-                    }
-                    if body["tool_slug"] == "maya.abc12345.domain_failure" {
-                        return (
-                            StatusCode::OK,
-                            Json(json!({
-                                "slug": body["tool_slug"],
-                                "output": {
-                                    "success": false,
-                                    "message": "tool domain failure"
-                                },
-                                "validation_skipped": false,
-                                "request_id": "fixture-domain-failure"
-                            })),
-                        );
-                    }
-                    if body["tool_slug"] == "houdini.abc12345.result_view" {
-                        let failed = body["arguments"]["fail"] == true;
-                        let payload = json!({
-                            "success": !failed, "message": "result view fixture",
-                            "context": {"reason":"fixture_reason", "flotation_verified":false,
-                                "flotation_status":"not_evaluated", "cached":true,
-                                "artifacts":[{"path":"metrics.json"}]}
-                        });
-                        return (StatusCode::OK, Json(json!({
-                            "success":!failed,"tool_slug":body["tool_slug"],
-                            "request_id":"result-view-fixture",
-                            "result":{"isError":failed,"structuredContent":payload,
-                                "content":[{"type":"text","text":payload.to_string()}]}
-                        })));
-                    }
-                    if body["tool_slug"] == "maya.abc12345.long_render" {
-                        return (
-                            StatusCode::OK,
-                            Json(json!({
-                                "slug": body["tool_slug"],
-                                "output": {
-                                    "job_id": "job-progress-42",
-                                    "status": "pending"
-                                }
-                            })),
-                        );
-                    }
-                    if body["tool_slug"] == "maya.abc12345.jobs_get_status" {
-                        let poll = async_polls.fetch_add(1, Ordering::SeqCst);
-                        let (status, current, message) = if poll == 0 {
-                            ("running", 45, "rendering frame 45")
-                        } else {
-                            ("completed", 100, "render complete")
-                        };
-                        return (
-                            StatusCode::OK,
-                            Json(json!({
-                                "slug": body["tool_slug"],
-                                "output": {
-                                    "job_id": "job-progress-42",
-                                    "status": status,
-                                    "progress": {
-                                        "current": current,
-                                        "total": 100,
-                                        "message": message
-                                    }
-                                }
-                            })),
-                        );
-                    }
-                    (
+            post(|Json(body): Json<Value>| async move {
+                if body["tool_slug"] == "jobs_get_status" {
+                    return (
+                        StatusCode::BAD_REQUEST,
+                        Json(json!({
+                            "kind": "bad-request",
+                            "message": "invalid tool slug 'jobs_get_status' — expected '<dcc>.<skill>.<action>' or bare action name"
+                        })),
+                    );
+                }
+                if body["tool_slug"] == "maya.abc12345.domain_failure" {
+                    return (
                         StatusCode::OK,
                         Json(json!({
-                            "success": true,
-                            "tool_slug": body["tool_slug"],
-                            "arguments": body["arguments"]
+                            "slug": body["tool_slug"],
+                            "output": {
+                                "success": false,
+                                "message": "tool domain failure"
+                            },
+                            "validation_skipped": false,
+                            "request_id": "fixture-domain-failure"
                         })),
-                    )
+                    );
                 }
+                (
+                    StatusCode::OK,
+                    Json(json!({
+                        "success": true,
+                        "tool_slug": body["tool_slug"],
+                        "arguments": body["arguments"]
+                    })),
+                )
             }),
         )
         .route(
@@ -621,18 +477,6 @@ pub(crate) fn spawn_gateway_fixture() -> GatewayFixture {
                         .get("current_version")
                         .map(String::as_str)
                         .unwrap_or("0.0.0");
-                    if binary == "dcc-mcp-cli" && current == env!("CARGO_PKG_VERSION") {
-                        return (
-                            StatusCode::OK,
-                            Json(json!({
-                                "update_available": true,
-                                "latest_version": "99.0.0",
-                                "download_url": "https://example.invalid/dcc-mcp-cli.exe",
-                                "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-                                "release_notes": "CLI update"
-                            })),
-                        );
-                    }
                     if binary != "dcc-mcp-server" {
                         return (
                             StatusCode::NOT_FOUND,
@@ -648,7 +492,7 @@ pub(crate) fn spawn_gateway_fixture() -> GatewayFixture {
                             "update_available": current != "0.19.0",
                             "latest_version": "0.19.0",
                             "download_url": "https://example.invalid/dcc-mcp-server.zip",
-                            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                            "sha256": "abc123",
                             "release_notes": "Server update"
                         })),
                     )
@@ -669,13 +513,11 @@ pub(crate) fn spawn_gateway_fixture() -> GatewayFixture {
                 (
                     StatusCode::OK,
                     Json(json!({
-                        "download_url": "https://example.invalid/dcc-mcp-server.zip",
-                        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                        "download_url": "https://example.invalid/dcc-mcp-server.zip"
                     })),
                 )
             }),
-        )
-        .layer(middleware::from_fn(echo_request_id));
+        );
 
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = listener.local_addr().unwrap();
@@ -703,20 +545,10 @@ pub(crate) fn spawn_gateway_fixture() -> GatewayFixture {
 }
 
 pub(crate) fn spawn_local_mcp_fixture() -> LocalMcpFixture {
-    let tools_list_calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
-    let activate_group_calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
-    let ui_control_loaded = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let app = Router::new()
         .route(
             "/mcp",
-            post(
-                |State((tools_list_calls, activate_group_calls, ui_control_loaded)): State<(
-                    std::sync::Arc<std::sync::atomic::AtomicUsize>,
-                    std::sync::Arc<std::sync::atomic::AtomicUsize>,
-                    std::sync::Arc<std::sync::atomic::AtomicBool>,
-                )>,
-                 headers: HeaderMap,
-                 Json(body): Json<Value>| async move {
+            post(|headers: HeaderMap, Json(body): Json<Value>| async move {
                 let accept = headers
                     .get(header::ACCEPT)
                     .and_then(|value| value.to_str().ok())
@@ -812,90 +644,7 @@ pub(crate) fn spawn_local_mcp_fixture() -> LocalMcpFixture {
                                         })),
                                     );
                                 }
-                                if arguments.get("include_disabled") != Some(&json!(true)) {
-                                    return (
-                                        StatusCode::OK,
-                                        Json(json!({
-                                            "jsonrpc": "2.0",
-                                            "id": body.get("id").cloned().unwrap_or(json!(null)),
-                                            "error": {
-                                                "code": -32602,
-                                                "message": "local search must include inactive-group tools"
-                                            }
-                                        })),
-                                    );
-                                }
-                                if query == "ui control snapshot"
-                                    && ui_control_loaded.load(std::sync::atomic::Ordering::SeqCst)
-                                {
-                                    json!({
-                                        "total": 1,
-                                        "query": query,
-                                        "tools": [{
-                                            "kind": "tool",
-                                            "name": "ui_control__snapshot",
-                                            "description": "Capture a bounded UI Control snapshot",
-                                            "category": "ui_control",
-                                            "group": "",
-                                            "enabled": true,
-                                            "has_schema": true,
-                                            "dcc": "maya",
-                                            "skill_name": "ui-control",
-                                            "annotations": {
-                                                "read_only_hint": false,
-                                                "destructive_hint": false,
-                                                "idempotent_hint": false,
-                                                "open_world_hint": false
-                                            }
-                                        }],
-                                        "skill_candidates": []
-                                    })
-                                } else if query == "skill-only" {
-                                    json!({
-                                        "total": 1,
-                                        "query": query,
-                                        "tools": [],
-                                        "skill_candidates": [{
-                                            "kind": "skill_candidate",
-                                            "skill_name": "workflow",
-                                            "description": "Workflow tools",
-                                            "tags": ["workflow"],
-                                            "dcc": "maya",
-                                            "scope": "repo",
-                                            "tool_count": 1,
-                                            "matching_tools": [],
-                                            "requires_load_skill": true,
-                                            "load_hint": {
-                                                "tool": "load_skill",
-                                                "arguments": {"skill_name": "workflow"}
-                                            }
-                                        }]
-                                    })
-                                } else if query == "inactive" {
-                                    json!({
-                                        "total": 1,
-                                        "query": query,
-                                        "tools": [{
-                                            "kind": "tool",
-                                            "name": "workflow__run",
-                                            "description": "Run workflow",
-                                            "category": "workflow",
-                                            "group": "execution",
-                                            "enabled": false,
-                                            "has_schema": true,
-                                            "dcc": "maya",
-                                            "skill_name": "workflow",
-                                            "annotations": {
-                                                "read_only_hint": false,
-                                                "destructive_hint": false,
-                                                "idempotent_hint": false,
-                                                "open_world_hint": false
-                                            }
-                                        }],
-                                        "skill_candidates": []
-                                    })
-                                } else {
-                                    json!({
+                                json!({
                                     "total": 2,
                                     "query": query,
                                     "tools": [{
@@ -905,22 +654,8 @@ pub(crate) fn spawn_local_mcp_fixture() -> LocalMcpFixture {
                                         "category": "scene",
                                         "group": "",
                                         "enabled": true,
-                                        "has_schema": false,
                                         "dcc": "maya",
-                                        "skill_name": "maya-scene",
-                                        "annotations": {
-                                            "read_only_hint": true,
-                                            "destructive_hint": false,
-                                            "idempotent_hint": true,
-                                            "open_world_hint": false
-                                        },
-                                        "metadata": {
-                                            "dcc": {
-                                                "affinity": "any",
-                                                "execution": "sync",
-                                                "jobStrategy": "monolithic"
-                                            }
-                                        }
+                                        "skill_name": "maya-scene"
                                     }],
                                     "skill_candidates": [{
                                         "kind": "skill_candidate",
@@ -930,27 +665,19 @@ pub(crate) fn spawn_local_mcp_fixture() -> LocalMcpFixture {
                                         "dcc": "maya",
                                         "scope": "repo",
                                         "tool_count": 1,
-                                        "matching_tools": ["run"],
-                                        "tool_group": "execution",
+                                        "matching_tools": ["workflow__run"],
                                         "requires_load_skill": true,
                                         "load_hint": {
                                             "tool": "load_skill",
-                                            "arguments": {
-                                                "skill_name": "workflow",
-                                                "tool_group": "execution"
-                                            }
+                                            "arguments": {"skill_name": "workflow"}
                                         }
                                     }]
-                                    })
-                                }
+                                })
                             }
                             "load_skill" => {
                                 if arguments.get("dcc_type").is_some()
                                     || arguments.get("dcc").is_some()
                                     || arguments.get("instance_id").is_some()
-                                    || arguments.get("target_tool_slug").is_some()
-                                    || arguments.get("meta").is_some()
-                                    || arguments.get("_meta").is_some()
                                 {
                                     return (
                                         StatusCode::OK,
@@ -959,98 +686,20 @@ pub(crate) fn spawn_local_mcp_fixture() -> LocalMcpFixture {
                                             "id": body.get("id").cloned().unwrap_or(json!(null)),
                                             "error": {
                                                 "code": -32602,
-                                                "message": "load_skill received local or gateway routing fields"
+                                                "message": "load_skill received local routing fields"
                                             }
                                         })),
                                     );
                                 }
-                                if arguments.get("tool_group").is_some()
-                                    && arguments.get("activate_groups") != Some(&json!(false))
-                                {
-                                    return (
-                                        StatusCode::OK,
-                                        Json(json!({
-                                            "jsonrpc": "2.0",
-                                            "id": body.get("id").cloned().unwrap_or(json!(null)),
-                                            "error": {
-                                                "code": -32602,
-                                                "message": "targeted load_skill must default activate_groups=false"
-                                            }
-                                        })),
-                                    );
-                                }
-                                if arguments.get("skill_name") == Some(&json!("broken")) {
-                                    return (
-                                        StatusCode::OK,
-                                        Json(json!({
-                                            "jsonrpc": "2.0",
-                                            "id": body.get("id").cloned().unwrap_or(json!(null)),
-                                            "result": {
-                                                "isError": true,
-                                                "content": [{"type": "text", "text": "skill load failed"}]
-                                            }
-                                        })),
-                                    );
-                                }
-                                match arguments.get("skill_name").and_then(Value::as_str) {
-                                    Some("broken-domain") => json!({
-                                        "success": false,
-                                        "message": "skill domain failure"
-                                    }),
-                                    Some("not-loaded") => json!({
-                                        "loaded": false,
-                                        "message": "skill not loaded"
-                                    }),
-                                    Some("ui-control") => {
-                                        ui_control_loaded.store(true, std::sync::atomic::Ordering::SeqCst);
-                                        json!({
-                                            "loaded": true,
-                                            "skill_name": "ui-control",
-                                            "registered_tools": ["ui_control__snapshot"],
-                                            "tool_count": 1,
-                                            "tools": [{
-                                                "name": "ui_control__snapshot",
-                                                "inputSchema": {"type": "object", "properties": {}}
-                                            }]
-                                        })
-                                    }
-                                    _ => json!({
-                                        "loaded": true,
-                                        "skill_name": arguments.get("skill_name").cloned().unwrap_or(Value::Null),
-                                        "activate_groups": arguments.get("activate_groups").cloned().unwrap_or(Value::Null),
-                                        "strict_tool_group": arguments.get("strict_tool_group").cloned().unwrap_or(Value::Null),
-                                        "registered_tools": ["workflow__run"],
-                                        "tool_count": 1,
-                                        "tools": [{
-                                            "name": "workflow__run",
-                                            "annotations": {
-                                                "read_only_hint": false,
-                                                "destructive_hint": false,
-                                                "idempotent_hint": false,
-                                                "open_world_hint": false
-                                            },
-                                            "metadata": {
-                                                "dcc": {
-                                                    "affinity": "any",
-                                                    "execution": "sync",
-                                                    "jobStrategy": "monolithic"
-                                                }
-                                            },
-                                            "inputSchema": {
-                                                "type": "object",
-                                                "properties": {"name": {"type": "string"}},
-                                                "required": ["name"]
-                                            }
-                                        }]
-                                    }),
-                                }
-                            }
-                            "activate_tool_group" => {
-                                activate_group_calls
-                                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                                 json!({
-                                    "success": true,
-                                    "group": arguments.get("group_name").cloned().unwrap_or(Value::Null),
+                                    "loaded": true,
+                                    "skill_name": arguments.get("skill_name").cloned().unwrap_or(Value::Null),
+                                    "registered_tools": ["workflow__run"],
+                                    "tool_count": 1,
+                                    "tools": [{
+                                        "name": "workflow__run",
+                                        "inputSchema": {"type": "object"}
+                                    }]
                                 })
                             }
                             "dcc_admin__reload_skills" => json!({
@@ -1116,6 +765,7 @@ pub(crate) fn spawn_local_mcp_fixture() -> LocalMcpFixture {
                     "readiness": {
                         "process": true,
                         "dcc": true,
+                        "skill_catalog": true,
                         "dispatcher": true,
                         "host_execution_bridge": true,
                         "main_thread_executor": true
@@ -1150,12 +800,7 @@ pub(crate) fn spawn_local_mcp_fixture() -> LocalMcpFixture {
                     "session": body.get("session").cloned().unwrap_or(Value::Null)
                 }))
             }),
-        )
-        .with_state((
-            tools_list_calls.clone(),
-            activate_group_calls.clone(),
-            ui_control_loaded,
-        ));
+        );
 
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = listener.local_addr().unwrap();
@@ -1179,21 +824,11 @@ pub(crate) fn spawn_local_mcp_fixture() -> LocalMcpFixture {
         base_url: format!("http://{addr}"),
         shutdown: Some(shutdown_tx),
         thread: Some(thread),
-        tools_list_calls,
-        activate_group_calls,
     }
 }
 
 pub(crate) fn cli_command() -> Command {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_dcc-mcp-cli"));
-    command.env("DCC_MCP_INSTALL_OFFLINE", "true");
-    command.env(
-        "DCC_MCP_INSTALL_CACHE",
-        std::env::temp_dir()
-            .join(format!("dcc-mcp-install-test-{}", uuid::Uuid::new_v4()))
-            .join("catalog.json"),
-    );
-    command
+    Command::new(env!("CARGO_BIN_EXE_dcc-mcp-cli"))
 }
 
 pub(crate) fn run_json(args: &[&str]) -> Value {
@@ -1328,21 +963,7 @@ pub(crate) fn run_git(repo: &std::path::Path, args: &[&str]) {
     );
 }
 
-pub(crate) fn git_head(repo: &std::path::Path) -> String {
-    let output = Command::new("git")
-        .args(["rev-parse", "HEAD"])
-        .current_dir(repo)
-        .output()
-        .unwrap();
-    assert!(output.status.success());
-    String::from_utf8(output.stdout).unwrap().trim().to_string()
-}
-
-pub(crate) fn commit_git_skill_version(
-    repo: &std::path::Path,
-    version: &str,
-    marker: &str,
-) -> String {
+pub(crate) fn commit_git_skill_version(repo: &std::path::Path, version: &str, marker: &str) {
     std::fs::write(
         repo.join("SKILL.md"),
         format!("---\nname: git-skill\ndescription: Git skill {version}\n---\n"),
@@ -1352,7 +973,6 @@ pub(crate) fn commit_git_skill_version(
     run_git(repo, &["add", "."]);
     run_git(repo, &["commit", "-m", version]);
     run_git(repo, &["tag", version]);
-    git_head(repo)
 }
 
 pub(crate) fn write_zip(entries: &[(&str, &str)], dest: &std::path::Path) -> Vec<u8> {

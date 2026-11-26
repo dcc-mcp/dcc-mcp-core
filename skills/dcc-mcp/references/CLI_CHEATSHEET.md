@@ -7,7 +7,7 @@ Primary tool: `dccmcp` — the CLI is the **default path for every
 shell-capable AI agent**. Native MCP is the fallback for MCP-only clients or an
 explicit user choice.
 
-`dcc-mcp-cli` remains a compatibility alias for existing installations.
+`dccmcp` remains a compatibility alias for existing installations.
 
 The generic MCP client is available under `dccmcp mcp`.
 
@@ -26,10 +26,12 @@ official release:
 
 ```bash
 # Linux/macOS
-curl -fsSL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-cli/main/scripts/install-cli.sh | sh
+curl -fL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-cli/main/scripts/install-cli.sh -o install-cli.sh
+sh ./install-cli.sh
 
 # Windows PowerShell
-powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-cli/main/scripts/install-cli.ps1 | iex"
+Invoke-WebRequest https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-cli/main/scripts/install-cli.ps1 -OutFile .\install-cli.ps1
+& .\install-cli.ps1
 ```
 
 Keep an official build current through the release manifest:

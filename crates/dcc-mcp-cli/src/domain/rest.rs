@@ -12,11 +12,6 @@ pub struct SearchRequest {
     pub instance_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub limit: Option<usize>,
-    /// Local-only filter: keep (`true`) or exclude (`false`) tools the
-    /// gateway can dispatch. Never serialised — the gateway has no such
-    /// parameter, so this must not change the REST wire contract.
-    #[serde(skip)]
-    pub gateway_only: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -101,10 +96,6 @@ pub struct StopInstanceRequest {
     pub expected_owner: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expected_session: Option<String>,
-    /// Restrict the stop to the instance launched and owned by this
-    /// `start-instance` operation.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub operation_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -165,7 +156,6 @@ mod tests {
             dcc_type: None,
             instance_id: None,
             limit: Some(10),
-            gateway_only: None,
         })
         .unwrap();
         assert_eq!(body["query"], "sphere");
@@ -197,48 +187,5 @@ mod tests {
                 ("session_id", "solar-session".into()),
             ]
         );
-    }
-
-    #[test]
-    fn feedback_query_emits_gateway_admin_filters() {
-        let request = FeedbackQueryRequest {
-            range: "7d".into(),
-            dcc_type: Some("maya".into()),
-            severity: Some("blocked".into()),
-            limit: 100,
-        };
-
-        assert_eq!(
-            request.query_pairs(),
-            vec![
-                ("range", "7d".into()),
-                ("dcc", "maya".into()),
-                ("severity", "blocked".into()),
-                ("limit", "100".into()),
-            ]
-        );
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct FeedbackQueryRequest {
-    pub range: String,
-    pub dcc_type: Option<String>,
-    pub severity: Option<String>,
-    pub limit: usize,
-}
-
-impl FeedbackQueryRequest {
-    #[must_use]
-    pub fn query_pairs(&self) -> Vec<(&'static str, String)> {
-        let mut pairs = vec![("range", self.range.clone())];
-        if let Some(dcc_type) = &self.dcc_type {
-            pairs.push(("dcc", dcc_type.clone()));
-        }
-        if let Some(severity) = &self.severity {
-            pairs.push(("severity", severity.clone()));
-        }
-        pairs.push(("limit", self.limit.to_string()));
-        pairs
     }
 }

@@ -1,287 +1,9 @@
 mod support;
 
 use serde_json::json;
-use tempfile::{NamedTempFile, TempDir};
+use tempfile::NamedTempFile;
 
 use support::*;
-
-#[test]
-fn bundled_install_sop_plans_keep_verified_release_bindings() {
-    let releases: serde_json::Value = serde_json::from_str(include_str!(
-        "../../../tests/fixtures/install-sop-catalog.json"
-    ))
-    .unwrap();
-    for release in releases.as_array().unwrap() {
-        let dcc_type = release["dcc_type"].as_str().unwrap();
-        let plan = run_json_with_env_removed(
-            &["install", "--dcc-type", dcc_type, "--python", "test-python"],
-            &[],
-            &["DCC_MCP_CATALOG_PATH", "DCC_MCP_INSTALL_PYTHON"],
-        );
-        assert_eq!(plan["adapter"]["name"], release["name"], "{dcc_type}");
-        assert_eq!(plan["adapter"]["version"], release["version"], "{dcc_type}");
-        let action = &plan["steps"][0]["action"];
-        assert_eq!(action["version"], release["version"], "{dcc_type}");
-        assert_eq!(
-            action["artifact_url"], release["artifact_url"],
-            "{dcc_type}"
-        );
-        assert_eq!(action["sha256"], release["sha256"], "{dcc_type}");
-        assert_eq!(
-            plan["next_steps"][0]["url"], release["instructions_url"],
-            "{dcc_type}"
-        );
-        let output = cli_command()
-            .args(["install", "--dcc-type", dcc_type, "--version", "0.0.0"])
-            .env_remove("DCC_MCP_CATALOG_PATH")
-            .env_remove("DCC_MCP_INSTALL_PYTHON")
-            .output()
-            .unwrap();
-        assert!(!output.status.success(), "{dcc_type}");
-        assert!(String::from_utf8_lossy(&output.stderr).contains("differs from catalog version"));
-    }
-}
-
-#[test]
-fn install_cli_records_environment_python_source() {
-    let plan = run_json_with_env_removed(
-        &["install", "--dcc-type", "maya", "--json"],
-        &[("DCC_MCP_INSTALL_PYTHON", "environment-python")],
-        &["DCC_MCP_CATALOG_PATH"],
-    );
-
-    assert_eq!(plan["steps"][0]["action"]["python"], "environment-python");
-    assert_eq!(plan["python_source"], "environment");
-}
-
-fn fake_pip(temp: &TempDir, version: &str, artifact_url: &str, sha256: &str) -> std::path::PathBuf {
-    let package = temp.path().join("pip");
-    std::fs::create_dir(&package).unwrap();
-    std::fs::write(package.join("__init__.py"), "").unwrap();
-    let pip_script = r#"import json
-import os
-import sys
-root = os.path.dirname(os.path.dirname(__file__))
-marker = os.path.join(os.path.dirname(__file__), 'installed')
-count_file = os.path.join(os.path.dirname(__file__), 'install-count')
-dist_info = os.path.join(root, 'dcc_mcp_maya-{version}.dist-info')
-if len(sys.argv) > 1 and sys.argv[1] == 'show':
-    if not os.path.exists(marker):
-        print('WARNING: Package(s) not found: dcc-mcp-maya', file=sys.stderr)
-        raise SystemExit(1)
-    print('Name: dcc-mcp-maya')
-    print('Version: {version}')
-    print('Location:', root)
-elif len(sys.argv) > 1 and sys.argv[1] == 'check':
-    pass
-elif len(sys.argv) > 1 and sys.argv[1] == 'install':
-    count = int(open(count_file).read()) if os.path.exists(count_file) else 0
-    with open(count_file, 'w') as stream:
-        stream.write(str(count + 1))
-    os.makedirs(dist_info, exist_ok=True)
-    with open(os.path.join(dist_info, 'direct_url.json'), 'w') as stream:
-        json.dump({'url': '{artifact_url}', 'archive_info': {'hashes': {'sha256': '{sha256}'}}}, stream)
-    open(marker, 'w').close()
-"#
-    .replace("{version}", version)
-    .replace("{artifact_url}", artifact_url)
-    .replace("{sha256}", sha256);
-    std::fs::write(package.join("__main__.py"), pip_script).unwrap();
-    // The install verification probes the target interpreter directly. Keep
-    // the fixture importable without relying on packages from the test host.
-    std::fs::write(
-        temp.path().join("dcc_mcp_maya.py"),
-        format!("__version__ = '{version}'\n"),
-    )
-    .unwrap();
-    std::fs::write(
-        temp.path().join("dcc_mcp_core.py"),
-        "__version__ = '0.20.53'\n",
-    )
-    .unwrap();
-    temp.path().to_path_buf()
-}
-
-#[test]
-fn install_execute_json_reports_manual_registration_as_deferred() {
-    let temp = TempDir::new().unwrap();
-    let receipt_temp = TempDir::new().unwrap();
-    let plan = run_json(&["install", "--dcc-type", "maya", "--python", "python"]);
-    let python_path = fake_pip(
-        &temp,
-        plan["version"].as_str().unwrap(),
-        plan["steps"][0]["action"]["artifact_url"].as_str().unwrap(),
-        plan["steps"][0]["action"]["sha256"].as_str().unwrap(),
-    );
-    let receipt_dir = receipt_temp.path().join("receipts");
-    let run_install = || {
-        cli_command()
-            .args([
-                "install",
-                "--dcc-type",
-                "maya",
-                "--python",
-                "python",
-                "--execute",
-                "--json",
-            ])
-            .env_remove("DCC_MCP_INSTALL_DISABLED")
-            .env_remove("DCC_MCP_CATALOG_PATH")
-            .env_remove("DCC_MCP_INSTALL_PYTHON")
-            .env("DCC_MCP_INSTALL_RECEIPT_DIR", &receipt_dir)
-            .env("PYTHONPATH", &python_path)
-            .output()
-            .unwrap()
-    };
-    let output = run_install();
-
-    assert_eq!(
-        output.status.code(),
-        Some(0),
-        "stdout={} stderr={}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(report["status"], "partial");
-    assert_eq!(report["stage"], "complete");
-    assert_eq!(report["exit_code"], 0);
-    assert_eq!(report["error"], serde_json::Value::Null);
-    let register_step = report["steps"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|step| step["id"] == "register-dcc")
-        .expect("real planner report must include register-dcc");
-    assert_eq!(register_step["status"], "deferred");
-    assert_ne!(register_step["status"], "ok");
-    assert_eq!(register_step["rollback"]["attempted"], false);
-    assert_eq!(register_step["rollback"]["status"], "not_available");
-    assert_eq!(report["verify"]["directly_usable"], false);
-    let receipt_path = report["receipt_path"].as_str().expect("receipt path");
-    assert!(std::path::Path::new(receipt_path).is_file());
-    let receipt: serde_json::Value =
-        serde_json::from_slice(&std::fs::read(receipt_path).unwrap()).unwrap();
-    assert_eq!(receipt["schema_version"], 1);
-    assert_eq!(receipt["package"], "dcc-mcp-maya");
-
-    let stdout = String::from_utf8(output.stdout).unwrap();
-    assert_eq!(stdout.lines().count(), 1);
-    let stderr = String::from_utf8(output.stderr).unwrap();
-    assert!(stderr.contains("register-dcc ... DEFERRED"));
-    assert!(!stderr.contains("register-dcc ... OK"));
-    assert!(!stdout.contains(python_path.to_str().unwrap()));
-    assert!(!stderr.contains(python_path.to_str().unwrap()));
-
-    let second = run_install();
-    assert_eq!(
-        second.status.code(),
-        Some(0),
-        "stdout={} stderr={}",
-        String::from_utf8_lossy(&second.stdout),
-        String::from_utf8_lossy(&second.stderr)
-    );
-    let second_report: serde_json::Value = serde_json::from_slice(&second.stdout).unwrap();
-    assert_eq!(second_report["status"], "partial");
-    assert_eq!(second_report["receipt_path"], receipt_path);
-    assert_eq!(
-        std::fs::read_to_string(temp.path().join("pip/install-count")).unwrap(),
-        "1"
-    );
-
-    std::fs::remove_file(temp.path().join("pip/installed")).unwrap();
-    let third = run_install();
-    assert_eq!(
-        third.status.code(),
-        Some(0),
-        "stdout={} stderr={}",
-        String::from_utf8_lossy(&third.stdout),
-        String::from_utf8_lossy(&third.stderr)
-    );
-    assert_eq!(
-        std::fs::read_to_string(temp.path().join("pip/install-count")).unwrap(),
-        "2"
-    );
-}
-
-#[test]
-fn install_execute_json_failure_emits_one_safe_execution_report() {
-    let output = cli_command()
-        .args([
-            "install",
-            "--dcc-type",
-            "maya",
-            "--python",
-            "/__nonexistent__/python",
-            "--execute",
-            "--json",
-        ])
-        .env_remove("DCC_MCP_INSTALL_DISABLED")
-        .output()
-        .unwrap();
-
-    assert_eq!(output.status.code(), Some(10));
-    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(report["schema_version"], 1);
-    assert_eq!(report["status"], "failed");
-    assert_eq!(report["dcc_type"], "maya");
-    assert_eq!(report["exit_code"], 10);
-    assert_eq!(report["stage"], "preflight");
-    assert_eq!(report["error"]["code"], "SIDECAR_PREFLIGHT_FAILED");
-    assert_eq!(report["error"]["stage"], "preflight");
-    assert_eq!(report["error"]["exit_code"], 10);
-    assert!(
-        report["steps"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .all(|step| step["status"] == "not_run")
-    );
-    assert_eq!(report["receipt_path"], serde_json::Value::Null);
-    assert_eq!(report["verify"]["directly_usable"], false);
-    assert_eq!(report["verify"]["failure_stage"], "preflight");
-    assert_eq!(
-        report["verify"]["failure_reason"],
-        "SIDECAR_PREFLIGHT_FAILED"
-    );
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    for public_output in [&*stdout, &*stderr] {
-        assert!(!public_output.contains("/__nonexistent__/python"));
-        assert!(!public_output.contains("failed to launch"));
-        assert!(!public_output.contains("No such file"));
-    }
-    assert!(!stderr.contains("requires confirmation"));
-    assert!(!stderr.contains("Proceed with installation?"));
-}
-
-#[test]
-fn install_json_alias_preserves_the_plan_only_response() {
-    let output = cli_command()
-        .args([
-            "install",
-            "--dcc-type",
-            "maya",
-            "--python",
-            "test-python",
-            "--json",
-        ])
-        .env_remove("DCC_MCP_INSTALL_DISABLED")
-        .output()
-        .unwrap();
-
-    assert!(output.status.success());
-    let plan: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(plan["dcc_type"], "maya");
-    assert_eq!(plan["adapter"]["name"], "dcc-mcp-maya");
-    assert!(plan.get("schema_version").is_none());
-    assert!(
-        plan["steps"]
-            .as_array()
-            .is_some_and(|steps| !steps.is_empty())
-    );
-}
 
 #[test]
 fn install_builds_auditable_plan_from_catalog() {
@@ -334,8 +56,6 @@ fn install_uses_bundled_adapter_metadata_and_python_override() {
             "install",
             "--dcc-type",
             "maya",
-            "--version",
-            "0.9.42",
             "--python",
             "C:/Autodesk/Maya2026/bin/mayapy.exe",
         ],
@@ -345,21 +65,10 @@ fn install_uses_bundled_adapter_metadata_and_python_override() {
 
     assert_eq!(plan["dcc_type"], "maya");
     assert_eq!(plan["adapter"]["name"], "dcc-mcp-maya");
-    assert_eq!(plan["adapter"]["min_core_version"], "0.20.0");
+    assert_eq!(plan["adapter"]["min_core_version"], "0.19.45");
     assert_eq!(plan["steps"][0]["name"], "install-pip");
     assert_eq!(plan["steps"][0]["action"]["type"], "PipInstall");
     assert_eq!(plan["steps"][0]["action"]["package"], "dcc-mcp-maya");
-    assert_eq!(plan["steps"][0]["action"]["version"], "0.9.42");
-    assert_eq!(
-        plan["steps"][0]["action"]["sha256"],
-        "9df720c154bfeacedd4241ee80925bc13ddb700f71dc6a0e74c6e1dd1c225965"
-    );
-    assert!(
-        plan["steps"][0]["action"]["artifact_url"]
-            .as_str()
-            .unwrap()
-            .ends_with("dcc_mcp_maya-0.9.42-py3-none-any.whl")
-    );
     assert_eq!(
         plan["steps"][0]["action"]["python"],
         "C:/Autodesk/Maya2026/bin/mayapy.exe"
@@ -368,7 +77,7 @@ fn install_uses_bundled_adapter_metadata_and_python_override() {
     assert_eq!(plan["next_steps"][0]["name"], "read-install-instructions");
     assert_eq!(
         plan["next_steps"][0]["url"],
-        "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-maya/e582e5881f01e1a7e6e77eca54f5b3ec7ec08350/install.md"
+        "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-maya/main/install.md"
     );
     assert!(plan["next_steps"][0]["command"].is_null());
     assert_eq!(
@@ -404,61 +113,44 @@ fn install_uses_bundled_adapter_metadata_and_python_override() {
 }
 
 #[test]
-fn install_policy_env_disables_execute_with_a_stable_preflight_report() {
-    let output = cli_command()
-        .args([
+fn install_policy_env_disables_execute_and_returns_custom_prompt() {
+    let plan = run_json_with_env_removed(
+        &[
             "install",
             "--dcc-type",
             "maya",
             "--python",
             "/__nonexistent__/python",
             "--execute",
-            "--json",
-        ])
-        .env("DCC_MCP_INSTALL_DISABLED", "1")
-        .env(
-            "DCC_MCP_INSTALL_DISABLED_PROMPT",
-            "Auto install unavailable; contact PipelineTD to deploy {adapter} for {dcc_type}.",
-        )
-        .env_remove("DCC_MCP_CATALOG_PATH")
-        .env_remove("DCC_MCP_INSTALL_PYTHON")
-        .output()
-        .unwrap();
+        ],
+        &[
+            ("DCC_MCP_INSTALL_DISABLED", "1"),
+            (
+                "DCC_MCP_INSTALL_DISABLED_PROMPT",
+                "Auto install unavailable; contact PipelineTD to deploy {adapter} for {dcc_type}.",
+            ),
+        ],
+        &["DCC_MCP_CATALOG_PATH", "DCC_MCP_INSTALL_PYTHON"],
+    );
 
-    assert_eq!(output.status.code(), Some(10));
-    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(report["schema_version"], 1);
-    assert_eq!(report["status"], "failed");
-    assert_eq!(report["dcc_type"], "maya");
-    assert_eq!(report["stage"], "preflight");
-    assert_eq!(report["exit_code"], 10);
-    assert_eq!(report["error"]["code"], "AUTO_INSTALL_DISABLED");
-    assert!(
-        report["steps"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .all(|step| step["status"] == "not_run")
+    assert_eq!(plan["dcc_type"], "maya");
+    assert_eq!(plan["adapter"]["name"], "dcc-mcp-maya");
+    assert_eq!(plan["steps"][0]["action"]["type"], "PipInstall");
+    assert_eq!(
+        plan["steps"][0]["action"]["python"],
+        "/__nonexistent__/python"
     );
-    let public = format!(
-        "{}{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
+    assert_eq!(plan["install_policy"]["auto_install_enabled"], false);
+    assert_eq!(
+        plan["install_policy"]["prompt"],
+        "Auto install unavailable; contact PipelineTD to deploy dcc-mcp-maya for maya."
     );
-    assert!(!public.contains("/__nonexistent__/python"));
-    assert!(!public.contains("PipelineTD"));
 }
 
 #[test]
 fn install_bundled_catalog_covers_non_maya_first_party_adapters() {
     let plan = run_json_with_env_removed(
-        &[
-            "install",
-            "--dcc-type",
-            "blender",
-            "--python",
-            "test-python",
-        ],
+        &["install", "--dcc-type", "blender"],
         &[],
         &["DCC_MCP_CATALOG_PATH", "DCC_MCP_INSTALL_PYTHON"],
     );
@@ -475,193 +167,9 @@ fn install_bundled_catalog_covers_non_maya_first_party_adapters() {
 }
 
 #[test]
-fn bundled_catalog_reports_current_unity_adapter_version() {
-    let plan = run_json_with_env_removed(
-        &["install", "--dcc-type", "unity", "--python", "test-python"],
-        &[],
-        &["DCC_MCP_CATALOG_PATH", "DCC_MCP_INSTALL_PYTHON"],
-    );
-
-    assert_eq!(plan["adapter"]["name"], "dcc-mcp-unity");
-    assert_eq!(plan["adapter"]["version"], "0.11.2");
-}
-
-#[test]
-fn install_rejects_pip_version_without_a_catalog_pinned_artifact() {
-    let output = cli_command()
-        .args([
-            "install",
-            "--dcc-type",
-            "maya",
-            "--version",
-            "0.9.21",
-            "--output",
-            "json",
-        ])
-        .env_remove("DCC_MCP_CATALOG_PATH")
-        .output()
-        .unwrap();
-
-    assert!(!output.status.success());
-    assert!(
-        String::from_utf8_lossy(&output.stderr).contains("differs from catalog version '0.9.42'")
-    );
-}
-
-#[test]
-fn unpublished_adapters_do_not_advertise_automatic_install_steps() {
-    // Material Maker still has no published wheel, so the catalog keeps it
-    // discoverable without advertising an automatic pip install action.
-    // Excel and Word publish immutable wheels and now resolve to a pinned
-    // PipInstall step; see install_bundled_catalog_pins_office_adapter_wheels.
-    let plan = run_json_with_env_removed(
-        &["install", "--dcc-type", "material-maker"],
-        &[],
-        &["DCC_MCP_CATALOG_PATH", "DCC_MCP_INSTALL_PYTHON"],
-    );
-    assert_eq!(plan["dcc_type"], "material-maker");
-    assert!(
-        plan["adapter"]["install"].is_null(),
-        "material-maker must not advertise install metadata before a wheel is published"
-    );
-    assert!(
-        plan["steps"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .all(|step| step["action"].is_null()),
-        "material-maker must not advertise an automatic install action"
-    );
-}
-
-#[test]
-fn install_bundled_catalog_pins_office_adapter_wheels() {
-    for (dcc_type, package, version, wheel, sha256, entry_point) in [
-        (
-            "excel",
-            "dcc-mcp-excel",
-            "0.1.3",
-            "dcc_mcp_excel-0.1.3-py3-none-any.whl",
-            "3a6d12bb6bd63891e7b63c5b8436620fe351fe371a37dfdaa5302f0b080da84b",
-            "dcc_mcp_excel._standalone_entry:main",
-        ),
-        (
-            "word",
-            "dcc-mcp-word",
-            "0.1.2",
-            "dcc_mcp_word-0.1.2-py3-none-any.whl",
-            "f4ac79722b4ad653b0acd9844fa1a992994e8a8935f2a65bb7d473376c833a5c",
-            "dcc_mcp_word._standalone_entry:main",
-        ),
-    ] {
-        let plan = run_json_with_env_removed(
-            &["install", "--dcc-type", dcc_type, "--python", "test-python"],
-            &[],
-            &["DCC_MCP_CATALOG_PATH", "DCC_MCP_INSTALL_PYTHON"],
-        );
-
-        assert_eq!(plan["dcc_type"], dcc_type);
-        assert_eq!(plan["adapter"]["name"], package);
-        assert_eq!(plan["adapter"]["version"], version);
-        assert!(!plan["adapter"]["install"].is_null(), "{dcc_type}");
-
-        let install_step = &plan["steps"][0];
-        assert_eq!(install_step["name"], "install-pip", "{dcc_type}");
-        assert_eq!(install_step["action"]["type"], "PipInstall", "{dcc_type}");
-        assert_eq!(install_step["action"]["package"], package, "{dcc_type}");
-        assert_eq!(install_step["action"]["version"], version, "{dcc_type}");
-        assert_eq!(
-            install_step["action"]["extras"],
-            serde_json::json!(["headless"]),
-            "{dcc_type} must install its headless document backend"
-        );
-        assert_eq!(install_step["action"]["sha256"], sha256, "{dcc_type}");
-        assert!(
-            install_step["action"]["artifact_url"]
-                .as_str()
-                .unwrap()
-                .starts_with("https://files.pythonhosted.org/packages/"),
-            "{dcc_type} must pin an immutable PyPI wheel URL"
-        );
-        assert!(
-            install_step["action"]["artifact_url"]
-                .as_str()
-                .unwrap()
-                .ends_with(wheel),
-            "{dcc_type} must resolve to the pinned published wheel"
-        );
-
-        let register_step = &plan["steps"][1];
-        assert_eq!(register_step["action"]["type"], "RegisterDcc", "{dcc_type}");
-        assert_eq!(register_step["action"]["dcc_type"], dcc_type, "{dcc_type}");
-        assert_eq!(
-            register_step["action"]["entry_point"], entry_point,
-            "{dcc_type}"
-        );
-        if dcc_type == "word" {
-            assert_eq!(plan["next_steps"][0]["name"], "read-install-instructions");
-            assert_eq!(
-                plan["next_steps"][0]["url"],
-                concat!(
-                    "https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-word/",
-                    "8e59aa34b34ac23ffc9c419979c5644046561d22/README.md"
-                )
-            );
-        }
-    }
-}
-
-#[test]
-fn bundled_catalog_reports_current_core_adapter_versions() {
-    for (dcc_type, expected_version) in [
-        ("maya", "0.9.42"),
-        ("houdini", "0.31.5"),
-        ("blender", "0.1.43"),
-        ("3dsmax", "0.1.40"),
-        ("photoshop", "0.1.44"),
-        ("aftereffects", "0.7.3"),
-        ("premiere", "0.6.3"),
-        ("illustrator", "0.3.3"),
-    ] {
-        let plan = run_json_with_env_removed(
-            &["install", "--dcc-type", dcc_type, "--python", "test-python"],
-            &[],
-            &["DCC_MCP_CATALOG_PATH", "DCC_MCP_INSTALL_PYTHON"],
-        );
-
-        assert_eq!(plan["adapter"]["version"], expected_version, "{dcc_type}");
-    }
-}
-
-#[test]
-fn bundled_catalog_reports_marmoset_adapter() {
-    let plan = run_json_with_env_removed(
-        &[
-            "install",
-            "--dcc-type",
-            "marmoset",
-            "--python",
-            "test-python",
-        ],
-        &[],
-        &["DCC_MCP_CATALOG_PATH", "DCC_MCP_INSTALL_PYTHON"],
-    );
-
-    assert_eq!(plan["adapter"]["name"], "dcc-mcp-marmoset");
-    assert_eq!(plan["adapter"]["version"], "0.1.1");
-    assert_eq!(plan["adapter"]["min_core_version"], "0.19.86");
-}
-
-#[test]
 fn install_prefers_adapter_over_same_dcc_skill_pack() {
     let plan = run_json_with_env_removed(
-        &[
-            "install",
-            "--dcc-type",
-            "photoshop",
-            "--python",
-            "test-python",
-        ],
+        &["install", "--dcc-type", "photoshop"],
         &[],
         &["DCC_MCP_CATALOG_PATH", "DCC_MCP_INSTALL_PYTHON"],
     );
@@ -675,13 +183,7 @@ fn install_prefers_adapter_over_same_dcc_skill_pack() {
 #[test]
 fn install_accepts_human_dcc_name_aliases() {
     let plan = run_json_with_env_removed(
-        &[
-            "install",
-            "--dcc-type",
-            "3ds Max",
-            "--python",
-            "test-python",
-        ],
+        &["install", "--dcc-type", "3ds Max"],
         &[],
         &["DCC_MCP_CATALOG_PATH", "DCC_MCP_INSTALL_PYTHON"],
     );

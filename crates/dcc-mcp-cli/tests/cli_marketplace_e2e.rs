@@ -1,5 +1,6 @@
 mod support;
 
+use dcc_mcp_skills::parse_skill_md;
 use serde_json::{Value, json};
 use tempfile::TempDir;
 
@@ -25,7 +26,7 @@ fn marketplace_add_list_search_and_inspect_local_source() {
     "install": {
       "type": "git",
       "url": "https://github.com/dcc-mcp/dcc-asset-hunyuan-download",
-      "ref": "0123456789abcdef0123456789abcdef01234567"
+      "ref": "v0.1.0"
     }
   }, {
     "name": "dcc-asset-polyhaven",
@@ -36,7 +37,7 @@ fn marketplace_add_list_search_and_inspect_local_source() {
     "install": {
       "type": "git",
       "url": "https://github.com/dcc-mcp/dcc-asset-polyhaven",
-      "ref": "fedcba9876543210fedcba9876543210fedcba98"
+      "ref": "v0.1.0"
     }
   }]
 }
@@ -92,126 +93,7 @@ fn marketplace_add_list_search_and_inspect_local_source() {
         &envs,
     );
     assert_eq!(inspect["count"], 1);
-    assert_eq!(
-        inspect["matches"][0]["entry"]["install"]["ref"],
-        "0123456789abcdef0123456789abcdef01234567"
-    );
-}
-
-#[test]
-fn marketplace_search_accepts_natural_language_and_ranks_the_best_skill() {
-    let tmp = TempDir::new().unwrap();
-    let catalog_path = tmp.path().join("marketplace.json");
-    std::fs::write(
-        &catalog_path,
-        json!({
-            "version": "1",
-            "entries": [
-                {
-                    "name": "maya-asset-browser",
-                    "description": "Browse reusable assets in Maya",
-                    "dcc": ["maya"],
-                    "tags": ["assets", "skills"]
-                },
-                {
-                    "name": "maya-rigging-tools",
-                    "description": "Rigging workflows for Maya character animation",
-                    "dcc": ["maya"],
-                    "tags": ["rigging", "skills"],
-                    "category": "character"
-                }
-            ]
-        })
-        .to_string(),
-    )
-    .unwrap();
-
-    let source = catalog_path.to_string_lossy().to_string();
-    let search = run_json(&[
-        "marketplace",
-        "search",
-        "I",
-        "need",
-        "a",
-        "Maya",
-        "rigging",
-        "skill",
-        "--source",
-        &source,
-    ]);
-
-    assert_eq!(search["query"], "I need a Maya rigging skill");
-    assert_eq!(search["hits"][0]["entry"]["name"], "maya-rigging-tools");
-}
-
-#[test]
-fn marketplace_limit_is_applied_after_cross_source_ranking() {
-    let tmp = TempDir::new().unwrap();
-    let generic_catalog = tmp.path().join("generic.json");
-    let rigging_catalog = tmp.path().join("rigging.json");
-    std::fs::write(
-        &generic_catalog,
-        json!({
-            "version": "1",
-            "entries": [{
-                "name": "maya-skill-collection",
-                "description": "General Skills for Maya",
-                "dcc": ["maya"],
-                "tags": ["skills"]
-            }]
-        })
-        .to_string(),
-    )
-    .unwrap();
-    std::fs::write(
-        &rigging_catalog,
-        json!({
-            "version": "1",
-            "entries": [{
-                "name": "maya-rigging-tools",
-                "description": "Character rigging workflows for Maya",
-                "dcc": ["maya"],
-                "tags": ["rigging", "skills"]
-            }]
-        })
-        .to_string(),
-    )
-    .unwrap();
-
-    let config_path = tmp.path().join("sources.json");
-    std::fs::write(
-        &config_path,
-        json!({"sources": [
-            {"name": "generic", "url": generic_catalog.to_string_lossy()},
-            {"name": "rigging", "url": rigging_catalog.to_string_lossy()}
-        ]})
-        .to_string(),
-    )
-    .unwrap();
-    let config = config_path.to_string_lossy().to_string();
-    let envs = [
-        ("DCC_MCP_MARKETPLACE_SOURCES_FILE", config.as_str()),
-        ("DCC_MCP_MARKETPLACE_NO_DEFAULT_SOURCES", "1"),
-    ];
-
-    let search = run_json_with_env(
-        &[
-            "marketplace",
-            "search",
-            "I",
-            "need",
-            "a",
-            "Maya",
-            "rigging",
-            "skill",
-            "--limit",
-            "1",
-        ],
-        &envs,
-    );
-
-    assert_eq!(search["count"], 1);
-    assert_eq!(search["hits"][0]["entry"]["name"], "maya-rigging-tools");
+    assert_eq!(inspect["matches"][0]["entry"]["install"]["ref"], "v0.1.0");
 }
 
 #[test]
@@ -329,7 +211,7 @@ fn marketplace_pack_and_publish_updates_catalog() {
     );
     let catalog =
         serde_json::from_str::<Value>(&std::fs::read_to_string(&catalog_path).unwrap()).unwrap();
-    assert_eq!(catalog["schemaVersion"], "2");
+    assert_eq!(catalog["schemaVersion"], "1");
     assert_eq!(catalog["skills"][0]["minCoreVersion"], "0.19.0");
     assert_eq!(catalog["skills"][0]["source"]["type"], "zip");
     assert_eq!(
@@ -1663,14 +1545,11 @@ fn marketplace_search_dedupes_same_entry_from_multiple_sources() {
         .join("sources.json")
         .to_string_lossy()
         .to_string();
-    // Register both sources. Source order defines which duplicate wins.
+    // Register catalog1 (lower priority — registered first in config)
+    // and pass catalog2 as explicit (higher priority).
     std::fs::write(
         &config_path,
-        json!({"sources": [
-            {"name": "catalog1", "url": source1},
-            {"name": "catalog2", "url": source2}
-        ]})
-        .to_string(),
+        json!({"sources": [{"name": "catalog1", "url": source1}]}).to_string(),
     )
     .unwrap();
 
@@ -1679,8 +1558,12 @@ fn marketplace_search_dedupes_same_entry_from_multiple_sources() {
         ("DCC_MCP_MARKETPLACE_NO_DEFAULT_SOURCES", "1"),
     ];
 
-    let search = run_json_with_env(&["marketplace", "search"], &envs);
-    assert_eq!(search["count"], 3);
+    // Search with explicit source for catalog2 — only catalog2 is searched
+    // because explicit sources are exclusive (replace configured sources).
+    let search = run_json_with_env(&["marketplace", "search", "--source", &source2], &envs);
+    // Should have exactly 2 unique entries (skill-b, skill-c) from catalog2.
+    // catalog1 is not searched because --source is exclusive.
+    assert_eq!(search["count"], 2);
     let skill_b = search["hits"]
         .as_array()
         .unwrap()
@@ -1689,15 +1572,17 @@ fn marketplace_search_dedupes_same_entry_from_multiple_sources() {
         .unwrap();
     assert_eq!(
         skill_b["entry"]["description"],
-        "Shared skill from catalog 1"
+        "Shared skill from catalog 2"
     );
-    assert_eq!(skill_b["source"]["origin"], "config");
+    assert_eq!(skill_b["source"]["origin"], "explicit");
+    // skill-a from catalog1 must not appear.
     assert!(
-        search["hits"]
+        !search["hits"]
             .as_array()
             .unwrap()
             .iter()
-            .any(|h| h["entry"]["name"] == "skill-a")
+            .any(|h| h["entry"]["name"] == "skill-a"),
+        "configured-source entries must not appear when explicit --source is given"
     );
 }
 

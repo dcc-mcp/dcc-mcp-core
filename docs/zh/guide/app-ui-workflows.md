@@ -82,7 +82,7 @@ DCC-CUA host 负责准确窗口绑定、截图、UI Automation、原生输入、
 
 ### CLI 接口
 
-`dcc-mcp-cli ui-control` 子命令通过 Shell 暴露相同的能力：
+`dccmcp ui-control` 子命令通过 Shell 暴露相同的能力：
 
 ```bash
 dccmcp ui-control snapshot --instance-id <id> --json '{"session_id":"ui","process_id":1234}'

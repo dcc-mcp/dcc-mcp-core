@@ -173,23 +173,8 @@ fn prune_stopped_gateway_registry(args: &GatewayCtrlArgs) -> anyhow::Result<usiz
 
 /// Query the gateway status: health check + PID liveness.
 pub async fn gateway_status(args: &GatewayCtrlArgs) -> GatewayStatus {
-    gateway_status_with(args, resolve_gateway_pid).await
-}
-
-/// Doctor must not enter registry pruning while recovering a missing gateway pidfile.
-pub(crate) async fn gateway_status_readonly(args: &GatewayCtrlArgs) -> GatewayStatus {
-    gateway_status_with(args, |args, _| {
-        gateway_ensure::read_pid_from_pidfile(Some(&args.pidfile))
-    })
-    .await
-}
-
-async fn gateway_status_with(
-    args: &GatewayCtrlArgs,
-    resolve_pid: impl FnOnce(&GatewayCtrlArgs, bool) -> Option<u32>,
-) -> GatewayStatus {
     let healthy = gateway_ensure::gateway_health_ok(&args.host, args.port).await;
-    let pid = resolve_pid(args, healthy);
+    let pid = resolve_gateway_pid(args, healthy);
     let alive = pid.is_some_and(gateway_ensure::is_process_alive);
     GatewayStatus {
         host: args.host.clone(),
@@ -243,14 +228,14 @@ fn live_gateway_sentinel_pid(
 pub async fn run_gateway_daemon(request: GatewayDaemonRequest) -> anyhow::Result<Value> {
     match request {
         GatewayDaemonRequest::Start(start) => {
-            let args = start.into_ctrl_args()?;
+            let args = start.into_ctrl_args();
             Ok(serde_json::to_value(gateway_start(&args).await?)?)
         }
         GatewayDaemonRequest::Restart {
             start,
             stop_timeout_secs,
         } => {
-            let args = start.into_ctrl_args()?;
+            let args = start.into_ctrl_args();
             let stopped = gateway_stop(&args, stop_timeout_secs).await?;
             let started = gateway_start(&args).await?;
             Ok(serde_json::json!({
@@ -260,13 +245,13 @@ pub async fn run_gateway_daemon(request: GatewayDaemonRequest) -> anyhow::Result
             }))
         }
         GatewayDaemonRequest::Stop(stop) => {
-            let args = gateway_ctrl_args(stop.host, stop.port, stop.registry_dir, None)?;
+            let args = gateway_ctrl_args(stop.host, stop.port, stop.registry_dir, None);
             Ok(serde_json::to_value(
                 gateway_stop(&args, stop.wait_timeout_secs).await?,
             )?)
         }
         GatewayDaemonRequest::Status(status) => {
-            let args = gateway_ctrl_args(status.host, status.port, status.registry_dir, None)?;
+            let args = gateway_ctrl_args(status.host, status.port, status.registry_dir, None);
             Ok(serde_json::to_value(gateway_status(&args).await)?)
         }
     }
@@ -281,7 +266,7 @@ pub async fn ensure_local_gateway_for_endpoint(
         return Ok(None);
     };
 
-    let registry_dir = gateway_ensure::default_registry_dir()?;
+    let registry_dir = gateway_ensure::default_registry_dir();
     let pidfile = default_pidfile(&registry_dir);
     let args = gateway_ensure::EnsureGatewayArgs {
         host,
@@ -289,10 +274,9 @@ pub async fn ensure_local_gateway_for_endpoint(
         name: env_string("DCC_MCP_GATEWAY_NAME").or_else(|| Some("dccmcp-gateway".to_string())),
         registry_dir,
         remote_host: env_string("DCC_MCP_GATEWAY_REMOTE_HOST")
-            .unwrap_or_else(|| "127.0.0.1".to_string()),
+            .unwrap_or_else(|| "0.0.0.0".to_string()),
         remote_port: env_u16("DCC_MCP_GATEWAY_REMOTE_PORT").unwrap_or(59765),
-        gateway_idle_timeout_secs: env_u64("DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS")
-            .unwrap_or(gateway_ensure::CLI_AUTO_ENSURE_IDLE_TIMEOUT_SECS),
+        gateway_idle_timeout_secs: env_u64("DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS").unwrap_or(30),
         gateway_bin,
         wait_timeout_secs,
         pidfile: Some(pidfile),
@@ -329,18 +313,16 @@ pub fn gateway_ctrl_args(
     port: u16,
     registry_dir: Option<PathBuf>,
     start_opts: Option<GatewayStartOpts>,
-) -> anyhow::Result<GatewayCtrlArgs> {
-    let registry_dir = registry_dir
-        .map(Ok)
-        .unwrap_or_else(gateway_ensure::default_registry_dir)?;
+) -> GatewayCtrlArgs {
+    let registry_dir = registry_dir.unwrap_or_else(gateway_ensure::default_registry_dir);
     let pidfile = default_pidfile(&registry_dir);
-    Ok(GatewayCtrlArgs {
+    GatewayCtrlArgs {
         host,
         port,
         registry_dir,
         pidfile,
         start_opts,
-    })
+    }
 }
 
 fn verify_gateway_pid_ownership(args: &GatewayCtrlArgs, pid: u32) -> anyhow::Result<()> {
@@ -442,7 +424,7 @@ fn gateway_sentinel_summary(entry: &ServiceEntry) -> String {
 }
 
 impl GatewayDaemonStartRequest {
-    fn into_ctrl_args(self) -> anyhow::Result<GatewayCtrlArgs> {
+    fn into_ctrl_args(self) -> GatewayCtrlArgs {
         let start_opts = GatewayStartOpts {
             name: self.name,
             remote_host: self.remote_host,
@@ -474,23 +456,6 @@ fn env_u64(name: &str) -> Option<u64> {
 mod tests {
     use super::*;
     use dcc_mcp_transport::discovery::file_registry::FileRegistry;
-
-    /// Regression: the gateway this CLI auto-launches for a single endpoint
-    /// must keep its historical 30 s grace period.
-    ///
-    /// Raising this to the shared auto-ensure value (300 s) would be a
-    /// behaviour change — the gateway would hold its port ten times longer
-    /// after the last backend disconnects — so the value is asserted here as
-    /// well as in `idle_timeout::entry_point_defaults_stay_distinct`.
-    #[test]
-    fn endpoint_auto_ensure_keeps_the_thirty_second_default() {
-        assert_eq!(gateway_ensure::CLI_AUTO_ENSURE_IDLE_TIMEOUT_SECS, 30);
-        assert_ne!(
-            gateway_ensure::CLI_AUTO_ENSURE_IDLE_TIMEOUT_SECS,
-            gateway_ensure::AUTO_ENSURE_IDLE_TIMEOUT_SECS,
-            "the per-endpoint gateway is not the shared machine-wide one"
-        );
-    }
 
     #[test]
     fn local_auto_gateway_target_accepts_loopback_http() {
@@ -524,8 +489,7 @@ mod tests {
             19765,
             Some(dir.path().to_path_buf()),
             None,
-        )
-        .unwrap();
+        );
         let pid = 42_424;
         let mut sentinel = ServiceEntry::new(GATEWAY_SENTINEL_DCC_TYPE, "127.0.0.1", 19765);
         sentinel.metadata.insert(
@@ -549,8 +513,7 @@ mod tests {
             19765,
             Some(dir.path().to_path_buf()),
             None,
-        )
-        .unwrap();
+        );
         let mut sentinel = ServiceEntry::new(GATEWAY_SENTINEL_DCC_TYPE, "127.0.0.1", 19765);
         sentinel.pid = Some(u32::MAX);
         sentinel
@@ -577,8 +540,7 @@ mod tests {
             19765,
             Some(dir.path().to_path_buf()),
             None,
-        )
-        .unwrap();
+        );
         let mut sentinel = ServiceEntry::new(GATEWAY_SENTINEL_DCC_TYPE, "127.0.0.1", 19765);
         sentinel.metadata.insert(
             "gateway_health_url".to_string(),
@@ -605,8 +567,7 @@ mod tests {
             19765,
             Some(dir.path().to_path_buf()),
             None,
-        )
-        .unwrap();
+        );
         let pid = 42;
         let mut sentinel = ServiceEntry::new(GATEWAY_SENTINEL_DCC_TYPE, "127.0.0.1", 19766);
         sentinel.metadata.insert(
@@ -631,8 +592,7 @@ mod tests {
             19765,
             Some(dir.path().to_path_buf()),
             None,
-        )
-        .unwrap();
+        );
         let stale_pid = 42;
         std::fs::write(&args.pidfile, stale_pid.to_string()).unwrap();
         let pid = std::process::id();
@@ -661,8 +621,7 @@ mod tests {
             19765,
             Some(dir.path().to_path_buf()),
             None,
-        )
-        .unwrap();
+        );
         let stale_pid = 42;
         std::fs::write(&args.pidfile, stale_pid.to_string()).unwrap();
         let mut sentinel = ServiceEntry::new(GATEWAY_SENTINEL_DCC_TYPE, "127.0.0.1", 19766);

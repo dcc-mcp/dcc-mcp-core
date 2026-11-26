@@ -6,24 +6,37 @@ page documents its operator-facing contract alongside the core server
 binaries. Flags on each binary map 1:1 onto an `DCC_MCP_*` environment
 variable, so any deployment manifest can drive the same configuration surface.
 
-`dccmcp` and `dcc-mcp-server` are published as raw GitHub Release assets on
-every release. `dcc-mcp-cli` remains a compatibility alias for existing
-installations. DCCMCP is the preferred control path for shell-capable agents.
+`dccmcp` and `dcc-mcp-cli` are published as raw GitHub Release assets by the
+dedicated CLI repository. `dcc-mcp-cli` remains a compatibility alias for
+existing installations. `dcc-mcp-server` is released from Core. DCCMCP is the
+preferred control path for shell-capable agents.
 If it is missing, obtain the user's consent before installing it from
 the official URL:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-cli/main/scripts/install-cli.sh | sh
+curl -fL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-cli/main/scripts/install-cli.sh -o install-cli.sh
+cat install-cli.sh
+sh ./install-cli.sh
 
 # Windows PowerShell
-powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-cli/main/scripts/install-cli.ps1 | iex"
+Invoke-WebRequest https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-cli/main/scripts/install-cli.ps1 -OutFile .\install-cli.ps1
+Get-Content -Raw .\install-cli.ps1
+& .\install-cli.ps1
 ```
 
-Pin a release by setting `DCC_MCP_VERSION=v0.17.17` or passing
-`--version v0.17.17` to the install script.
+Pin a release by setting `DCC_MCP_VERSION=v0.21.1` or passing
+`--version v0.21.1` to the install script.
 The installers download the matching `.sha256` sidecar and verify the binary
 before replacing the destination. Set `DCC_MCP_ALLOW_UNSIGNED_DOWNLOADS=1`
 only for a trusted legacy mirror that does not publish sidecars.
+
+Installation is the consent-gated bootstrap or repair path. Once `dccmcp` is
+installed, use `dccmcp update` for the normal staged self-update flow. Set
+`DCC_MCP_CLI_AUTO_UPDATE=true` or pass `--auto-update` when a best-effort
+update check should run before an ordinary command. The CLI update is separate
+from the independently released `dcc-cua` runtime, which is reconciled with
+Use `dccmcp cua -- manifest` and `dccmcp cua -- ping` to inspect the CUA
+runtime. Install or update `dcc-cua` with its own official release workflow.
 
 A standalone DCCMCP ZIP (`dccmcp-<version>-<platform>.zip`) and a compatibility
 CLI ZIP (`dcc-mcp-cli-<version>-<platform>.zip`) are published as GitHub
@@ -46,7 +59,7 @@ Development helper binaries (`stub_gen`) are documented in
 Client-side control plane for DCC-MCP. It is the primary operator and agent UX;
 it does not host skills and does not replace the runtime binary
 `dcc-mcp-server`. Existing installations may invoke the same binary as
-`dcc-mcp-cli`.
+`dccmcp`.
 
 `dccmcp` has two gateway modes:
 
@@ -75,7 +88,7 @@ Use repeatable RFC 6901 pointers to query that view without parsing embedded
 JSON text, for example:
 
 ```bash
-dcc-mcp-cli call <tool-slug> --output json \
+dccmcp call <tool-slug> --output json \
   --select /result/structuredContent/context/output_summary/artifacts \
   --select /result/structuredContent/context/result
 ```
@@ -215,7 +228,7 @@ binaries retain their discovery policy; this does not requalify their origin.
 ### MCP inventory smoke checks
 
 ```bash
-dcc-mcp-cli --no-auto-gateway --output json smoke --url http://127.0.0.1:19293/mcp --timeout-secs 30 --max-pages 16
+dccmcp --no-auto-gateway --output json smoke --url http://127.0.0.1:19293/mcp --timeout-secs 30 --max-pages 16
 ```
 
 `smoke` initializes one MCP session and follows `tools/list` cursors until a
@@ -283,8 +296,8 @@ guesses an ambient `python`, because that reports false `missing` rows for
 adapters installed into a DCC's own interpreter. Set one of:
 
 ```bash
-dcc-mcp-cli doctor --adapter-python maya=/usr/autodesk/maya2026/bin/mayapy
-DCC_MCP_PYTHON_EXECUTABLE=/usr/autodesk/maya2026/bin/mayapy dcc-mcp-cli doctor
+dccmcp doctor --adapter-python maya=/usr/autodesk/maya2026/bin/mayapy
+DCC_MCP_PYTHON_EXECUTABLE=/usr/autodesk/maya2026/bin/mayapy dccmcp doctor
 ```
 
 With neither configured, probes report `unavailable` with
@@ -343,8 +356,8 @@ dccmcp lint path/to/skills
 The compatibility command accepts the same subcommands and flags.
 
 ```bash
-dcc-mcp-cli list
-dcc-mcp-cli call <tool-slug> --json '{}'
+dccmcp list
+dccmcp call <tool-slug> --json '{}'
 ```
 
 ### Generic MCP commands
@@ -478,16 +491,16 @@ accepts this JSON plus bounded task and validation summaries.
 ### `start-instance` (project-bound launch and wait-ready)
 
 An adapter can be installed and receipted for an exact project while
-`dcc-mcp-cli list` still reports `total: 0` because no host is running.
+`dccmcp list` still reports `total: 0` because no host is running.
 `start-instance` closes that zero-instance gap: it launches the DCC host bound
 to one project and waits until it is ready.
 
 ```bash
-dcc-mcp-cli start-instance --dcc-type unity --project /abs/path/MyProject --dry-run
-dcc-mcp-cli start-instance --dcc-type unity --project /abs/path/MyProject --wait-ready --yes
-dcc-mcp-cli start-instance --dcc-type unity --project /abs/path/MyProject \
+dccmcp start-instance --dcc-type unity --project /abs/path/MyProject --dry-run
+dccmcp start-instance --dcc-type unity --project /abs/path/MyProject --wait-ready --yes
+dccmcp start-instance --dcc-type unity --project /abs/path/MyProject \
   --wait-ready --require skill_catalog --timeout-secs 600 --yes
-dcc-mcp-cli stop-instance --operation-id <operation-id>
+dccmcp stop-instance --operation-id <operation-id>
 ```
 
 Ownership split: **core owns the lifecycle and readiness contract; the adapter
@@ -563,25 +576,25 @@ Use the existing surfaces instead of copying unbounded logs:
 1. Preserve the failed call's `request_id`, trace/job ids, tool slug, instance,
    sanitized arguments, error code, and validation result. Do not blindly
    replay a mutating call.
-2. Run `dcc-mcp-cli doctor` for profile, registry, daemon, binary, or readiness
+2. Run `dccmcp doctor` for profile, registry, daemon, binary, or readiness
    failures. For task-level evidence, run
-   `dcc-mcp-cli stats --range 24h --status failure --session-id <session-id>`.
-3. Run `dcc-mcp-cli feedback` with `tool_name`, `intent`, `attempt`, `blocker`,
+   `dccmcp stats --range 24h --status failure --session-id <session-id>`.
+3. Run `dccmcp feedback` with `tool_name`, `intent`, `attempt`, `blocker`,
    and `severity`; include the DCC/instance/request/job ids when known. This
    gateway-owned route works after an instance exits, records a bounded event,
    and does not open a GitHub issue.
 4. Review persisted reports with
-   `dcc-mcp-cli feedback list --range 7d --dcc <dcc> --json`; use
+   `dccmcp feedback list --range 7d --dcc <dcc> --json`; use
    `feedback export` for the largest bounded machine-readable window. A failed
    `DccServerBase.start()` writes a `needs-review` startup Finding to this store
    even though no gateway `request_id` exists. Treat its exception-derived
    observed text as local evidence until it has been reviewed and redacted.
 5. When a Finding v1 JSON file is available, run
-   `dcc-mcp-cli feedback route finding.json --json`. The offline command uses
+   `dccmcp feedback route finding.json --json`. The offline command uses
    exact catalog or Skill-metadata ownership and never creates the external
    issue; a routing error must be resolved instead of guessed.
 6. After reviewing the Finding and setting all public-safe exclusion flags,
-   run `dcc-mcp-cli feedback bundle finding.json --install-report install-report.json --json`.
+   run `dccmcp feedback bundle finding.json --install-report install-report.json --json`.
    Pass the single JSON stdout object from `install --execute --json` when it
    is available. The bundle adds the safe issue report when a request id
    exists, a redacted doctor snapshot, version matrix, an exact-file bounded
@@ -590,7 +603,7 @@ Use the existing surfaces instead of copying unbounded logs:
    the Finding's DCC/core/adapter identity. Treat a validation failure as
    fail-closed; treat any `unavailable` component or `complete=false` as
    incomplete evidence.
-7. Run `dcc-mcp-cli feedback file finding.json --json` to search the routed
+7. Run `dccmcp feedback file finding.json --json` to search the routed
    repository without writing. A single exact fingerprint match returns one
    comment next step; no match returns a create next step. Keyword-only or
    multiple matches return review options and must not be auto-selected.
@@ -724,7 +737,7 @@ status cache in a detached process at most once every 24 hours. Failures use a
 one-hour retry interval and never block the foreground command. A cached
 available update adds `cli_update` to structured command output and writes a
 diagnostic to stderr. Agents should report its current/latest versions; the
-reported `update_policy.apply_command` is `dcc-mcp-cli update`, which applies
+reported `update_policy.apply_command` is `dccmcp update`, which applies
 the update in one step with no separate confirmation flag. Set
 `DCC_MCP_DISABLE_UPDATE_CHECK=1` to disable passive checks; explicit checks
 remain available.
@@ -733,7 +746,7 @@ remain available.
 `/v1/update/check`; the CLI auto-ensures the local gateway before the request.
 Its result includes `version_status`, live/cache timing, target compatibility,
 and the update policy. An available entry is valid only when its URL and
-64-hex SHA-256 are present. `dcc-mcp-cli update` streams and verifies that
+64-hex SHA-256 are present. `dccmcp update` streams and verifies that
 exact asset, stages one installation-bound CLI component, and re-verifies it
 before replacement on the next launch, all in one step with no confirmation
 flag. The CLI then restarts with the original arguments and reports
@@ -758,29 +771,9 @@ cannot prove a selected local or remote instance's installation root. Run
 `dcc-mcp-server update apply` in the exact server environment. It uses the same
 mandatory digest and apply-time verification contract and stages only the
 server binary. The standalone `dcc-cua` CLI is released independently and is
-reconciled through `components ensure`; it is not part of the gateway update
-manifest.
-
-`components ensure dcc-cua --yes` installs the complete verified release plan,
-including the foreground and background runtimes, skills, plugin metadata, and
-assets. A same-version installation is `existing` only after every declared
-file and directory passes verification. Missing package files are repaired.
-Each file is renamed atomically under the installation lock; a recovery journal
-rolls back the package and its ownership receipt if installation or the final
-runtime check fails. This package transaction does not include the Core CLI.
-
-The `.dcc-cua-install-receipt.json` beside the CLI records only package-relative
-paths and verified hashes. Legacy installs without a receipt adopt files whose
-contents match the requested release. An older foreground executable may also
-be adopted when its full hash matches the official manifest for that exact
-older version and platform. Core reads a bounded, unambiguous version banner
-from its bytes without executing it; the banner is only a hint for a fixed
-official manifest URL, never proof of ownership. Missing/ambiguous banners,
-unavailable old manifests, and hash mismatches fail closed. Background runtimes
-and data files do not receive this migration exception. An unowned conflicting
-file, or an owned file modified since installation, stops the operation before
-replacement. Preserve or relocate that conflicting file before retrying; do not
-edit the receipt to bypass the conflict. Unrelated and obsolete files are kept.
+not part of either the CLI self-update or the gateway update manifest. Inspect
+it through `dccmcp cua -- manifest` and `dccmcp cua -- ping`, then use the
+official `dcc-cua` installer when the runtime is missing or outdated.
 
 `lint` reuses the production `dcc-mcp-skills` validator, so local checks and
 runtime loading fail for the same structural problems. It also loads every
@@ -807,10 +800,9 @@ Default install locations are `~/.local/bin` on Linux/macOS and
 `%LOCALAPPDATA%\dcc-mcp\bin` on Windows. Override with
 `DCC_MCP_INSTALL_DIR` or `--install-dir`.
 
-After installing the verified Core CLI, both official installers run
-`components ensure dcc-cua --yes`. The two verified replacements converge on a
-complete installation but are not yet one crash-atomic cross-binary
-transaction; rerunning the installer safely reconciles an interrupted pair.
+The CLI installer installs only `dccmcp` and its `dcc-mcp-cli` compatibility
+alias. CUA installation remains an independent operation owned by the
+`dcc-cua` repository.
 
 ---
 

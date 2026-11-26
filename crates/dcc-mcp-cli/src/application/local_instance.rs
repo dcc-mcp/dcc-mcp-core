@@ -9,12 +9,11 @@ use std::time::SystemTime;
 
 use anyhow::Context;
 use dcc_mcp_transport::discovery::file_registry::FileRegistry;
-use dcc_mcp_transport::discovery::types::{
-    GATEWAY_SENTINEL_DCC_TYPE, ServiceEntry, ServiceStatus, instance_status_from_entry,
-};
+use dcc_mcp_transport::discovery::types::{GATEWAY_SENTINEL_DCC_TYPE, ServiceEntry, ServiceStatus};
 use serde_json::{Value, json};
 
 const DISPATCH_STATUS_METADATA_KEY: &str = "dispatch_status";
+const DISPATCH_STATUS_READY: &str = "ready";
 const ROLE_METADATA_KEY: &str = "dcc_mcp_role";
 const ROLE_PER_DCC_SIDECAR: &str = "per-dcc-sidecar";
 const FAILURE_STAGE_METADATA_KEY: &str = "failure_stage";
@@ -31,7 +30,14 @@ const GATEWAY_GUARDIAN_FAILURES_METADATA_KEY: &str = "gateway_guardian_failures"
 const GATEWAY_GUARDIAN_RESTARTS_METADATA_KEY: &str = "gateway_guardian_restarts";
 
 pub(crate) fn live_dcc_entries(registry_dir: &Path) -> anyhow::Result<(Vec<ServiceEntry>, usize)> {
-    let (entries, evicted) = FileRegistry::read_alive_read_only(registry_dir)
+    let registry = FileRegistry::new(registry_dir.to_path_buf()).with_context(|| {
+        format!(
+            "opening local DCC FileRegistry at {}",
+            registry_dir.display()
+        )
+    })?;
+    let (entries, evicted) = registry
+        .read_alive()
         .context("reading live local DCC instances")?;
     let now = SystemTime::now();
     let mut entries: Vec<_> = entries
@@ -160,24 +166,8 @@ pub(crate) fn instance_to_value(entry: ServiceEntry) -> anyhow::Result<Value> {
     if !obj.contains_key("mcp_url") {
         obj.insert("mcp_url".to_string(), Value::String(mcp_url(&entry)));
     }
-    if let Some(projection) = capability_projection(&entry) {
-        obj.insert("capabilities".to_string(), projection);
-    }
     obj.insert("direct_control".to_string(), direct_control_report(&entry));
     Ok(value)
-}
-
-fn capability_projection(entry: &ServiceEntry) -> Option<Value> {
-    let projection = entry
-        .extras
-        .get("capabilities")
-        .filter(|value| value.is_object())?
-        .clone();
-    let is_capability_index = projection
-        .get("source")
-        .and_then(Value::as_str)
-        .is_some_and(|source| source == "capability_index");
-    is_capability_index.then_some(projection)
 }
 
 pub(crate) fn instance_summary(entry: &ServiceEntry) -> Value {
@@ -188,7 +178,6 @@ pub(crate) fn instance_summary(entry: &ServiceEntry) -> Value {
         "display_id": entry.display_id(),
         "display_name": entry.display_name,
         "pid": entry.pid,
-        "host_pid": entry.host_pid,
         "mcp_url": mcp_url(entry),
         "status": entry.status.to_string(),
     })
@@ -224,15 +213,6 @@ pub(crate) fn mcp_url(entry: &ServiceEntry) -> String {
         .unwrap_or_else(|| format!("http://{}:{}/mcp", entry.host, entry.port))
 }
 
-pub(crate) fn discovery_mcp_url(entry: &ServiceEntry) -> String {
-    entry
-        .metadata
-        .get("discovery_mcp_url")
-        .filter(|url| !url.trim().is_empty())
-        .cloned()
-        .unwrap_or_else(|| mcp_url(entry))
-}
-
 pub(crate) fn readyz_url(entry: &ServiceEntry) -> String {
     let mcp = mcp_url(entry);
     let trimmed = mcp.trim_end_matches('/');
@@ -245,24 +225,21 @@ pub(crate) fn direct_control_ready(entry: &ServiceEntry) -> bool {
         .metadata
         .get(ROLE_METADATA_KEY)
         .is_some_and(|role| role == ROLE_PER_DCC_SIDECAR);
-    let instance_status = instance_status_from_entry(entry, false);
-    let status_ok = matches!(
-        instance_status.status,
-        ServiceStatus::Available | ServiceStatus::Busy
-    );
-    // Direct MCP instances without explicit dispatch_status are treated as ready
-    // (legacy / embedded / pre-sidecar path — ADR 018 DispatchStatus::Unknown).
-    let dispatch_ok = instance_status.dispatch_status
-        == dcc_mcp_transport::discovery::types::DispatchStatus::Ready
-        || (instance_status.dispatch_status
-            == dcc_mcp_transport::discovery::types::DispatchStatus::Unknown
-            && !is_sidecar);
-    status_ok && dispatch_ok
+    if !matches!(entry.status, ServiceStatus::Available | ServiceStatus::Busy) {
+        return false;
+    }
+    match entry.metadata.get(DISPATCH_STATUS_METADATA_KEY) {
+        Some(status) => status == DISPATCH_STATUS_READY,
+        None => !is_sidecar,
+    }
 }
 
 pub(crate) fn direct_control_report(entry: &ServiceEntry) -> Value {
     let role = entry.metadata.get(ROLE_METADATA_KEY).map(String::as_str);
-    let instance_status = instance_status_from_entry(entry, false);
+    let dispatch_status = entry
+        .metadata
+        .get(DISPATCH_STATUS_METADATA_KEY)
+        .map(String::as_str);
     let ready = direct_control_ready(entry);
     let reason = if ready {
         Value::Null
@@ -271,17 +248,25 @@ pub(crate) fn direct_control_report(entry: &ServiceEntry) -> Value {
     } else {
         Value::String("dispatch_status".to_string())
     };
+    let recommended_next_action = if ready {
+        "Use this instance through the local MCP route."
+    } else if !matches!(entry.status, ServiceStatus::Available | ServiceStatus::Busy) {
+        "Run wait-ready for this instance and inspect startup logs if it stays unavailable."
+    } else if role == Some(ROLE_PER_DCC_SIDECAR) {
+        "Wait for this sidecar to report dispatch_status=ready before routing local CLI calls to it."
+    } else {
+        "Wait for dispatch_status=ready before routing local CLI calls to this instance."
+    };
 
     json!({
         "ready": ready,
         "route": if ready { "local_mcp" } else { "none" },
         "reason": reason,
-        "service_status": instance_status.status.to_string(),
-        "dispatch_status": instance_status.dispatch_status.to_string(),
-        "retryable": instance_status.retryable,
-        "recommended_next_action": instance_status.recommended_next_action,
+        "service_status": entry.status.to_string(),
+        "dispatch_status": dispatch_status.unwrap_or("not_reported"),
         "role": role.unwrap_or("direct-mcp"),
         "diagnostics": direct_control_diagnostics(entry),
+        "recommended_next_action": recommended_next_action,
     })
 }
 
@@ -425,7 +410,7 @@ mod tests {
         let mut ready = ServiceEntry::new("maya", "127.0.0.1", 18081);
         ready.metadata.insert(
             DISPATCH_STATUS_METADATA_KEY.to_string(),
-            dcc_mcp_transport::discovery::types::DispatchStatus::Ready.to_string(),
+            DISPATCH_STATUS_READY.to_string(),
         );
         let ready_id = ready.instance_id;
         registry.register(ready).unwrap();
@@ -440,7 +425,7 @@ mod tests {
         assert_eq!(value["direct_control"]["route"], "local_mcp");
         assert_eq!(
             value["direct_control"]["recommended_next_action"],
-            "Instance is available for dispatch."
+            "Use this instance through the local MCP route."
         );
     }
 
@@ -472,7 +457,7 @@ mod tests {
         let mut sidecar = ServiceEntry::new("maya", "127.0.0.1", 18080);
         sidecar.metadata.insert(
             DISPATCH_STATUS_METADATA_KEY.to_string(),
-            dcc_mcp_transport::discovery::types::DispatchStatus::Ready.to_string(),
+            DISPATCH_STATUS_READY.to_string(),
         );
         sidecar.metadata.insert(
             ROLE_METADATA_KEY.to_string(),
@@ -495,27 +480,5 @@ mod tests {
         assert_eq!(value["direct_control"]["ready"], true);
         assert_eq!(value["direct_control"]["reason"], Value::Null);
         assert_eq!(value["direct_control"]["route"], "local_mcp");
-    }
-
-    #[test]
-    fn instance_value_uses_published_capability_projection() {
-        let mut entry = ServiceEntry::new("photoshop", "127.0.0.1", 18812);
-        entry.extras.insert(
-            "capabilities".into(),
-            json!({
-                "source": "capability_index",
-                "loaded_skills": ["ps-actions"],
-                "loaded_skill_count": 1,
-                "tool_count": 4
-            }),
-        );
-
-        let value = instance_to_value(entry).unwrap();
-
-        assert_eq!(
-            value["capabilities"]["loaded_skills"],
-            json!(["ps-actions"])
-        );
-        assert_eq!(value["capabilities"]["tool_count"], 4);
     }
 }

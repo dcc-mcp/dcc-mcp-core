@@ -10,9 +10,9 @@ behavior is preserved; explicitly requested update commands still execute.
 Use it with `--no-auto-gateway` for discovery against an existing deployment:
 
 ```bash
-dcc-mcp-cli --no-update-maintenance --no-auto-gateway --output json list
-dcc-mcp-cli --no-update-maintenance --no-auto-gateway --gateway <approved-profile> search --query <intent>
-dcc-mcp-cli --no-update-maintenance --no-auto-gateway describe <discovered-slug>
+dccmcp --no-update-maintenance --no-auto-gateway --output json list
+dccmcp --no-update-maintenance --no-auto-gateway --gateway <approved-profile> search --query <intent>
+dccmcp --no-update-maintenance --no-auto-gateway describe <discovered-slug>
 ```
 
 This flag controls automatic updates only. It does not make a requested `call`,
@@ -31,10 +31,10 @@ Official v0.20.45 already routes executable help/version and update inspection
 through the canonical read-only parser before the legacy startup path:
 
 ```bash
-dcc-mcp-cli --help
-dcc-mcp-cli --version
-dcc-mcp-cli --output json update inspect --offline
-dcc-mcp-cli --output json update discover --offline --provider official_install_catalog
+dccmcp --help
+dccmcp --version
+dccmcp --output json update inspect --offline
+dccmcp --output json update discover --offline --provider official_install_catalog
 ```
 
 Confirm the selected official artifact implements that gate. Inspect/discover

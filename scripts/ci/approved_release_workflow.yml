@@ -668,9 +668,8 @@ jobs:
   # raw executable so a release costs ~66 MB of the PyPI project budget rather
   # than ~165 MB. The archive already built by `build-binaries` is embedded
   # verbatim; the wheel unpacks it into the install environment's scripts
-  # directory on first use, which is what keeps
-  # `dcc-mcp-cli components ensure dcc-cua` working (the companion executable
-  # is installed as a sibling of `current_exe`).
+  # directory on first use, which keeps the standalone CLI command available
+  # beside the installed executable.
   #
   # One runner builds all three platforms: nothing here compiles, so the only
   # per-platform work is the PEP 600 tag derived from each archive.
@@ -1714,8 +1713,8 @@ jobs:
           version: ${{ steps.version.outputs.version }}
           # Only the unversioned portable zip for the CLI. Intentionally excludes
           # dcc-mcp-server and dcc-cua: only dcc-mcp-cli is published to WinGet,
-          # and dcc-cua is installed on demand by `dcc-mcp-cli components ensure`
-          # beside the real executable (see crates/dcc-mcp-cli/src/application/current_exe.rs).
+          # and dcc-cua is installed and verified independently from the CLI
+          # beside the real executable when that layout is used.
           installers-regex: 'dcc-mcp-cli-.*-windows-x86_64\.zip$'
           # Do NOT set max-versions-to-keep: it can misidentify the highest
           # version as "old" and try to delete it (microsoft/winget-pkgs#340410).

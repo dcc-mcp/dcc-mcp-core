@@ -96,13 +96,29 @@ def resolve_cua_command(configured: Optional[str] = None) -> List[str]:
 
 
 def _resolve_cli_sibling() -> Optional[str]:
-    """Prefer the component installed beside the official ``dcc-mcp-cli``."""
-    cli = shutil.which("dcc-mcp-cli")
-    if not cli:
-        return None
+    """Prefer dcc-cua installed beside the active DCCMCP control plane."""
     file_name = "dcc-cua.exe" if os.name == "nt" else "dcc-cua"
-    candidate = Path(cli).resolve().parent / file_name
-    return str(candidate) if candidate.is_file() else None
+    candidates = []
+    argv0 = Path(sys.argv[0]) if sys.argv and sys.argv[0] else None
+    if argv0 is not None and argv0.name.lower() in {"dccmcp", "dccmcp.exe", "dcc-mcp-cli", "dcc-mcp-cli.exe"}:
+        candidate = argv0.resolve().parent / file_name
+        if candidate.is_file():
+            return str(candidate)
+    for name in ("dcc-mcp-cli", "dccmcp"):
+        cli = shutil.which(name)
+        if cli:
+            candidates.append(Path(cli))
+    seen = set()
+    for cli in candidates:
+        resolved_cli = cli.resolve()
+        key = os.path.normcase(str(resolved_cli))
+        if key in seen:
+            continue
+        seen.add(key)
+        candidate = resolved_cli.parent / file_name
+        if candidate.is_file():
+            return str(candidate)
+    return None
 
 
 def _cua_executable_name() -> str:

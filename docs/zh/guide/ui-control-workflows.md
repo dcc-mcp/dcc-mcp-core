@@ -13,8 +13,8 @@ CDP 的 DOM 语义和 selector 更稳定，也能在无需前台可见时工作�
 
 ## 独立 CUA 配置
 
-单独安装 `dcc-cua` 0.4.0 或更高版本并加入 `PATH`，或把 `DCC_MCP_CUA_BINARY` 设置为绝对
-可执行文件路径，然后配置：
+单独安装独立发布的 `dcc-cua` 运行时并加入 `PATH`，或把 `DCC_MCP_CUA_BINARY` 设置为绝对
+可执行文件路径。通过 `dccmcp cua -- manifest` 和 `dccmcp cua -- ping` 检查运行时，然后配置：
 
 ```text
 DCC_MCP_UI_CONTROL_BACKEND=cua

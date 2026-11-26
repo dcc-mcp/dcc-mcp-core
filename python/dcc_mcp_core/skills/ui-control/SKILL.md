@@ -45,11 +45,11 @@ interruption, authentication, and desktop unavailability are stop conditions.
 4. `mock` is an explicit deterministic test backend only; production defaults
    to `dcc-cua` and never silently falls back to mock automation.
 
-Core does not package an automation Host in its own release assets. The official
-CLI installer reconciles the independently released `dcc-cua` companion; verify
-it with `dcc-mcp-cli components status dcc-cua` or repair it with
-`dcc-mcp-cli components ensure dcc-cua --yes`. For custom layouts, install
-`dcc-cua` 0.4.0 or newer separately. Core probes the configured
+Core does not package an automation Host in its own release assets. Install the
+independently released `dcc-cua` companion separately and verify it through the
+CLI forwarding route with `dccmcp cua -- manifest` and `dccmcp cua -- ping`.
+For custom layouts, keep `dcc-cua` 0.4.0 or newer on `PATH` or set
+`DCC_MCP_CUA_BINARY` to an absolute path. Core probes the configured
 `DCC_MCP_INSTALL_DIR`, the platform's standard dcc-mcp bin directory,
 versioned standalone installs, and then `PATH`; set `DCC_MCP_CUA_BINARY` to an
 absolute executable path only for a custom location. Core validates

@@ -54,6 +54,19 @@ fanning every backend tool into one large list. Backend capabilities are
 discovered by search, inspected by describe, and invoked through the wrapper or
 the REST twin (POST /v1/search, /v1/describe, /v1/call).
 
+## Breaking change in 0.21.0
+
+The DCCMCP command-line control plane moved to the dedicated
+[`dcc-mcp-cli`](https://github.com/dcc-mcp/dcc-mcp-cli) repository. Installers,
+CLI archives, update manifests, and the `dccmcp` self-update flow are owned by
+that repository. Core continues to publish the shared libraries, gateway,
+adapter/server runtime, and `dcc-mcp-server` assets.
+
+`dccmcp` is the primary command and `dcc-mcp-cli` remains a compatibility alias.
+The independently released `dcc-cua` runtime is not bundled into either
+repository. Use `dccmcp cua -- manifest` and `dccmcp cua -- ping` to verify the
+runtime, then use the `ui-control` route for scoped DCC UI operations.
+
 When a concrete DCC session is needed, read gateway://instances; each entry
 already includes its mcp_url. Do not use the removed legacy instance tools
 (list_dcc_instances, get_dcc_instance, or connect_to_dcc). Wrapper inputs
@@ -80,25 +93,23 @@ official release:
 
 ~~~bash
 # Linux/macOS
-curl -fsSL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-cli/main/scripts/install-cli.sh | sh
+curl -fL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-cli/main/scripts/install-cli.sh -o install-cli.sh
+cat install-cli.sh
+sh ./install-cli.sh
 
 # Windows PowerShell
-powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-cli/main/scripts/install-cli.ps1 | iex"
-~~~
-
-~~~powershell
-# Windows PowerShell
-Invoke-WebRequest https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.ps1 -OutFile .\install-cli.ps1
+Invoke-WebRequest https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-cli/main/scripts/install-cli.ps1 -OutFile .\install-cli.ps1
 Get-Content -Raw .\install-cli.ps1
-# After reviewing the file and subject to the current execution policy:
 & .\install-cli.ps1
 ~~~
 
-Both paths accept only the official `dcc-mcp/dcc-mcp-core` release, validate
-the platform update manifest and CLI SHA-256, and leave any existing binary
-untouched if validation or download fails. This is an integrity check, not a
-digital signature. Never pipe a remote installer directly into a shell or
-bypass the machine's script execution policy.
+The installer scripts are maintained in the dedicated
+[`dcc-mcp/dcc-mcp-cli`](https://github.com/dcc-mcp/dcc-mcp-cli) repository. They
+accept only its official release manifest, validate the platform asset and
+CLI SHA-256, and leave an existing binary untouched if validation or download
+fails. This is an integrity check, not a digital signature. Never pipe a
+remote installer directly into a shell or bypass the machine's script
+execution policy.
 
 ### Install the Agent Skill you need
 
@@ -141,7 +152,7 @@ This repository does not vendor those public packages. Its top-level `skills/`
 directory contains Core-owned marketplace and reference Skills. Bundled runtime
 Skills remain under `python/dcc_mcp_core/skills/`.
 
-Keep an official build current through the release manifest:
+Keep the standalone CLI current through the CLI release manifest:
 
 ~~~bash
 dccmcp update
@@ -150,7 +161,8 @@ dccmcp update apply
 dccmcp --auto-update list
 ~~~
 
-`dccmcp update` checks, downloads, verifies, and stages the latest CLI for the
+`dccmcp update` checks, downloads, verifies, and stages the latest CLI from the
+[`dcc-mcp-cli` release](https://github.com/dcc-mcp/dcc-mcp-cli/releases) for the
 next launch. Set `DCC_MCP_CLI_AUTO_UPDATE=true` to enable the same best-effort
 behavior before ordinary commands. Update failures are warnings in automatic
 mode. These commands do not update a running `dcc-mcp-server`; update that
@@ -193,7 +205,7 @@ Admin UI at [http://127.0.0.1:9765/admin](http://127.0.0.1:9765/admin) after the
 gateway is available.
 
 When a call fails, preserve its `request_id`, run `doctor` or a failure-filtered
-`stats` query, and use gateway-owned `dcc-mcp-cli feedback`. A live adapter's
+`stats` query, and use gateway-owned `dccmcp feedback`. A live adapter's
 `dcc_feedback__report` is only a thin Core forwarder to the same endpoint.
 Gateway-routed failures also expose a
 public-safe `/v1/debug/issue-reports/<request_id>` payload for a reviewed bug

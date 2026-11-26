@@ -22,77 +22,32 @@ pub(super) fn default_image_artifact_root() -> PathBuf {
 }
 
 pub(super) fn materialize_call_images(value: &mut Value, root: &Path) {
-    let canonical_name = canonical_image_name(value);
-    materialize_call_images_with_name(value, root, canonical_name.as_deref());
-}
-
-fn materialize_call_images_with_name(value: &mut Value, root: &Path, canonical_name: Option<&str>) {
     match value {
         Value::Object(object) => {
-            let image_name = object
-                .get("display_name")
-                .and_then(Value::as_str)
-                .filter(|name| name.starts_with("ui-control-"))
-                .map(str::to_owned);
-            let image_name = image_name.as_deref().or(canonical_name);
             if object.get("kind").and_then(Value::as_str) == Some("image") {
-                materialize_image_payload(object, "mime", root, image_name);
+                materialize_image_payload(object, "mime", root);
             } else if object.get("type").and_then(Value::as_str) == Some("image") {
                 let mime_key = if object.contains_key("mimeType") {
                     "mimeType"
                 } else {
                     "mime_type"
                 };
-                materialize_image_payload(object, mime_key, root, image_name);
+                materialize_image_payload(object, mime_key, root);
             }
             for child in object.values_mut() {
-                materialize_call_images_with_name(child, root, canonical_name);
+                materialize_call_images(child, root);
             }
         }
         Value::Array(items) => {
-            let multiple_images = items
-                .iter()
-                .filter(|item| {
-                    item.get("type").and_then(Value::as_str) == Some("image")
-                        || item.get("kind").and_then(Value::as_str) == Some("image")
-                })
-                .count()
-                > 1;
             for item in items {
-                materialize_call_images_with_name(
-                    item,
-                    root,
-                    if multiple_images {
-                        None
-                    } else {
-                        canonical_name
-                    },
-                );
+                materialize_call_images(item, root);
             }
         }
         _ => {}
     }
 }
 
-fn canonical_image_name(value: &Value) -> Option<String> {
-    match value {
-        Value::Object(object) => object
-            .get("display_name")
-            .and_then(Value::as_str)
-            .filter(|name| name.starts_with("ui-control-"))
-            .map(str::to_owned)
-            .or_else(|| object.values().find_map(canonical_image_name)),
-        Value::Array(items) => items.iter().find_map(canonical_image_name),
-        _ => None,
-    }
-}
-
-fn materialize_image_payload(
-    image: &mut Map<String, Value>,
-    mime_key: &str,
-    root: &Path,
-    canonical_name: Option<&str>,
-) {
+fn materialize_image_payload(image: &mut Map<String, Value>, mime_key: &str, root: &Path) {
     let has_artifact = image
         .get("artifact_path")
         .and_then(Value::as_str)
@@ -151,7 +106,7 @@ fn materialize_image_payload(
     if has_artifact {
         return;
     }
-    let path = match write_image_artifact(root, extension, &bytes, canonical_name) {
+    let path = match write_image_artifact(root, extension, &bytes) {
         Ok(path) => path,
         Err(err) => {
             record_image_materialization_error(
@@ -184,40 +139,10 @@ fn record_image_materialization_error(image: &mut Map<String, Value>, message: &
     );
 }
 
-fn write_image_artifact(
-    root: &Path,
-    extension: &str,
-    bytes: &[u8],
-    canonical_name: Option<&str>,
-) -> anyhow::Result<PathBuf> {
+fn write_image_artifact(root: &Path, extension: &str, bytes: &[u8]) -> anyhow::Result<PathBuf> {
     let root = std::path::absolute(root).context("resolving image artifact directory")?;
     std::fs::create_dir_all(&root)
         .with_context(|| format!("creating image artifact directory {}", root.display()))?;
-    if let Some(name) = canonical_name.filter(|name| valid_canonical_name(name, extension)) {
-        let path = root.join(name);
-        if artifact_matches(&path, bytes) {
-            return Ok(path);
-        }
-        if !path.exists() {
-            let mut file = tempfile::Builder::new()
-                .prefix(".ui-control-")
-                .tempfile_in(&root)
-                .context("creating canonical image artifact")?;
-            file.write_all(bytes)?;
-            file.as_file().sync_all()?;
-            match file.persist_noclobber(&path) {
-                Ok(_) => return Ok(path),
-                Err(error) if error.error.kind() == std::io::ErrorKind::AlreadyExists => {
-                    if artifact_matches(&path, bytes) {
-                        return Ok(path);
-                    }
-                }
-                Err(error) => {
-                    return Err(error.error).context("persisting canonical image artifact");
-                }
-            }
-        }
-    }
     let suffix = format!(".{extension}");
     let mut file = tempfile::Builder::new()
         .prefix("computer-use-")
@@ -238,21 +163,6 @@ fn write_image_artifact(
         Some(&path),
     );
     Ok(path)
-}
-
-fn artifact_matches(path: &Path, bytes: &[u8]) -> bool {
-    path.metadata()
-        .is_ok_and(|metadata| metadata.is_file() && metadata.len() == bytes.len() as u64)
-        && std::fs::read(path).is_ok_and(|existing| existing == bytes)
-}
-
-fn valid_canonical_name(name: &str, extension: &str) -> bool {
-    name.starts_with("ui-control-")
-        && Path::new(name).file_name().and_then(|value| value.to_str()) == Some(name)
-        && Path::new(name)
-            .extension()
-            .and_then(|value| value.to_str())
-            .is_some_and(|value| value.eq_ignore_ascii_case(extension))
 }
 
 pub(super) fn prune_image_artifacts(
@@ -322,7 +232,7 @@ pub(super) fn prune_image_artifacts(
 fn is_owned_image_artifact(path: &Path) -> bool {
     path.file_name()
         .and_then(|name| name.to_str())
-        .is_some_and(|name| name.starts_with("computer-use-") || name.starts_with("ui-control-"))
+        .is_some_and(|name| name.starts_with("computer-use-"))
         && path
             .extension()
             .and_then(|extension| extension.to_str())

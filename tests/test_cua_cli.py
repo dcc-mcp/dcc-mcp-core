@@ -161,6 +161,17 @@ def test_cli_sibling_precedes_an_unrelated_path_cua(tmp_path: Path, monkeypatch:
     assert resolve_cua_command() == [str(sibling.resolve())]
 
 
+def test_dccmcp_argv0_sibling_is_used_when_cli_is_not_on_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    cli = tmp_path / ("dccmcp.exe" if os.name == "nt" else "dccmcp")
+    sibling = tmp_path / ("dcc-cua.exe" if os.name == "nt" else "dcc-cua")
+    cli.write_bytes(b"cli")
+    sibling.write_bytes(b"cua")
+    monkeypatch.setattr("dcc_mcp_core.cua_cli.sys.argv", [str(cli)])
+    monkeypatch.setenv("PATH", str(tmp_path / "empty-path"))
+    monkeypatch.delenv("DCC_MCP_CUA_BINARY", raising=False)
+    assert resolve_cua_command() == [str(sibling.resolve())]
+
+
 def test_official_install_dir_is_probed_without_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     binary = tmp_path / ("dcc-cua.exe" if os.name == "nt" else "dcc-cua")
     binary.write_bytes(b"test")
