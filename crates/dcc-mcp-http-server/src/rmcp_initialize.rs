@@ -1,5 +1,7 @@
 //! `initialize` negotiation for the rmcp handler (issue #239, #354, delta tools).
 
+#![allow(deprecated)]
+
 use std::collections::BTreeMap;
 
 use rmcp::model::{

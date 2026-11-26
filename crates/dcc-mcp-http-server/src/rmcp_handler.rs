@@ -11,6 +11,8 @@
 //! This entire module is compiled only when the `rmcp-transport` feature is
 //! enabled.
 
+#![allow(deprecated)]
+
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::future::Future;
@@ -581,18 +583,18 @@ impl DccMcpHandler {
             _ => unreachable!("skill request was checked before dispatch"),
         }
         .map_err(|error| McpError::internal_error(error.to_string(), None))?;
-        if matches!(method.as_str(), "skills/list" | "skills/get") {
-            if let Some(result) = result.as_object_mut() {
-                result.insert(
-                    "resultType".to_string(),
-                    Value::String("complete".to_string()),
-                );
-                result.insert("ttlMs".to_string(), Value::from(0));
-                result.insert(
-                    "cacheScope".to_string(),
-                    Value::String("private".to_string()),
-                );
-            }
+        if matches!(method.as_str(), "skills/list" | "skills/get")
+            && let Some(result) = result.as_object_mut()
+        {
+            result.insert(
+                "resultType".to_string(),
+                Value::String("complete".to_string()),
+            );
+            result.insert("ttlMs".to_string(), Value::from(0));
+            result.insert(
+                "cacheScope".to_string(),
+                Value::String("private".to_string()),
+            );
         }
         Ok(CustomResult(result))
     }

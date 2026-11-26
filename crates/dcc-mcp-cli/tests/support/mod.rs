@@ -963,7 +963,26 @@ pub(crate) fn run_git(repo: &std::path::Path, args: &[&str]) {
     );
 }
 
-pub(crate) fn commit_git_skill_version(repo: &std::path::Path, version: &str, marker: &str) {
+pub(crate) fn git_head(repo: &std::path::Path) -> String {
+    let output = Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(repo)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "git rev-parse HEAD\nstdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout).unwrap().trim().to_string()
+}
+
+pub(crate) fn commit_git_skill_version(
+    repo: &std::path::Path,
+    version: &str,
+    marker: &str,
+) -> String {
     std::fs::write(
         repo.join("SKILL.md"),
         format!("---\nname: git-skill\ndescription: Git skill {version}\n---\n"),
@@ -973,6 +992,7 @@ pub(crate) fn commit_git_skill_version(repo: &std::path::Path, version: &str, ma
     run_git(repo, &["add", "."]);
     run_git(repo, &["commit", "-m", version]);
     run_git(repo, &["tag", version]);
+    git_head(repo)
 }
 
 pub(crate) fn write_zip(entries: &[(&str, &str)], dest: &std::path::Path) -> Vec<u8> {
