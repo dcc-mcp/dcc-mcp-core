@@ -21,6 +21,18 @@ IPC, and workflows needed to operate real desktop sessions. The standalone
 DCCMCP command-line control plane is released from
 [`dcc-mcp/dcc-mcp-cli`](https://github.com/dcc-mcp/dcc-mcp-cli).
 
+The adapter registry is the source of truth for host coverage. The reproducible
+catalog query below reports **49 adapter entries** in [`dcc-mcp-catalog.yml`](dcc-mcp-catalog.yml).
+See the [complete generated host list](docs/adapter-coverage.md) for every
+current entry and its install metadata. Selected hosts include Maya, Blender,
+Houdini, Photoshop, Unreal, Unity, Godot, RenderDoc, and custom studio hosts.
+
+~~~bash
+rg -c '^    tags: \[.*"adapter".*\]' dcc-mcp-catalog.yml
+~~~
+
+That reports **49 adapter entries** in [`dcc-mcp-catalog.yml`](dcc-mcp-catalog.yml).
+
 ## Choose your entry point
 
 | You want to… | Start with |
