@@ -11,7 +11,7 @@ Give tool calls one stable task identifier, query the narrowest useful gateway
 window, then invoke the first-class `review_skill_improvement` prompt:
 
 ```bash
-dcc-mcp-cli stats --range 24h --dcc-type maya --session-id task-42
+dccmcp stats --range 24h --dcc-type maya --session-id task-42
 ```
 
 The prompt is defined in

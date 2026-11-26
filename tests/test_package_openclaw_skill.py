@@ -27,6 +27,8 @@ def test_package_excludes_python_cache_and_bytecode(tmp_path: Path) -> None:
     script_dir = skill_dir / "scripts"
     cache_dir = script_dir / "__pycache__"
     cache_dir.mkdir(parents=True)
+    (skill_dir / ".git").mkdir()
+    (skill_dir / ".git" / "config").write_text("private", encoding="utf-8")
     (skill_dir / "SKILL.md").write_text("---\nname: dcc-mcp\n---\n", encoding="utf-8")
     (script_dir / "helper.py").write_text("VALUE = 1\n", encoding="utf-8")
     (cache_dir / "helper.cpython-312.pyc").write_bytes(b"bytecode")

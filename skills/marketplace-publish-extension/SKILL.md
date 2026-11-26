@@ -31,7 +31,7 @@ metadata:
 ## CLI-First Control Path
 
 For marketplace and live-DCC operations, use the `dcc-mcp` skill and
-`dcc-mcp-cli` whenever shell access is available. Its consent-gated install and
+`dccmcp` whenever shell access is available. Its consent-gated install and
 `update check` → `update apply` contract is the single source of truth; do not
 invent a package-local CLI bootstrap path.
 
@@ -41,8 +41,8 @@ catalog (`marketplace.json`).
 Prefer the CLI for local and CI publishing:
 
 ```bash
-dcc-mcp-cli marketplace pack ./my-extension --out dist/
-dcc-mcp-cli marketplace publish ./my-extension \
+dccmcp marketplace pack ./my-extension --out dist/
+dccmcp marketplace publish ./my-extension \
   --catalog ./marketplace.json \
   --install-url https://github.com/<owner>/<repo>/releases/download/v0.1.0/my-extension.zip \
   --sha256 sha256:<digest> \
@@ -97,6 +97,9 @@ push the change.
   expose examples or development-only skills.
 - Zip sources require a 64-character SHA-256 digest. When the archive URL
   changes, provide the new digest rather than reusing old metadata.
+- Remote catalog and archive URLs must use HTTPS. The release workflow emits a
+  `.sha256` sidecar for each downloadable DCC, MCP server, CLI, and package
+  asset, and installers verify it before replacement.
 - The publisher preserves v1 curation fields such as `requires` and `policy`
   when updating an existing entry, but new official entries must provide the
   complete marketplace metadata required by the catalog schema.

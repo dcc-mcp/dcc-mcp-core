@@ -11,22 +11,24 @@ curl -fsSL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/i
 powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.ps1 | iex"
 ```
 
-This installs the standalone `dcc-mcp-cli` control-plane binary from the
-latest GitHub Release. Pin a release with `DCC_MCP_VERSION=v0.17.17`.
+This installs the standalone `dccmcp` control-plane binary and its
+`dcc-mcp-cli` compatibility alias from the latest GitHub Release. Pin a
+release with `DCC_MCP_VERSION=v0.17.17`.
 
 For agents, obtain user consent before installing or downloading a new binary.
 Keep an official installation current with:
 
 ```bash
-dcc-mcp-cli update check
-dcc-mcp-cli update apply
+dccmcp update check
+dccmcp update apply
 ```
 
 `update apply` stages the latest CLI for the next launch. It does not replace a
 running `dcc-mcp-server`; update that server in its own environment.
 
-The CLI is also available as a standalone ZIP archive
-(`dcc-mcp-cli-<version>-<platform>.zip`) from each
+The CLI is also available as standalone ZIP archives
+(`dccmcp-<version>-<platform>.zip` and the compatibility
+`dcc-mcp-cli-<version>-<platform>.zip`) from each
 [GitHub Release](https://github.com/dcc-mcp/dcc-mcp-core/releases).
 
 ### From PyPI

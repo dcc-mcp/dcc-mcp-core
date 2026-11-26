@@ -30,6 +30,11 @@ def _archive_binary_name(kind: str, source: Path) -> str:
     return f"dcc-mcp-{kind}{suffix}"
 
 
+def _dccmcp_archive_name(source: Path) -> str:
+    suffix = ".exe" if source.suffix.lower() == ".exe" else ""
+    return f"dccmcp{suffix}"
+
+
 def _write_binary(zf: ZipFile, source: Path, archive_name: str) -> None:
     if not source.is_file():
         raise FileNotFoundError(f"release binary not found: {source}")
@@ -46,6 +51,7 @@ def build_bundle(
     platform: str,
     server_bin: Path,
     cli_bin: Path,
+    dccmcp_bin: Path | None,
     capture_helper: Path | None,
     ui_control_host: Path | None,
     out_dir: Path,
@@ -69,6 +75,8 @@ def build_bundle(
     with ZipFile(bundle_path, "w", ZIP_DEFLATED) as zf:
         _write_binary(zf, server_bin, _archive_binary_name("server", server_bin))
         _write_binary(zf, cli_bin, _archive_binary_name("cli", cli_bin))
+        if dccmcp_bin is not None:
+            _write_binary(zf, dccmcp_bin, _dccmcp_archive_name(dccmcp_bin))
         if capture_helper is not None:
             _write_binary(zf, capture_helper, "dcc-mcp-capture-helper.exe")
         if ui_control_host is not None:
@@ -84,6 +92,7 @@ def main() -> int:
     parser.add_argument("--platform", required=True)
     parser.add_argument("--server-bin", type=Path, required=True)
     parser.add_argument("--cli-bin", type=Path, required=True)
+    parser.add_argument("--dccmcp-bin", type=Path)
     parser.add_argument("--capture-helper", type=Path)
     parser.add_argument("--ui-control-host", type=Path)
     parser.add_argument("--out-dir", type=Path, default=Path())
@@ -95,6 +104,7 @@ def main() -> int:
             platform=args.platform,
             server_bin=args.server_bin,
             cli_bin=args.cli_bin,
+            dccmcp_bin=args.dccmcp_bin,
             capture_helper=args.capture_helper,
             ui_control_host=args.ui_control_host,
             out_dir=args.out_dir,

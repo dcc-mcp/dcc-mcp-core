@@ -146,9 +146,9 @@ zip with GitHub's release tooling and use `publish` to update a local
 `marketplace.json` checkout:
 
 ```bash
-dcc-mcp-cli marketplace pack . --out dist/
+dccmcp marketplace pack . --out dist/
 gh release upload v0.1.0 dist/my-skill.zip --clobber
-dcc-mcp-cli marketplace publish . \
+dccmcp marketplace publish . \
   --catalog ../marketplace/marketplace.json \
   --install-url https://github.com/<owner>/<repo>/releases/download/v0.1.0/my-skill.zip \
   --sha256 sha256:<digest>
@@ -173,7 +173,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Pack marketplace package
-        run: dcc-mcp-cli marketplace pack . --out dist/
+        run: dccmcp marketplace pack . --out dist/
       - name: Upload release asset
         run: gh release upload "${GITHUB_REF_NAME}" dist/*.zip --clobber
         env:
@@ -191,19 +191,19 @@ skill to the marketplace install root.
 
 ```bash
 # Install from GitHub shorthand (owner/repo → https://github.com/owner/repo.git)
-dcc-mcp-cli marketplace add-repo dcc-mcp/dcc-mcp-maya --dcc maya
+dccmcp marketplace add-repo dcc-mcp/dcc-mcp-maya --dcc maya
 
 # Install from full URL
-dcc-mcp-cli marketplace add-repo https://github.com/dcc-mcp/dcc-mcp-maya --dcc maya
+dccmcp marketplace add-repo https://github.com/dcc-mcp/dcc-mcp-maya --dcc maya
 
 # List available skills in a repo without installing
-dcc-mcp-cli marketplace add-repo dcc-mcp/dcc-mcp-maya --list
+dccmcp marketplace add-repo dcc-mcp/dcc-mcp-maya --list
 
 # Install a subpath within a repo (e.g., owner/repo@subdir)
-dcc-mcp-cli marketplace add-repo my-org/skill-repo@maya-skills --dcc maya
+dccmcp marketplace add-repo my-org/skill-repo@maya-skills --dcc maya
 
 # Force replace an existing installation
-dcc-mcp-cli marketplace add-repo dcc-mcp/dcc-mcp-maya --dcc maya --force
+dccmcp marketplace add-repo dcc-mcp/dcc-mcp-maya --dcc maya --force
 ```
 
 ### How It Works
@@ -393,7 +393,7 @@ future phase.
 
 Both interfaces share the same installed package state, but live adapters only
 see newly installed CLI packages after startup or an explicit
-`dcc-mcp-cli reload-skills --dcc-type <dcc>`. The Admin UI triggers that reload
+`dccmcp reload-skills --dcc-type <dcc>`. The Admin UI triggers that reload
 automatically when its backend reports `reload_required`.
 
 ## See Also

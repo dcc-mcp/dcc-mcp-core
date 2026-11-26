@@ -1,4 +1,4 @@
-//! Local FileRegistry + direct MCP control path for `dcc-mcp-cli`.
+//! Local FileRegistry + direct MCP control path for `dccmcp`.
 //!
 //! Remote profiles use the gateway REST surface. The built-in `local` profile
 //! resolves live instances from the shared FileRegistry, then talks to the
@@ -8,8 +8,9 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
 use anyhow::Context;
+use dcc_mcp_client::McpHttpClient;
 use dcc_mcp_transport::discovery::types::ServiceEntry;
-use serde_json::{Map, Value, json};
+use serde_json::{Value, json};
 
 use crate::application::local_instance;
 use crate::domain::rest::{
@@ -17,8 +18,6 @@ use crate::domain::rest::{
 };
 use crate::infra::http::HttpGateway;
 
-const MCP_PROTOCOL_VERSION: &str = "2025-03-26";
-const MCP_ACCEPT: &str = "application/json, text/event-stream";
 const DEFAULT_REQUIRED_READINESS_FIELDS: &[&str] =
     &["process", "dcc", "skill_catalog", "dispatcher"];
 
@@ -28,7 +27,6 @@ pub async fn search_local(registry_dir: PathBuf, request: SearchRequest) -> anyh
         request.dcc_type.as_deref(),
         request.instance_id.as_deref(),
     )?;
-    let gateway = HttpGateway::default();
     let mut hits = Vec::new();
     let limit = request.limit.unwrap_or(25).clamp(1, 100);
     let query = request
@@ -41,7 +39,6 @@ pub async fn search_local(registry_dir: PathBuf, request: SearchRequest) -> anyh
     for entry in &entries {
         let payload = if let Some(query) = query.as_deref() {
             let search_result = mcp_call_tool(
-                &gateway,
                 &local_instance::mcp_url(entry),
                 "search_tools",
                 json!({
@@ -61,7 +58,7 @@ pub async fn search_local(registry_dir: PathBuf, request: SearchRequest) -> anyh
             })?;
             call_result_payload(&search_result).unwrap_or(search_result)
         } else {
-            let tools = list_mcp_tools(&gateway, &local_instance::mcp_url(entry))
+            let tools = list_mcp_tools(&local_instance::mcp_url(entry))
                 .await
                 .with_context(|| {
                     format!(
@@ -91,9 +88,9 @@ pub async fn search_local(registry_dir: PathBuf, request: SearchRequest) -> anyh
 
 pub async fn describe_local(registry_dir: PathBuf, tool_slug: String) -> anyhow::Result<Value> {
     let route = resolve_tool_route(&registry_dir, &tool_slug, None, None)?;
-    let gateway = HttpGateway::default();
     let mcp_url = local_instance::mcp_url(&route.entry);
-    let tools = list_mcp_tools(&gateway, &mcp_url).await?;
+    let tools = list_mcp_tools(&mcp_url).await?;
+    let gateway = HttpGateway::default();
     let tool = if let Some(tool) = tools.into_iter().find(|tool| {
         tool.get("name")
             .and_then(Value::as_str)
@@ -138,9 +135,7 @@ pub async fn load_skill_local(registry_dir: PathBuf, body: Value) -> anyhow::Res
         dcc_type.as_deref(),
         instance_id.as_deref(),
     )?;
-    let gateway = HttpGateway::default();
     let result = mcp_call_tool(
-        &gateway,
         &local_instance::mcp_url(&entry),
         "load_skill",
         backend_body,
@@ -199,13 +194,12 @@ pub async fn call_local(
         instance_id.as_deref(),
     )?;
     enforce_active_instance_lease(&route.entry, meta.as_ref())?;
-    let gateway = HttpGateway::with_timeout(timeout);
-    let result = mcp_call_tool(
-        &gateway,
+    let result = mcp_call_tool_with_timeout(
         &local_instance::mcp_url(&route.entry),
         &route.backend_tool,
         arguments.clone(),
         meta,
+        timeout,
     )
     .await
     .with_context(|| format!("calling local tool {}", route.tool_slug))?;
@@ -318,11 +312,9 @@ pub async fn reload_skills_local(
         anyhow::bail!("no live local DCC instance matched the request");
     }
 
-    let gateway = HttpGateway::default();
     let mut results = Vec::new();
     for entry in entries {
         let result = mcp_call_tool(
-            &gateway,
             &local_instance::mcp_url(&entry),
             "dcc_admin__reload_skills",
             json!({}),
@@ -555,84 +547,35 @@ fn parse_local_tool_slug(tool_slug: &str) -> ParsedToolSlug {
     }
 }
 
-async fn list_mcp_tools(gateway: &HttpGateway, mcp_url: &str) -> anyhow::Result<Vec<Value>> {
-    let mut cursor: Option<String> = None;
-    let mut tools = Vec::new();
-    for _ in 0..16 {
-        let mut params = Map::new();
-        if let Some(value) = cursor.take() {
-            params.insert("cursor".to_string(), Value::String(value));
-        }
-        let response = mcp_request(gateway, mcp_url, "tools/list", Value::Object(params)).await?;
-        let result = response
-            .get("result")
-            .ok_or_else(|| anyhow::anyhow!("MCP tools/list response did not contain result"))?;
-        tools.extend(
-            result
-                .get("tools")
-                .and_then(Value::as_array)
-                .into_iter()
-                .flatten()
-                .cloned(),
-        );
-        cursor = result
-            .get("nextCursor")
-            .and_then(Value::as_str)
-            .map(str::to_string);
-        if cursor.is_none() {
-            break;
-        }
-    }
-    Ok(tools)
+async fn list_mcp_tools(mcp_url: &str) -> anyhow::Result<Vec<Value>> {
+    let mut client = McpHttpClient::new(mcp_url)?;
+    Ok(client
+        .tools_list_all()
+        .await?
+        .into_iter()
+        .map(serde_json::to_value)
+        .collect::<Result<Vec<_>, _>>()?)
 }
 
 async fn mcp_call_tool(
-    gateway: &HttpGateway,
     mcp_url: &str,
     name: &str,
     arguments: Value,
     meta: Option<Value>,
 ) -> anyhow::Result<Value> {
-    let mut params = Map::new();
-    params.insert("name".to_string(), Value::String(name.to_string()));
-    params.insert("arguments".to_string(), arguments);
-    if let Some(meta) = meta {
-        params.insert("_meta".to_string(), meta);
-    }
-    let response = mcp_request(gateway, mcp_url, "tools/call", Value::Object(params)).await?;
-    let result = response
-        .get("result")
-        .cloned()
-        .ok_or_else(|| anyhow::anyhow!("MCP tools/call response did not contain result"))?;
-    Ok(result)
+    mcp_call_tool_with_timeout(mcp_url, name, arguments, meta, Duration::from_secs(30)).await
 }
 
-async fn mcp_request(
-    gateway: &HttpGateway,
+async fn mcp_call_tool_with_timeout(
     mcp_url: &str,
-    method: &str,
-    params: Value,
+    name: &str,
+    arguments: Value,
+    meta: Option<Value>,
+    timeout: Duration,
 ) -> anyhow::Result<Value> {
-    let body = json!({
-        "jsonrpc": "2.0",
-        "id": format!("dcc-mcp-cli-local-{method}"),
-        "method": method,
-        "params": params,
-    });
-    let response = gateway
-        .post_json_with_headers(
-            mcp_url,
-            &body,
-            &[
-                ("Mcp-Protocol-Version", MCP_PROTOCOL_VERSION),
-                ("Accept", MCP_ACCEPT),
-            ],
-        )
-        .await?;
-    if let Some(error) = response.get("error") {
-        anyhow::bail!("MCP {method} failed: {error}");
-    }
-    Ok(response)
+    let mut client = McpHttpClient::with_timeout(mcp_url, timeout)?;
+    let result = client.tools_call(name, arguments, meta).await?;
+    Ok(serde_json::to_value(result)?)
 }
 
 fn call_result_payload(result: &Value) -> Option<Value> {

@@ -11,15 +11,16 @@ curl -fsSL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/i
 powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.ps1 | iex"
 ```
 
-这会从最新 GitHub Release 安装独立的 `dcc-mcp-cli` 控制面二进制。
+这会从最新 GitHub Release 安装独立的 `dccmcp` 控制面二进制，同时保留
+`dcc-mcp-cli` 兼容别名。
 需要固定版本时设置 `DCC_MCP_VERSION=v0.17.17`。
 
 Agent 在安装或下载新二进制前必须先征得用户同意。官方安装可以通过以下命令
 保持最新：
 
 ```bash
-dcc-mcp-cli update check
-dcc-mcp-cli update apply
+dccmcp update check
+dccmcp update apply
 ```
 
 `update apply` 会暂存最新版 CLI，并在下一次启动时生效；它不会替换正在运行的

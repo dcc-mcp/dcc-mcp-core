@@ -15,14 +15,15 @@
 dcc-mcp-core turns Maya, Blender, Houdini, Photoshop, Godot, RenderDoc, and
 custom studio hosts into discoverable MCP and REST capabilities. It provides
 the gateway, skills, structured results, main-thread dispatch, diagnostics,
-IPC, workflows, and packaged CLI/server binaries needed to operate real
-desktop sessions.
+IPC, and workflows needed to operate real desktop sessions. The standalone
+DCCMCP command-line control plane is released from
+[`dcc-mcp/dcc-mcp-cli`](https://github.com/dcc-mcp/dcc-mcp-cli).
 
 ## Choose your entry point
 
 | You want to… | Start with |
 |---|---|
-| Control a running DCC from an agent or CI job | [dcc-mcp-cli](docs/guide/cli-reference.md) |
+| Control a running DCC from an agent or CI job | [DCCMCP CLI](docs/guide/cli-reference.md) |
 | Expose a DCC adapter over MCP/REST | [create_skill_server](docs/guide/getting-started.md) |
 | Add tools without Python registration code | [SKILL.md + tools.yaml](docs/guide/skills.md) |
 | Build a new DCC adapter | [new-adapter-onboarding.md](docs/guide/new-adapter-onboarding.md) |
@@ -31,10 +32,11 @@ desktop sessions.
 
 ## The current contract
 
-The default agent path is CLI + REST:
+The default agent path is DCCMCP CLI + REST. The primary command is `dccmcp`.
+`dcc-mcp-cli` remains a compatibility alias.
 
 ~~~text
-dcc-mcp-cli dcc-types (when adapter support is unclear)
+dccmcp dcc-types (when adapter support is unclear)
   -> list
   -> search
   -> describe
@@ -57,25 +59,34 @@ For direct per-DCC MCP connections, the compatibility discovery names
 (search_tools, describe_tool, and call_tool) remain available where the server
 exposes them. New gateway integrations should use the canonical names above.
 
+The shared MCP client is also available for generic MCP endpoints:
+
+~~~bash
+dccmcp mcp initialize --url http://127.0.0.1:9765/mcp
+dccmcp mcp tools list --url http://127.0.0.1:9765/mcp
+dccmcp mcp tools call --url http://127.0.0.1:9765/mcp --name create_sphere --json '{"radius": 2.0}'
+~~~
+
 ## Quick start: operate a DCC
 
-`dcc-mcp-cli` is the preferred control path for every shell-capable agent.
+`dccmcp` is the preferred control path for every shell-capable agent.
+The installed `dcc-mcp-cli` compatibility alias accepts the same commands.
 If it is missing, obtain the user's consent before installing the latest
 official release:
 
 ~~~bash
 # Linux/macOS
-curl -fsSL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.sh | sh
+curl -fsSL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-cli/main/scripts/install-cli.sh | sh
 
 # Windows PowerShell
-powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.ps1 | iex"
+powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-cli/main/scripts/install-cli.ps1 | iex"
 ~~~
 
 Keep an official build current through the release manifest:
 
 ~~~bash
-dcc-mcp-cli update check
-dcc-mcp-cli update apply
+dccmcp update check
+dccmcp update apply
 ~~~
 
 `update apply` downloads and stages the latest CLI for the next launch. It does
@@ -84,11 +95,11 @@ not update a running `dcc-mcp-server`; update that server in its own environment
 Then discover a live capability before calling it:
 
 ~~~bash
-dcc-mcp-cli dcc-types
-dcc-mcp-cli list
-dcc-mcp-cli search --query "create sphere" --dcc-type maya --limit 20
-dcc-mcp-cli describe <tool-slug>
-dcc-mcp-cli call <tool-slug> --json '{"radius": 2.0}' \
+dccmcp dcc-types
+dccmcp list
+dccmcp search --query "create sphere" --dcc-type maya --limit 20
+dccmcp describe <tool-slug>
+dccmcp call <tool-slug> --json '{"radius": 2.0}' \
   --meta-json '{"agent_context":{"session_id":"task-42"}}'
 ~~~
 
@@ -100,17 +111,17 @@ Replace the placeholder with the slug returned by search. For remote workstation
 register a gateway profile and select it:
 
 ~~~bash
-dcc-mcp-cli gateway register https://workstation.example:19293 --name pcA
-dcc-mcp-cli gateway set pcA
-dcc-mcp-cli list
+dccmcp gateway register https://workstation.example:19293 --name pcA
+dccmcp gateway set pcA
+dccmcp list
 ~~~
 
-Use dcc-mcp-cli doctor when startup or readiness is unclear. Open the local
+Use `dccmcp doctor` when startup or readiness is unclear. Open the local
 Admin UI at [http://127.0.0.1:9765/admin](http://127.0.0.1:9765/admin) after the
 gateway is available.
 
 After a task is accepted, agents can inspect bounded gateway evidence with
-`dcc-mcp-cli stats --range 24h --session-id task-42`. A zero call count means
+`dccmcp stats --range 24h --session-id task-42`. A zero call count means
 no telemetry evidence, and direct local calls may not be represented. Feed the
 result plus short task and validation summaries to the
 [`review_skill_improvement` prompt](skills/dcc-mcp-skills-creator/prompts.yaml).
@@ -186,7 +197,7 @@ tools:
 ~~~
 
 Run the same production validator used by CI with
-dcc-mcp-cli lint path/to/skills. See [Skills](docs/guide/skills.md) for schemas,
+`dccmcp lint path/to/skills`. See [Skills](docs/guide/skills.md) for schemas,
 groups, dependencies, testing, and migration rules.
 
 ## Architecture

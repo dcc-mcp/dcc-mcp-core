@@ -1,3 +1,8 @@
+use std::fmt::Display;
+use std::time::Duration;
+
+use dcc_mcp_client::McpHttpClient;
+use serde::Serialize;
 use serde_json::{Value, json};
 use thiserror::Error;
 use tokio::time::{Instant, sleep};
@@ -8,9 +13,6 @@ use crate::domain::rest::{
     StatsRequest, StopInstanceRequest, WaitReadyRequest,
 };
 use crate::infra::http::{HttpError, HttpGateway};
-
-const MCP_STREAMABLE_HTTP_ACCEPT: &str = "application/json, text/event-stream";
-const MCP_PROTOCOL_VERSION: &str = "2025-03-26";
 
 #[derive(Debug, Error)]
 pub enum ClientError {
@@ -23,6 +25,7 @@ pub enum ClientError {
 pub struct DccMcpClient {
     endpoint: Endpoint,
     gateway: HttpGateway,
+    timeout: Duration,
 }
 
 impl DccMcpClient {
@@ -30,12 +33,26 @@ impl DccMcpClient {
         Self {
             endpoint,
             gateway: HttpGateway::default(),
+            timeout: Duration::from_secs(30),
         }
     }
 
     #[must_use]
     pub fn with_gateway(endpoint: Endpoint, gateway: HttpGateway) -> Self {
-        Self { endpoint, gateway }
+        Self {
+            endpoint,
+            gateway,
+            timeout: Duration::from_secs(30),
+        }
+    }
+
+    #[must_use]
+    pub fn with_timeout(endpoint: Endpoint, timeout: Duration) -> Self {
+        Self {
+            endpoint,
+            gateway: HttpGateway::with_timeout(timeout),
+            timeout,
+        }
     }
 
     pub async fn health(&self) -> Result<Value, ClientError> {
@@ -130,36 +147,15 @@ impl DccMcpClient {
 
     async fn call_mcp_tool(&self, request: CallRequest) -> Result<Value, ClientError> {
         let tool_slug = request.tool_slug;
-        let mut params = json!({
-            "name": &tool_slug,
-            "arguments": request.arguments,
-        });
-        if let Some(meta) = request.meta {
-            params["_meta"] = meta;
-        }
-        let response = self
-            .gateway
-            .post_json_with_headers(
-                &self.endpoint.mcp_url(),
-                &json!({
-                    "jsonrpc": "2.0",
-                    "id": "dcc-mcp-cli-call",
-                    "method": "tools/call",
-                    "params": params,
-                }),
-                &[
-                    ("Mcp-Protocol-Version", MCP_PROTOCOL_VERSION),
-                    ("Accept", MCP_STREAMABLE_HTTP_ACCEPT),
-                ],
-            )
-            .await?;
-        if let Some(error) = response.get("error") {
-            return Err(ClientError::Protocol(error.to_string()));
-        }
-        let result = response
-            .get("result")
-            .cloned()
-            .ok_or_else(|| ClientError::Protocol("missing tools/call result".to_string()))?;
+        let mut client = McpHttpClient::with_timeout(&self.endpoint.mcp_url(), self.timeout)
+            .map_err(|error| ClientError::Protocol(error.to_string()))?;
+        let result = serde_json::to_value(
+            client
+                .tools_call(&tool_slug, request.arguments, request.meta)
+                .await
+                .map_err(|error| ClientError::Protocol(error.to_string()))?,
+        )
+        .map_err(|error| ClientError::Protocol(error.to_string()))?;
         if result.get("isError").and_then(Value::as_bool) == Some(true) {
             let message = result
                 .pointer("/content/0/text")
@@ -353,48 +349,39 @@ impl DccMcpClient {
         let health = self.gateway.get_json(&self.endpoint.path("/health")).await;
         checks.push(check_json("health", &self.endpoint.path("/health"), health));
 
-        let initialize = self
-            .gateway
-            .post_json_with_headers(
-                &mcp_url,
-                &json!({
-                    "jsonrpc": "2.0",
-                    "id": "smoke-initialize",
-                    "method": "initialize",
-                    "params": {
-                        "protocolVersion": MCP_PROTOCOL_VERSION,
-                        "capabilities": {},
-                        "clientInfo": {
-                            "name": "dcc-mcp-cli",
-                            "version": env!("CARGO_PKG_VERSION")
-                        }
-                    }
-                }),
-                &[
-                    ("Mcp-Protocol-Version", MCP_PROTOCOL_VERSION),
-                    ("Accept", MCP_STREAMABLE_HTTP_ACCEPT),
-                ],
-            )
-            .await;
-        checks.push(check_json("mcp_initialize", &mcp_url, initialize));
-
-        let tools_list = self
-            .gateway
-            .post_json_with_headers(
-                &mcp_url,
-                &json!({
-                    "jsonrpc": "2.0",
-                    "id": "smoke-tools-list",
-                    "method": "tools/list",
-                    "params": {}
-                }),
-                &[
-                    ("Mcp-Protocol-Version", MCP_PROTOCOL_VERSION),
-                    ("Accept", MCP_STREAMABLE_HTTP_ACCEPT),
-                ],
-            )
-            .await;
-        checks.push(check_json("mcp_tools_list", &mcp_url, tools_list));
+        match McpHttpClient::with_timeout(&mcp_url, self.timeout) {
+            Ok(mut mcp) => {
+                let initialize = serialize_mcp_result(mcp.initialize().await);
+                let initialized = initialize.is_ok();
+                checks.push(check_json("mcp_initialize", &mcp_url, initialize));
+                if initialized {
+                    let tools_list = serialize_mcp_result(mcp.tools_list().await);
+                    checks.push(check_json("mcp_tools_list", &mcp_url, tools_list));
+                } else {
+                    checks.push(json!({
+                        "name": "mcp_tools_list",
+                        "url": mcp_url,
+                        "ok": false,
+                        "error": "skipped because MCP initialize failed",
+                    }));
+                }
+            }
+            Err(error) => {
+                let error = error.to_string();
+                checks.push(json!({
+                    "name": "mcp_initialize",
+                    "url": mcp_url,
+                    "ok": false,
+                    "error": error,
+                }));
+                checks.push(json!({
+                    "name": "mcp_tools_list",
+                    "url": mcp_url,
+                    "ok": false,
+                    "error": "skipped because MCP client could not be created",
+                }));
+            }
+        }
 
         let search_body = json!({
             "query": query,
@@ -551,7 +538,7 @@ fn missing_required_fields(readiness: Option<&Value>, required: &[String]) -> Ve
         .collect()
 }
 
-fn check_json(name: &str, url: &str, result: Result<Value, HttpError>) -> Value {
+fn check_json<E: Display>(name: &str, url: &str, result: Result<Value, E>) -> Value {
     match result {
         Ok(value) => json!({
             "name": name,
@@ -566,6 +553,14 @@ fn check_json(name: &str, url: &str, result: Result<Value, HttpError>) -> Value 
             "error": error.to_string(),
         }),
     }
+}
+
+fn serialize_mcp_result<T: Serialize>(
+    result: Result<T, dcc_mcp_client::McpClientError>,
+) -> Result<Value, String> {
+    result
+        .map_err(|error| error.to_string())
+        .and_then(|value| serde_json::to_value(value).map_err(|error| error.to_string()))
 }
 
 #[cfg(test)]

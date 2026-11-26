@@ -158,7 +158,10 @@ build-cli-universal:
     lipo -create -output dcc-mcp-cli-macos-universal2 \
         target/x86_64-apple-darwin/release/dcc-mcp-cli \
         target/aarch64-apple-darwin/release/dcc-mcp-cli
-    echo "Built: dcc-mcp-cli-macos-universal2"
+    lipo -create -output dccmcp-macos-universal2 \
+        target/x86_64-apple-darwin/release/dccmcp \
+        target/aarch64-apple-darwin/release/dccmcp
+    echo "Built: dcc-mcp-cli-macos-universal2 and dccmcp-macos-universal2"
 
 # Build dcc-mcp-server for the current platform
 build-server:

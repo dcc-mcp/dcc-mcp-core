@@ -1,4 +1,4 @@
-"""Cross-platform gateway helper with CLI download and Python REST fallback."""
+"""Cross-platform DCCMCP helper with CLI download and Python REST fallback."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ import urllib.error
 import urllib.request
 
 DEFAULT_BASE_URL = "http://127.0.0.1:9765"
-DEFAULT_REPO = "dcc-mcp/dcc-mcp-core"
+DEFAULT_REPO = "dcc-mcp/dcc-mcp-cli"
 DEFAULT_VERSION = "latest"
 
 
@@ -72,15 +72,15 @@ def _request_json(base_url: str, method: str, path: str, body: dict[str, Any] | 
         return {"success": False, "error": "invalid-json", "detail": str(exc), "body": text}
 
 
-def _asset_name() -> str | None:
+def _asset_names() -> list[str] | None:
     system = platform.system().lower()
     machine = platform.machine().lower()
     if system == "windows" and machine in {"amd64", "x86_64"}:
-        return "dcc-mcp-cli-windows-x86_64.exe"
+        return ["dccmcp-windows-x86_64.exe", "dcc-mcp-cli-windows-x86_64.exe"]
     if system == "linux" and machine in {"amd64", "x86_64"}:
-        return "dcc-mcp-cli-linux-x86_64"
+        return ["dccmcp-linux-x86_64", "dcc-mcp-cli-linux-x86_64"]
     if system == "darwin":
-        return "dcc-mcp-cli-macos-universal2"
+        return ["dccmcp-macos-universal2", "dcc-mcp-cli-macos-universal2"]
     return None
 
 
@@ -96,34 +96,49 @@ def install_cli(
     repo: str = DEFAULT_REPO,
     version: str = DEFAULT_VERSION,
 ) -> tuple[bool, str, str | None]:
-    """Download dcc-mcp-cli for the current platform."""
-    asset = _asset_name()
-    if asset is None:
+    """Download DCCMCP and install its compatibility alias."""
+    assets = _asset_names()
+    if assets is None:
         return False, "unsupported platform for release asset", None
 
     install_dir.mkdir(parents=True, exist_ok=True)
-    executable_name = "dcc-mcp-cli.exe" if platform.system().lower() == "windows" else "dcc-mcp-cli"
-    target = install_dir / executable_name
-    url = _download_url(repo, version, asset)
+    windows = platform.system().lower() == "windows"
+    suffix = ".exe" if windows else ""
+    target = install_dir / f"dccmcp{suffix}"
+    compatibility_target = install_dir / f"dcc-mcp-cli{suffix}"
+    last_error: Exception | None = None
 
-    fd, tmp_name = tempfile.mkstemp(prefix="dcc-mcp-cli-", suffix=target.suffix)
-    os.close(fd)
-    tmp_path = Path(tmp_name)
-    try:
-        urllib.request.urlretrieve(url, tmp_path)
-        if platform.system().lower() != "windows":
-            tmp_path.chmod(tmp_path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-        shutil.move(str(tmp_path), str(target))
-    except (urllib.error.URLError, OSError) as exc:
-        with contextlib.suppress(OSError):
-            tmp_path.unlink(missing_ok=True)
-        return False, f"download failed: {exc}", url
-    return True, str(target), url
+    for asset in assets:
+        url = _download_url(repo, version, asset)
+        fd, tmp_name = tempfile.mkstemp(prefix="dccmcp-", suffix=suffix)
+        os.close(fd)
+        tmp_path = Path(tmp_name)
+        try:
+            urllib.request.urlretrieve(url, tmp_path)
+            if not windows:
+                tmp_path.chmod(tmp_path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+            shutil.move(str(tmp_path), str(target))
+            shutil.copyfile(target, compatibility_target)
+            return True, str(target), url
+        except (urllib.error.URLError, OSError) as exc:
+            last_error = exc
+            with contextlib.suppress(OSError):
+                tmp_path.unlink(missing_ok=True)
+
+    return False, f"download failed: {last_error}", _download_url(repo, version, assets[0])
 
 
 def resolve_cli(args: argparse.Namespace) -> tuple[str | None, dict[str, Any]]:
     """Find the CLI; optionally install it from GitHub releases."""
-    found = shutil.which(args.cli)
+    requested = args.cli
+    candidates = [requested]
+    if requested == "dccmcp":
+        candidates.append("dcc-mcp-cli")
+    found = None
+    for candidate in candidates:
+        found = shutil.which(candidate)
+        if found:
+            break
     details: dict[str, Any] = {"cli": args.cli, "cli_path": found, "installed": False}
     if found:
         return found, details
@@ -141,7 +156,7 @@ def resolve_cli(args: argparse.Namespace) -> tuple[str | None, dict[str, Any]]:
 
 
 def cli_args_for(command: str, args: argparse.Namespace) -> list[str]:
-    """Build dcc-mcp-cli argv for a command."""
+    """Build DCCMCP argv for a command."""
     argv = [args.cli_path, "--base-url", args.base_url, command]
     if command == "search":
         if args.query:
@@ -197,7 +212,7 @@ def python_fallback(command: str, args: argparse.Namespace) -> dict[str, Any]:
 
 
 def run_command(command: str, args: argparse.Namespace) -> dict[str, Any]:
-    """Prefer dcc-mcp-cli, optionally install it, then fall back to Python REST."""
+    """Prefer DCCMCP, optionally install it, then fall back to Python REST."""
     cli_path, cli_details = resolve_cli(args)
     if cli_path:
         args.cli_path = cli_path
@@ -215,10 +230,10 @@ def run_command(command: str, args: argparse.Namespace) -> dict[str, Any]:
 
 def build_parser() -> argparse.ArgumentParser:
     """Create the helper CLI parser."""
-    parser = argparse.ArgumentParser(description="DCC-MCP gateway helper with CLI-first execution.")
+    parser = argparse.ArgumentParser(description="DCCMCP gateway helper with CLI-first execution.")
     parser.add_argument("--base-url", default=os.environ.get("DCC_MCP_BASE_URL") or DEFAULT_BASE_URL)
-    parser.add_argument("--cli", default="dcc-mcp-cli")
-    parser.add_argument("--ensure-cli", action="store_true", help="Download dcc-mcp-cli from GitHub if it is missing")
+    parser.add_argument("--cli", default="dccmcp")
+    parser.add_argument("--ensure-cli", action="store_true", help="Download DCCMCP from GitHub if it is missing")
     parser.add_argument(
         "--install-dir",
         default=os.environ.get("DCC_MCP_INSTALL_DIR") or str(Path.home() / ".local" / "bin"),

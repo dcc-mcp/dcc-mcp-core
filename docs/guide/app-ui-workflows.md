@@ -63,16 +63,16 @@ REST clients use the same sequence through `/v1/search`, `/v1/describe`, and
 ## DCC UI Control Fallback
 
 **DCC UI Control** is the public cross-platform capability name. Shell agents
-use `dcc-mcp-cli ui-control`; `app_ui__*` remains the compatibility tool
+use `dccmcp ui-control`; `app_ui__*` remains the compatibility tool
 namespace for MCP-native clients and existing adapters. Do not use the generic
 name “Computer Use” for this DCC-scoped feature.
 
 The CLI contract is platform-neutral:
 
 ```bash
-dcc-mcp-cli ui-control snapshot --instance-id <id> --json '{"session_id":"ui","process_id":1234}'
-dcc-mcp-cli ui-control act --instance-id <id> --json '{"session_id":"ui","control_id":"ok","action":"click","snapshot_id":"<snapshot_id>"}'
-dcc-mcp-cli ui-control stop --instance-id <id> --json '{"session_id":"ui"}'
+dccmcp ui-control snapshot --instance-id <id> --json '{"session_id":"ui","process_id":1234}'
+dccmcp ui-control act --instance-id <id> --json '{"session_id":"ui","control_id":"ok","action":"click","snapshot_id":"<snapshot_id>"}'
+dccmcp ui-control stop --instance-id <id> --json '{"session_id":"ui"}'
 ```
 
 Windows supplies an isolated, per-logon-session

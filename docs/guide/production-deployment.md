@@ -50,11 +50,13 @@ cross build --release --bin dcc-mcp-server --target x86_64-unknown-linux-gnu
 GitHub Releases attach deployable bundles named
 `dcc-mcp-server-<version>-<platform>.zip`, for example
 `dcc-mcp-server-0.18.12-linux-x86_64.zip`. Each zip contains both
-`dcc-mcp-server` and `dcc-mcp-cli` at its root (`.exe` on Windows), so a
-deployment host can unpack one archive and put both binaries on `PATH`.
+`dcc-mcp-server`, `dccmcp`, and the `dcc-mcp-cli` compatibility alias at its
+root (`.exe` on Windows), so a deployment host can unpack one archive and put
+the binaries on `PATH`.
 
-A CLI-only ZIP (`dcc-mcp-cli-<version>-<platform>.zip`) is published
-alongside the server bundle for environments that only need the CLI binary.
+A CLI-only ZIP (`dccmcp-<version>-<platform>.zip`) is published alongside the
+server bundle for environments that only need the CLI binary. The
+`dcc-mcp-cli-<version>-<platform>.zip` compatibility package remains available.
 
 ### Install Location
 

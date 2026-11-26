@@ -1,5 +1,6 @@
 pub mod client;
 pub mod control_plane;
+pub mod dcc_discovery;
 pub mod doctor;
 pub mod gateway_ctrl;
 pub mod gateway_discovery;

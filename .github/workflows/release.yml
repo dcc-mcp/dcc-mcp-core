@@ -23,8 +23,6 @@ concurrency:
 permissions:
   contents: write
   pull-requests: write
-  id-token: write
-  attestations: write
   actions: read
 
 jobs:
@@ -148,7 +146,7 @@ jobs:
   #   1. Raw binary `dcc-mcp-server[-linux-x86_64|-windows-x86_64.exe|-macos-universal2]`
   #      attached to the GitHub Release. Backward-compat artefact for
   #      ops / docker users who don't want to `pip install`.
-  #   2. Raw binary `dcc-mcp-cli[-linux-x86_64|-windows-x86_64.exe|-macos-universal2]`
+  #   2. Raw binaries `dccmcp-*` and compatibility `dcc-mcp-cli-*`
   #      attached to the same GitHub Release and consumed by scripts/install-cli.*.
   #   3. Deployable zip `dcc-mcp-server-<ver>-<platform>.zip` containing
   #      unsuffixed `dcc-mcp-server` and `dcc-mcp-cli` binaries for that platform.
@@ -156,7 +154,7 @@ jobs:
   #      pkg/dcc-mcp-server-bin/ via maturin's `bindings = "bin"`. It has
   #      no Python extension ABI and declares Python 3.7+ compatibility so
   #      Maya 2022's embedded Python can install it. maturin reuses the
-  #      just-built binary from `target/release/` on macOS/Windows so we do
+  #      just-built binary from the native release target on macOS/Windows so we do
   #      NOT compile twice (#1003 review feedback). Linux manylinux wheels use
   #      an isolated `target-manylinux2014/` because host-built Cargo build
   #      scripts cannot run inside the older manylinux2014 glibc environment.
@@ -175,20 +173,26 @@ jobs:
             platform: linux-x86_64
             artifact_name: dcc-mcp-server-linux-x86_64
             cli_artifact_name: dcc-mcp-cli-linux-x86_64
+            dccmcp_artifact_name: dccmcp-linux-x86_64
             binary: dcc-mcp-server
             cli_binary: dcc-mcp-cli
+            dccmcp_binary: dccmcp
           - os: windows-latest
             platform: windows-x86_64
             artifact_name: dcc-mcp-server-windows-x86_64.exe
             cli_artifact_name: dcc-mcp-cli-windows-x86_64.exe
+            dccmcp_artifact_name: dccmcp-windows-x86_64.exe
             binary: dcc-mcp-server.exe
             cli_binary: dcc-mcp-cli.exe
+            dccmcp_binary: dccmcp.exe
           - os: macos-latest
             platform: macos-universal2
             artifact_name: dcc-mcp-server-macos-universal2
             cli_artifact_name: dcc-mcp-cli-macos-universal2
+            dccmcp_artifact_name: dccmcp-macos-universal2
             binary: dcc-mcp-server
             cli_binary: dcc-mcp-cli
+            dccmcp_binary: dccmcp
     runs-on: ${{ matrix.os }}
     permissions:
       contents: write
@@ -202,6 +206,13 @@ jobs:
         with:
           toolchain: '1.95.0'
           targets: aarch64-apple-darwin  # needed for macOS universal2 lipo
+      - name: Pin Windows builds to the MSVC target
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $target = "x86_64-pc-windows-msvc"
+          rustup target add $target
+          "CARGO_BUILD_TARGET=$target" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - uses: loonghao/vx@v0.9.11
         with:
@@ -257,8 +268,13 @@ jobs:
       - name: Stage raw binary (Linux / Windows)
         if: matrix.os != 'macos-latest'
         run: |
-          cp target/release/${{ matrix.binary }} ${{ matrix.artifact_name }}
-          cp target/release/${{ matrix.cli_binary }} ${{ matrix.cli_artifact_name }}
+          build_dir="target/release"
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            build_dir="target/x86_64-pc-windows-msvc/release"
+          fi
+          cp "$build_dir/${{ matrix.binary }}" "${{ matrix.artifact_name }}"
+          cp "$build_dir/${{ matrix.cli_binary }}" "${{ matrix.cli_artifact_name }}"
+          cp "$build_dir/${{ matrix.dccmcp_binary }}" "${{ matrix.dccmcp_artifact_name }}"
         shell: bash
 
       - name: Build and stage Windows runtime hosts
@@ -273,8 +289,8 @@ jobs:
           helper_args=()
           if [ "${{ matrix.os }}" = "windows-latest" ]; then
             helper_args=(
-              --capture-helper target/release/dcc-mcp-capture-helper.exe
-              --ui-control-host target/release/dcc-mcp-ui-control-host.exe
+              --capture-helper target/x86_64-pc-windows-msvc/release/dcc-mcp-capture-helper.exe
+              --ui-control-host target/x86_64-pc-windows-msvc/release/dcc-mcp-ui-control-host.exe
             )
           fi
           python scripts/release/build_server_bundle.py \
@@ -282,6 +298,7 @@ jobs:
             --platform "${{ matrix.platform }}" \
             --server-bin "${{ matrix.artifact_name }}" \
             --cli-bin "${{ matrix.cli_artifact_name }}" \
+            --dccmcp-bin "${{ matrix.dccmcp_artifact_name }}" \
             "${helper_args[@]}" \
             --out-dir .
 
@@ -295,6 +312,17 @@ jobs:
             --cli-bin "${{ matrix.cli_artifact_name }}" \
             --out-dir .
 
+      - name: Create standalone DCCMCP zip
+        id: dccmcp-bundle
+        shell: bash
+        run: |
+          python scripts/release/build_cli_bundle.py \
+            --version "${{ needs.release-please.outputs.version }}" \
+            --platform "${{ matrix.platform }}" \
+            --name-prefix dccmcp \
+            --cli-bin "${{ matrix.dccmcp_artifact_name }}" \
+            --out-dir .
+
       - name: Generate update manifest
         id: update-manifest
         shell: bash
@@ -306,7 +334,22 @@ jobs:
             --repo "${{ github.repository }}" \
             --server-bin "${{ matrix.artifact_name }}" \
             --cli-bin "${{ matrix.cli_artifact_name }}" \
+            --dccmcp-bin "${{ matrix.dccmcp_artifact_name }}" \
             --out-dir .
+
+      - name: Generate release checksums
+        id: release-checksums
+        shell: bash
+        run: |
+          python scripts/release/generate_asset_checksums.py \
+            --output "dcc-mcp-release-checksums-${{ matrix.platform }}.txt" \
+            --asset "${{ matrix.artifact_name }}" \
+            --asset "${{ matrix.cli_artifact_name }}" \
+            --asset "${{ matrix.dccmcp_artifact_name }}" \
+            --asset "${{ steps.server-bundle.outputs.bundle_path }}" \
+            --asset "${{ steps.cli-bundle.outputs.cli_bundle_path }}" \
+            --asset "${{ steps.dccmcp-bundle.outputs.cli_bundle_path }}" \
+            --asset "${{ steps.update-manifest.outputs.manifest_path }}"
 
       # ── PyPI wheel build ──────────────────────────────────────────
       # macOS / Windows reuse the same target/ directory the raw-binary
@@ -349,8 +392,8 @@ jobs:
         shell: bash
         run: >-
           python scripts/release/inject_capture_helper.py
-          --helper target/release/dcc-mcp-capture-helper.exe
-          --ui-control-host target/release/dcc-mcp-ui-control-host.exe
+          --helper target/x86_64-pc-windows-msvc/release/dcc-mcp-capture-helper.exe
+          --ui-control-host target/x86_64-pc-windows-msvc/release/dcc-mcp-ui-control-host.exe
 
       - name: Retag server binary wheel as Python-version independent
         shell: bash
@@ -369,9 +412,19 @@ jobs:
           path: |
             ${{ matrix.artifact_name }}
             ${{ matrix.cli_artifact_name }}
+            ${{ matrix.dccmcp_artifact_name }}
             ${{ steps.server-bundle.outputs.bundle_path }}
             ${{ steps.cli-bundle.outputs.cli_bundle_path }}
+            ${{ steps.dccmcp-bundle.outputs.cli_bundle_path }}
             ${{ steps.update-manifest.outputs.manifest_path }}
+            dcc-mcp-release-checksums-${{ matrix.platform }}.txt
+            ${{ matrix.artifact_name }}.sha256
+            ${{ matrix.cli_artifact_name }}.sha256
+            ${{ matrix.dccmcp_artifact_name }}.sha256
+            ${{ steps.server-bundle.outputs.bundle_path }}.sha256
+            ${{ steps.cli-bundle.outputs.cli_bundle_path }}.sha256
+            ${{ steps.dccmcp-bundle.outputs.cli_bundle_path }}.sha256
+            ${{ steps.update-manifest.outputs.manifest_path }}.sha256
 
       - name: Upload server wheel artefact (for cross-job collection)
         uses: actions/upload-artifact@v4
@@ -386,9 +439,19 @@ jobs:
           files: |
             ${{ matrix.artifact_name }}
             ${{ matrix.cli_artifact_name }}
+            ${{ matrix.dccmcp_artifact_name }}
             ${{ steps.server-bundle.outputs.bundle_path }}
             ${{ steps.cli-bundle.outputs.cli_bundle_path }}
+            ${{ steps.dccmcp-bundle.outputs.cli_bundle_path }}
             ${{ steps.update-manifest.outputs.manifest_path }}
+            dcc-mcp-release-checksums-${{ matrix.platform }}.txt
+            ${{ matrix.artifact_name }}.sha256
+            ${{ matrix.cli_artifact_name }}.sha256
+            ${{ matrix.dccmcp_artifact_name }}.sha256
+            ${{ steps.server-bundle.outputs.bundle_path }}.sha256
+            ${{ steps.cli-bundle.outputs.cli_bundle_path }}.sha256
+            ${{ steps.dccmcp-bundle.outputs.cli_bundle_path }}.sha256
+            ${{ steps.update-manifest.outputs.manifest_path }}.sha256
             pkg/dcc-mcp-server-bin/wheels/*.whl
 
   # ── Build dcc-mcp-core-semantic companion wheels (issue #1395) ──
@@ -447,6 +510,13 @@ jobs:
         with:
           toolchain: '1.95.0'
           components: clippy, rustfmt
+      - name: Pin Windows semantic wheels to the MSVC target
+        if: startsWith(matrix.target, 'windows-')
+        shell: pwsh
+        run: |
+          $target = "x86_64-pc-windows-msvc"
+          rustup target add $target
+          "CARGO_BUILD_TARGET=$target" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Setup Python (abi3 build)
         if: endsWith(matrix.target, '-abi3') && !startsWith(matrix.target, 'linux-')
@@ -496,6 +566,7 @@ jobs:
         working-directory: pkg/dcc-mcp-core-semantic
         run: |
           maturin build --release \
+            --target x86_64-pc-windows-msvc \
             --features python-bindings,ext-module,abi3-py38 \
             --out wheels
 
@@ -512,6 +583,7 @@ jobs:
         working-directory: pkg/dcc-mcp-core-semantic
         run: |
           maturin build --release \
+            --target x86_64-pc-windows-msvc \
             --features python-bindings,ext-module \
             -i python3.7 \
             --out wheels
@@ -878,9 +950,14 @@ jobs:
             '^dcc_mcp_core_semantic-.*\.whl$'
             '^dcc-mcp-server-'
             '^dcc-mcp-cli-'
+            '^dccmcp-'
             '^dcc-mcp-server-[0-9A-Za-z.+-]+-(linux-x86_64|windows-x86_64|macos-universal2)\.zip$'
             '^dcc-mcp-cli-[0-9A-Za-z.+-]+-(linux-x86_64|windows-x86_64|macos-universal2)\.zip$'
+            '^dccmcp-[0-9A-Za-z.+-]+-(linux-x86_64|windows-x86_64|macos-universal2)\.zip$'
             '^dcc-mcp-update-manifest-(linux-x86_64|windows-x86_64|macos-universal2)\.json$'
+            '^dcc-mcp-release-checksums-(linux-x86_64|windows-x86_64|macos-universal2)\.txt$'
+            '^dcc-mcp-cli-(linux-x86_64|windows-x86_64|macos-universal2)(\.exe)?\.sha256$'
+            '^dccmcp-(linux-x86_64|windows-x86_64|macos-universal2)(\.exe)?\.sha256$'
           )
 
           release_json=""

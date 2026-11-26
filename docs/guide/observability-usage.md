@@ -139,28 +139,28 @@ POST /v1/call
 
 ## 2. CLI Usage
 
-The `dcc-mcp-cli stats` command queries the gateway admin SQLite database.
+The `dccmcp stats` command queries the gateway admin SQLite database.
 
 ### Quick start
 
 ```bash
 # Show summary statistics
-dcc-mcp-cli stats
+dccmcp stats
 
 # Filter by time range
-dcc-mcp-cli stats --since 1h
-dcc-mcp-cli stats --since 24h
-dcc-mcp-cli stats --since 7d
+dccmcp stats --since 1h
+dccmcp stats --since 24h
+dccmcp stats --since 7d
 
 # Filter by DCC type
-dcc-mcp-cli stats --dcc maya
-dcc-mcp-cli stats --dcc blender
+dccmcp stats --dcc maya
+dccmcp stats --dcc blender
 
 # Show top tools
-dcc-mcp-cli stats --top-tools 10
+dccmcp stats --top-tools 10
 
 # Show session breakdown
-dcc-mcp-cli stats --sessions
+dccmcp stats --sessions
 ```
 
 ### Output format

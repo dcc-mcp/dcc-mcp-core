@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use crate::application::dcc_discovery::DccInstallation;
 use dcc_mcp_catalog::{CatalogEntry, CatalogInstall};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -18,6 +19,8 @@ pub struct InstallPlan {
     pub version: Option<String>,
     pub adapter: CatalogEntry,
     pub steps: Vec<InstallStep>,
+    #[serde(default)]
+    pub detected_installations: Vec<DccInstallation>,
     #[serde(default)]
     pub next_steps: Vec<InstallNextStep>,
     #[serde(default = "InstallPolicy::enabled")]
@@ -184,6 +187,7 @@ impl InstallPlanner {
             version,
             adapter,
             steps,
+            detected_installations: Vec::new(),
             install_policy: InstallPolicy::enabled(),
         })
     }
@@ -292,7 +296,7 @@ impl InstallPlanner {
             InstallStep {
                 name: "install-runtime".into(),
                 description:
-                    "Install the cross-platform dcc-mcp-cli and companion runtime binaries.".into(),
+                    "Install the cross-platform dccmcp and companion runtime binaries.".into(),
                 action: None,
             },
             InstallStep {
@@ -343,7 +347,7 @@ impl InstallPlanner {
                     "Inspect CLI, server binary, server version, gateway profile, and default registry diagnostics."
                         .into(),
                 url: None,
-                command: Some(command(["dcc-mcp-cli", "doctor"])),
+                command: Some(command(["dccmcp", "doctor"])),
                 requires_live_instance: false,
             },
             InstallNextStep {
@@ -352,7 +356,7 @@ impl InstallPlanner {
                     "Confirm the {dcc_type} plugin published a direct local MCP/server instance in the shared registry."
                 ),
                 url: None,
-                command: Some(command(["dcc-mcp-cli", "list"])),
+                command: Some(command(["dccmcp", "list"])),
                 requires_live_instance: false,
             },
             InstallNextStep {
@@ -362,7 +366,7 @@ impl InstallPlanner {
                 ),
                 url: None,
                 command: Some(command_with_dcc(
-                    ["dcc-mcp-cli", "wait-ready", "--dcc-type"],
+                    ["dccmcp", "wait-ready", "--dcc-type"],
                     dcc_type,
                     [],
                 )),
@@ -375,7 +379,7 @@ impl InstallPlanner {
                 ),
                 url: None,
                 command: Some(command_with_dcc(
-                    ["dcc-mcp-cli", "search", "--dcc-type"],
+                    ["dccmcp", "search", "--dcc-type"],
                     dcc_type,
                     ["--query", "diagnostics"],
                 )),
@@ -388,7 +392,7 @@ impl InstallPlanner {
                 ),
                 url: None,
                 command: Some(command_with_dcc(
-                    ["dcc-mcp-cli", "marketplace", "search", "--dcc"],
+                    ["dccmcp", "marketplace", "search", "--dcc"],
                     dcc_type,
                     ["--query", "skills"],
                 )),
@@ -400,7 +404,7 @@ impl InstallPlanner {
                     "Inspect the selected marketplace skill package before installing it, replacing <package-name> with the chosen package."
                         .into(),
                 url: None,
-                command: Some(command(["dcc-mcp-cli", "marketplace", "inspect", "<package-name>"])),
+                command: Some(command(["dccmcp", "marketplace", "inspect", "<package-name>"])),
                 requires_live_instance: false,
             },
             InstallNextStep {
@@ -410,7 +414,7 @@ impl InstallPlanner {
                         .into(),
                 url: None,
                 command: Some(command_with_dcc(
-                    ["dcc-mcp-cli", "marketplace", "install", "<package-name>", "--dcc"],
+                    ["dccmcp", "marketplace", "install", "<package-name>", "--dcc"],
                     dcc_type,
                     [],
                 )),
@@ -423,7 +427,7 @@ impl InstallPlanner {
                 ),
                 url: None,
                 command: Some(command_with_dcc(
-                    ["dcc-mcp-cli", "reload-skills", "--dcc-type"],
+                    ["dccmcp", "reload-skills", "--dcc-type"],
                     dcc_type,
                     [],
                 )),
@@ -672,7 +676,7 @@ mod tests {
             .expect("wait-ready next step");
         assert_eq!(
             wait_ready.command.as_ref().unwrap(),
-            &argv(&["dcc-mcp-cli", "wait-ready", "--dcc-type", "blender"])
+            &argv(&["dccmcp", "wait-ready", "--dcc-type", "blender"])
         );
         assert!(wait_ready.requires_live_instance);
 
@@ -684,7 +688,7 @@ mod tests {
         assert_eq!(
             search_skills.command.as_ref().unwrap(),
             &argv(&[
-                "dcc-mcp-cli",
+                "dccmcp",
                 "marketplace",
                 "search",
                 "--dcc",
@@ -702,7 +706,7 @@ mod tests {
             .expect("inspect-community-skill next step");
         assert_eq!(
             inspect_skill.command.as_ref().unwrap(),
-            &argv(&["dcc-mcp-cli", "marketplace", "inspect", "<package-name>"])
+            &argv(&["dccmcp", "marketplace", "inspect", "<package-name>"])
         );
         assert!(!inspect_skill.requires_live_instance);
 
@@ -714,7 +718,7 @@ mod tests {
         assert_eq!(
             install_skill.command.as_ref().unwrap(),
             &argv(&[
-                "dcc-mcp-cli",
+                "dccmcp",
                 "marketplace",
                 "install",
                 "<package-name>",
@@ -731,7 +735,7 @@ mod tests {
             .expect("reload-skills next step");
         assert_eq!(
             reload.command.as_ref().unwrap(),
-            &argv(&["dcc-mcp-cli", "reload-skills", "--dcc-type", "blender"])
+            &argv(&["dccmcp", "reload-skills", "--dcc-type", "blender"])
         );
         assert!(reload.requires_live_instance);
     }

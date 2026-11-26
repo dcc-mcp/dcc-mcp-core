@@ -372,7 +372,7 @@ The gateway Admin JSON already exposes these operator hints on each instance:
 
 Release smoke tests that launch their own DCC process should publish stable,
 public lifecycle metadata (`owner`, `session`) and, when supported, a
-`safe_stop_url` callback. The gateway and `dcc-mcp-cli stop-instance` only
+`safe_stop_url` callback. The gateway and `dccmcp stop-instance` only
 forward safe-stop requests to that explicit callback and never terminate a
 process directly.
 

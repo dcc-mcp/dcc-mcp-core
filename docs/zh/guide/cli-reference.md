@@ -1,18 +1,20 @@
 # CLI 参考
 
-仓库提供四个面向运维的二进制文件。本页是所有旗标、所有环境变量、以及五个
-典型部署场景的**唯一信息源**。每个二进制的旗标都一对一映射到一个
-`DCC_MCP_*` 环境变量，所以任何部署清单都能驱动同一套配置面板。
+`dccmcp` CLI 在独立的
+[`dcc-mcp/dcc-mcp-cli`](https://github.com/dcc-mcp/dcc-mcp-cli) 仓库维护和发布。
+本页记录它与 core server binary 共同使用的运维契约。每个二进制的旗标都一对一
+映射到一个 `DCC_MCP_*` 环境变量，所以任何部署清单都能驱动同一套配置面板。
 
-`dcc-mcp-cli` 与 `dcc-mcp-server` 会在每个 Release 作为原生 GitHub
-Release 资产发布。它是所有具备 shell 能力的 Agent 的首选控制路径。如果尚未
+`dccmcp` 与 `dcc-mcp-server` 会在每个 Release 作为原生 GitHub
+Release 资产发布。旧的 `dcc-mcp-cli` 继续作为兼容别名保留。DCCMCP
+是所有具备 shell 能力的 Agent 的首选控制路径。如果尚未
 安装，先征得用户同意，再通过官方 URL 安装：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.sh | sh
+curl -fsSL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-cli/main/scripts/install-cli.sh | sh
 
 # Windows PowerShell
-powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.ps1 | iex"
+powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-cli/main/scripts/install-cli.ps1 | iex"
 ```
 
 需要固定版本时，设置 `DCC_MCP_VERSION=v0.17.17`，或给安装脚本传
@@ -20,7 +22,7 @@ powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/dcc
 
 | 二进制 | 角色 | 源码位置 |
 |---|---|---|
-| [`dcc-mcp-cli`](#dcc-mcp-cli) | 面向用户/CI 的控制面 CLI，用来访问本地或远程 DCC-MCP REST 端点。 | `crates/dcc-mcp-cli/` |
+| [`dccmcp`](#dccmcp) | 面向用户/CI 的控制面 CLI，用来访问本地或远程 DCC-MCP REST 端点。 | `dcc-mcp/dcc-mcp-cli` |
 | [`dcc-mcp-server`](#dcc-mcp-server) | per-DCC MCP + REST 服务器，内置自动网关。 | `crates/dcc-mcp-server/` |
 | [`dcc-mcp-tunnel-relay`](#dcc-mcp-tunnel-relay) | 面向公网的 WebSocket 隧道中继（零配置远程访问，#504）。 | `crates/dcc-mcp-tunnel-relay/` |
 | [`dcc-mcp-tunnel-agent`](#dcc-mcp-tunnel-agent) | 在工作站上注册到中继、转发 MCP 流量的本地 sidecar。 | `crates/dcc-mcp-tunnel-agent/` |
@@ -30,12 +32,12 @@ powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/dcc
 
 ---
 
-## `dcc-mcp-cli`
+## `dccmcp`
 
 DCC-MCP 的客户端控制面。它是主要用户/agent 入口；它不托管 skills，也不替代
 底层 runtime binary `dcc-mcp-server`。
 
-`dcc-mcp-cli` 有两种 gateway 模式：
+`dccmcp` 有两种 gateway 模式：
 
 - `local`（默认）：直接读取 core 默认 FileRegistry，并用选中 DCC instance
   暴露的 MCP HTTP endpoint 执行 `search`、`describe`、`load-skill`、`call`、
@@ -45,10 +47,10 @@ DCC-MCP 的客户端控制面。它是主要用户/agent 入口；它不托管 s
 注册和选择远程 profile：
 
 ```bash
-dcc-mcp-cli gateway register https://workstation.example:19293 --name pcA
-dcc-mcp-cli gateway list
-dcc-mcp-cli gateway set pcA
-dcc-mcp-cli gateway set local
+dccmcp gateway register https://workstation.example:19293 --name pcA
+dccmcp gateway list
+dccmcp gateway set pcA
+dccmcp gateway set local
 ```
 
 `--gateway <name>` 可为单次命令覆盖当前 profile。`--base-url` 与
@@ -85,53 +87,53 @@ endpoint 级命令（`health`、`stats`、`update`，以及未显式传 `--url` 
 `--no-auto-gateway`。只操作本地文件的命令（`install`、`marketplace`、
 `lint`）、显式生命周期命令（`gateway ...`），以及带显式 `--url` 的 smoke
 check 不会自动启动 gateway。
-启动状态不清楚时，先运行 `dcc-mcp-cli doctor`。它会输出当前 profile
+启动状态不清楚时，先运行 `dccmcp doctor`。它会输出当前 profile
 配置、选中的模式、registry 目录和 inventory、direct-control readiness 汇总、
 本机 gateway daemon 状态、以及 server binary 的路径/来源/版本，而且不会启动
 或下载任何服务。
 
 ```bash
-dcc-mcp-cli list
-dcc-mcp-cli list --gateway pcA
-dcc-mcp-cli doctor
-dcc-mcp-cli health
-dcc-mcp-cli stats --range 7d --dcc-type houdini --skill houdini-render
-dcc-mcp-cli stats --tool render_rop --status failure --session-id solar-session
-dcc-mcp-cli --no-auto-gateway health
-dcc-mcp-cli gateway register https://workstation.example:19293 --name pcA
-dcc-mcp-cli gateway list
-dcc-mcp-cli gateway set pcA
-dcc-mcp-cli gateway set local
-dcc-mcp-cli search --query sphere --dcc-type maya --instance-id abc12345
-dcc-mcp-cli describe maya.abc12345.create_sphere
-dcc-mcp-cli load-skill workflow --dcc-type 3dsmax --instance-id 80321760
-dcc-mcp-cli call maya.abc12345.create_sphere --json '{"radius":2}'
-dcc-mcp-cli call maya_scene__get_session_info --dcc-type maya --instance-id abc12345 --json '{}'
-dcc-mcp-cli wait-ready --dcc-type maya --instance-id abc12345 --require skill_catalog,host_execution_bridge
-dcc-mcp-cli stop-instance --dcc-type maya --instance-id abc12345 --expected-owner release-smoke-test
-dcc-mcp-cli install --dcc-type maya --version 2026
-dcc-mcp-cli install --dcc-type maya --version 2026 --python "C:/Program Files/Autodesk/Maya2026/bin/mayapy.exe"
-dcc-mcp-cli install --dcc-type maya --version 2026 --python "C:/Program Files/Autodesk/Maya2026/bin/mayapy.exe" --execute
-dcc-mcp-cli marketplace add dcc-mcp/marketplace
-dcc-mcp-cli marketplace search --query hunyuan --dcc maya
-dcc-mcp-cli marketplace inspect dcc-asset-hunyuan-download
-dcc-mcp-cli marketplace install dcc-asset-hunyuan-download --dcc maya
-dcc-mcp-cli reload-skills --dcc-type maya
-dcc-mcp-cli marketplace list-installed --dcc maya
-dcc-mcp-cli marketplace outdated --dcc maya
-dcc-mcp-cli marketplace update dcc-mcp-maya-skills --dcc maya
-dcc-mcp-cli reload-skills --dcc-type maya
-dcc-mcp-cli marketplace update --all
-dcc-mcp-cli marketplace pack path/to/skill --out dist/
-dcc-mcp-cli marketplace publish path/to/skill --catalog marketplace.json --install-url https://example.com/skill.zip --sha256 sha256:<digest>
-dcc-mcp-cli update check
-dcc-mcp-cli update check --binary dcc-mcp-server --current-version 0.18.16
-dcc-mcp-cli update apply
-dcc-mcp-cli gateway daemon start
-dcc-mcp-cli gateway daemon restart
-dcc-mcp-cli gateway daemon stop
-dcc-mcp-cli gateway daemon status
-dcc-mcp-cli lint path/to/skills
+dccmcp list
+dccmcp list --gateway pcA
+dccmcp doctor
+dccmcp health
+dccmcp stats --range 7d --dcc-type houdini --skill houdini-render
+dccmcp stats --tool render_rop --status failure --session-id solar-session
+dccmcp --no-auto-gateway health
+dccmcp gateway register https://workstation.example:19293 --name pcA
+dccmcp gateway list
+dccmcp gateway set pcA
+dccmcp gateway set local
+dccmcp search --query sphere --dcc-type maya --instance-id abc12345
+dccmcp describe maya.abc12345.create_sphere
+dccmcp load-skill workflow --dcc-type 3dsmax --instance-id 80321760
+dccmcp call maya.abc12345.create_sphere --json '{"radius":2}'
+dccmcp call maya_scene__get_session_info --dcc-type maya --instance-id abc12345 --json '{}'
+dccmcp wait-ready --dcc-type maya --instance-id abc12345 --require skill_catalog,host_execution_bridge
+dccmcp stop-instance --dcc-type maya --instance-id abc12345 --expected-owner release-smoke-test
+dccmcp install --dcc-type maya --version 2026
+dccmcp install --dcc-type maya --version 2026 --python "C:/Program Files/Autodesk/Maya2026/bin/mayapy.exe"
+dccmcp install --dcc-type maya --version 2026 --python "C:/Program Files/Autodesk/Maya2026/bin/mayapy.exe" --execute
+dccmcp marketplace add dcc-mcp/marketplace
+dccmcp marketplace search --query hunyuan --dcc maya
+dccmcp marketplace inspect dcc-asset-hunyuan-download
+dccmcp marketplace install dcc-asset-hunyuan-download --dcc maya
+dccmcp reload-skills --dcc-type maya
+dccmcp marketplace list-installed --dcc maya
+dccmcp marketplace outdated --dcc maya
+dccmcp marketplace update dcc-mcp-maya-skills --dcc maya
+dccmcp reload-skills --dcc-type maya
+dccmcp marketplace update --all
+dccmcp marketplace pack path/to/skill --out dist/
+dccmcp marketplace publish path/to/skill --catalog marketplace.json --install-url https://example.com/skill.zip --sha256 sha256:<digest>
+dccmcp update check
+dccmcp update check --binary dcc-mcp-server --current-version 0.18.16
+dccmcp update apply
+dccmcp gateway daemon start
+dccmcp gateway daemon restart
+dccmcp gateway daemon stop
+dccmcp gateway daemon status
+dccmcp lint path/to/skills
 ```
 
 ### 命令
@@ -179,7 +181,7 @@ Blender 自带 Python。传 `--execute` 后才会请求确认并执行
 可执行 package 安装步骤。执行时如果后续步骤失败，会按相反顺序回滚已完成步骤；
 pip 安装使用 `<python> -m pip`，并用 `pip show` 验证；git/zip/path 安装会检查目标路径
 确实存在，且目标目录不是空目录。DCC 只有在 host plugin / sidecar 启动、保持存活、
-并出现在 `dcc-mcp-cli list` 中后才算在线；CLI install 不会伪造 gateway 注册。
+并出现在 `dccmcp list` 中后才算在线；CLI install 不会伪造 gateway 注册。
 
 如果工作室有专门的 Pipeline 部署流程，可以设置
 `DCC_MCP_INSTALL_DISABLED=1` 禁用自动执行安装。plan 仍会返回 adapter metadata 和
@@ -193,11 +195,11 @@ contact Pipeline TD to deploy {adapter} for {dcc_type}.” 的内部提示。
 `DCC_MCP_MARKETPLACE_INSTALL_ROOT` 覆盖。DCC adapter 会把
 `~/.dcc-mcp/marketplace/<dcc>` 加入 skill 搜索路径，因此新安装的 skill 会在
 adapter 启动时，或下一次
-`dcc-mcp-cli reload-skills --dcc-type <dcc>` 后被发现。刷新后，如果 adapter
+`dccmcp reload-skills --dcc-type <dcc>` 后被发现。刷新后，如果 adapter
 没有自动加载该 skill，再运行
-`dcc-mcp-cli load-skill <skill-name> --dcc-type <dcc> --instance-id <id>`。
+`dccmcp load-skill <skill-name> --dcc-type <dcc> --instance-id <id>`。
 
-`dcc-mcp-cli update` 面向由 gateway update manifest 暴露的二进制更新；
+`dccmcp update` 面向由 gateway update manifest 暴露的二进制更新；
 manifest 通过 `DCC_MCP_UPDATE_MANIFEST_URL`（或
 `GatewayConfig.update_manifest_url`）配置。`update check` 只读取
 `/v1/update/check`，适合人和 agent 使用；CLI 会在请求前默认确保本机 gateway
@@ -208,7 +210,7 @@ manifest 通过 `DCC_MCP_UPDATE_MANIFEST_URL`（或
 
 `lint` 复用生产 `dcc-mcp-skills` validator，因此本地检查与运行时加载会因同一类
 结构问题失败。CI 也通过 `just lint-skills` 显式传入仓库 skill roots，跑同一条
-`dcc-mcp-cli lint <PATH...>` 路径。
+`dccmcp lint <PATH...>` 路径。
 
 ### CLI 安装资产
 
@@ -229,7 +231,7 @@ manifest 通过 `DCC_MCP_UPDATE_MANIFEST_URL`（或
 ## `dcc-mcp-server`
 
 适配器、sidecar、bridge 与整机 gateway daemon 使用的底层 runtime binary。
-它仍然适合 CI 和运维脚本，但主要用户/agent UX 是 `dcc-mcp-cli`。
+它仍然适合 CI 和运维脚本，但主要用户/agent UX 是 `dccmcp`。
 
 不带子命令调用 `dcc-mcp-server` 仍保持向后兼容：行为等同于
 `dcc-mcp-server auto`，会确保本机 gateway daemon 已启动，注册当前
@@ -300,7 +302,7 @@ Admin 审计/trace 持久化只通过环境变量配置：设置 `DCC_MCP_GATEWA
 
 Daemon auto-ensure 路径默认传有界 idle timeout，除非设置
 `DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS` 覆盖。面向用户的
-`dcc-mcp-cli gateway daemon start` wrapper 默认传 `0`，因此显式管理的整机
+`dccmcp gateway daemon start` wrapper 默认传 `0`，因此显式管理的整机
 daemon 不会只因为暂时没有 DCC 注册就退出。
 
 ### 文件日志旗标

@@ -41,16 +41,18 @@ def build_bundle(
     platform: str,
     cli_bin: Path,
     out_dir: Path,
+    name_prefix: str = "dcc-mcp-cli",
 ) -> Path:
     """Create a deployable CLI zip and return its path."""
     version = _validate_filename_part(version, label="version")
     platform = _validate_filename_part(platform, label="platform")
+    name_prefix = _validate_filename_part(name_prefix, label="name_prefix")
 
     out_dir.mkdir(parents=True, exist_ok=True)
-    bundle_path = out_dir / f"dcc-mcp-cli-{version}-{platform}.zip"
+    bundle_path = out_dir / f"{name_prefix}-{version}-{platform}.zip"
 
     suffix = ".exe" if cli_bin.suffix.lower() == ".exe" else ""
-    archive_name = f"dcc-mcp-cli{suffix}"
+    archive_name = f"{name_prefix}{suffix}"
 
     with ZipFile(bundle_path, "w", ZIP_DEFLATED) as zf:
         _write_binary(zf, cli_bin, archive_name)
@@ -64,6 +66,7 @@ def main() -> int:
     parser.add_argument("--version", required=True)
     parser.add_argument("--platform", required=True)
     parser.add_argument("--cli-bin", type=Path, required=True)
+    parser.add_argument("--name-prefix", default="dcc-mcp-cli")
     parser.add_argument("--out-dir", type=Path, default=Path())
     args = parser.parse_args()
 
@@ -73,6 +76,7 @@ def main() -> int:
             platform=args.platform,
             cli_bin=args.cli_bin,
             out_dir=args.out_dir,
+            name_prefix=args.name_prefix,
         )
     except Exception as exc:
         _github_error(str(exc))

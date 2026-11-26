@@ -2,9 +2,9 @@
 
 Use this document only when:
 
-- `dcc-mcp-cli health` (or `python scripts/dcc_gateway.py health`) succeeds,
-- `dcc-mcp-cli list` returns `"total": 0` for local inventory, or
-  `dcc-mcp-cli list --gateway <name>` returns `"total": 0` for a remote profile, and
+- `dccmcp health` (or `python scripts/dcc_gateway.py health`) succeeds,
+- `dccmcp list` returns `"total": 0` for local inventory, or
+  `dccmcp list --gateway <name>` returns `"total": 0` for a remote profile, and
 - the user has explicitly approved setup guidance.
 
 Until all three are true, do not run install commands, edit environment files,
@@ -19,7 +19,7 @@ Before any setup step, confirm:
 1. Which DCC product the user needs.
 2. Whether they want commands suggested or executed.
 3. That they will confirm after each DCC-side step so you can re-run
-   `dcc-mcp-cli list`.
+   `dccmcp list`.
 
 ---
 
@@ -27,12 +27,12 @@ Before any setup step, confirm:
 
 | Check | Meaning | Next step |
 |-------|---------|-----------|
-| `dcc-mcp-cli doctor` reports local profile, registry path, zero local inventory, and server binary diagnostics | Confirms which local state the CLI is reading before adapter setup | Use the reported registry path when checking sidecar/server logs |
-| `dcc-mcp-cli list` returns `total == 0` in local mode | The loopback gateway was ensured, but no local DCC sidecar/server is registered in the FileRegistry | Start a DCC adapter |
-| `dcc-mcp-cli list --gateway <name>` fails | Remote gateway profile is unreachable; remote gateways cannot be auto-started | Inspect the selected profile and remote gateway URL before adapter setup |
-| `dcc-mcp-cli health` fails | CLI auto-ensure could not start or reach the local loopback gateway | Inspect structured CLI output before endpoint/admin/update workflows |
+| `dccmcp doctor` reports local profile, registry path, zero local inventory, and server binary diagnostics | Confirms which local state the CLI is reading before adapter setup | Use the reported registry path when checking sidecar/server logs |
+| `dccmcp list` returns `total == 0` in local mode | The loopback gateway was ensured, but no local DCC sidecar/server is registered in the FileRegistry | Start a DCC adapter |
+| `dccmcp list --gateway <name>` fails | Remote gateway profile is unreachable; remote gateways cannot be auto-started | Inspect the selected profile and remote gateway URL before adapter setup |
+| `dccmcp health` fails | CLI auto-ensure could not start or reach the local loopback gateway | Inspect structured CLI output before endpoint/admin/update workflows |
 
-Local `dcc-mcp-cli list` first ensures the machine-wide loopback gateway, then
+Local `dccmcp list` first ensures the machine-wide loopback gateway, then
 reads the FileRegistry directly. In the built-in `local` profile, `search`,
 `describe`, `load-skill`, `call`, `wait-ready`, and guarded `stop-instance` use
 the registered DCC instance's own MCP/readyz/safe-stop endpoints after the same
@@ -49,8 +49,8 @@ The legacy first-wins election is only for explicit
 With user approval, build an adapter package plan via the CLI:
 
 ```bash
-dcc-mcp-cli install --dcc-type maya
-dcc-mcp-cli install --dcc-type blender
+dccmcp install --dcc-type maya
+dccmcp install --dcc-type blender
 ```
 
 The `install` command returns an auditable plan. Treat it as guidance unless the
@@ -59,11 +59,11 @@ user explicitly asks you to execute installation steps. If the adapter's
 execution:
 
 ```bash
-dcc-mcp-cli install --dcc-type <dcc> --python "<dcc-python>" --execute
+dccmcp install --dcc-type <dcc> --python "<dcc-python>" --execute
 ```
 
 Execution installs/verifies packages only. The online registration signal is
-still `dcc-mcp-cli list`: the DCC plugin or sidecar must start, stay alive, and
+still `dccmcp list`: the DCC plugin or sidecar must start, stay alive, and
 self-register in the FileRegistry or selected gateway.
 
 If the returned plan has `install_policy.auto_install_enabled=false`, automatic
@@ -75,11 +75,11 @@ The plan JSON includes a `next_steps` array. If it includes
 `read-install-instructions`, read the referenced raw `install.md` from the
 adapter repository first; that runbook owns host-specific setup. Then follow the
 remaining steps after installation: start/enable the DCC plugin, run
-`dcc-mcp-cli doctor`, confirm `dcc-mcp-cli list`, wait with
-`dcc-mcp-cli wait-ready --dcc-type <dcc>`, search tools, then install optional
+`dccmcp doctor`, confirm `dccmcp list`, wait with
+`dccmcp wait-ready --dcc-type <dcc>`, search tools, then install optional
 marketplace skills by running marketplace search, inspecting the selected
 package, installing it, and finally running
-`dcc-mcp-cli reload-skills --dcc-type <dcc>`.
+`dccmcp reload-skills --dcc-type <dcc>`.
 
 Alternatively, when the CLI binary is not yet available:
 
@@ -89,7 +89,7 @@ python scripts/dcc_gateway.py install --dcc-type blender
 ```
 
 The Python fallback auto-downloads the CLI if needed (with user consent, pass
-`--ensure-cli`), then delegates to `dcc-mcp-cli install`.
+`--ensure-cli`), then delegates to `dccmcp install`.
 
 ---
 
@@ -98,11 +98,11 @@ The Python fallback auto-downloads the CLI if needed (with user consent, pass
 Build the plan first:
 
 ```bash
-dcc-mcp-cli install --dcc-type maya
-dcc-mcp-cli install --dcc-type blender
-dcc-mcp-cli install --dcc-type houdini
-dcc-mcp-cli install --dcc-type photoshop
-dcc-mcp-cli install --dcc-type 3dsmax
+dccmcp install --dcc-type maya
+dccmcp install --dcc-type blender
+dccmcp install --dcc-type houdini
+dccmcp install --dcc-type photoshop
+dccmcp install --dcc-type 3dsmax
 ```
 
 Then:
@@ -116,7 +116,7 @@ Then:
 5. Re-run:
 
 ```bash
-dcc-mcp-cli list
+dccmcp list
 ```
 
 When `total >= 1`, continue with the plan's CLI next steps:

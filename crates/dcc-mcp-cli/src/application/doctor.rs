@@ -1,4 +1,4 @@
-//! Diagnostic snapshot for `dcc-mcp-cli doctor`.
+//! Diagnostic snapshot for `dccmcp doctor`.
 //!
 //! Doctor is the read-only, no-launch view of the control plane: profile
 //! selection, local registry inventory, daemon health, and gateway binary
@@ -9,7 +9,9 @@ use std::path::PathBuf;
 use serde_json::{Map, Value, json};
 
 use crate::application::gateway_profile::{GatewayProfileStore, GatewayTarget};
-use crate::application::{gateway_ctrl, gateway_discovery, gateway_ensure, local_registry};
+use crate::application::{
+    dcc_discovery, gateway_ctrl, gateway_discovery, gateway_ensure, local_registry,
+};
 
 #[derive(Debug, Clone)]
 pub struct DoctorRequest {
@@ -58,7 +60,7 @@ pub async fn run_doctor(request: DoctorRequest) -> anyhow::Result<Value> {
     Ok(json!({
         "status": "ok",
         "cli": {
-            "name": env!("CARGO_PKG_NAME"),
+            "name": crate::presentation::cli::runtime_cli_name(),
             "version": env!("CARGO_PKG_VERSION"),
         },
         "profile": request.profile_store.summary(
@@ -79,6 +81,7 @@ pub async fn run_doctor(request: DoctorRequest) -> anyhow::Result<Value> {
             "status": gateway_status,
         },
         "server_binary": gateway_discovery::diagnose_gateway_bin(request.server_bin.as_ref()),
+        "dcc_installations": dcc_discovery::discover_dcc_installations(None, &[]),
     }))
 }
 

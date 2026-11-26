@@ -131,6 +131,13 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
+      - name: Pin Windows builds to the MSVC target
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $target = "x86_64-pc-windows-msvc"
+          rustup target add $target
+          "CARGO_BUILD_TARGET=$target" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
       - name: Fix cargo PATH on macOS
         if: runner.os == 'macOS'
         shell: bash
@@ -628,15 +635,48 @@ jobs:
           vx cargo test -p dcc-mcp-server --features sentry sentry_real_ingest_e2e \
             -- --exact --test-threads=1 --nocapture
 
-  # -- mcpcall e2e: real MCP client vs live MCP servers/gateway --
+  # -- DCCMCP CLI e2e: product client against the shared MCP client contract --
+  dccmcp-cli-e2e:
+    name: DCCMCP CLI e2e
+    needs: [build-wheel]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+
+      - uses: loonghao/vx@v0.9.11
+        with:
+          version: "0.9.11"
+          cache: "false"
+
+      - name: Validate agent plugin manifest
+        run: python scripts/validate_agent_plugin.py skills/dcc-mcp/agent-plugin.json
+
+      - name: Install Python test dependencies
+        run: pip install pytest anyio
+
+      - name: Run agent plugin contract tests
+        run: pytest tests/test_agent_plugin_spec.py -v --tb=short
+
+      - name: Test shared MCP client and CLI binaries
+        run: |
+          vx cargo test -p dcc-mcp-client
+          vx cargo test -p dcc-mcp-cli --lib
+          vx cargo run -p dcc-mcp-cli --bin dccmcp -- --help
+          vx cargo run -p dcc-mcp-cli --bin dcc-mcp-cli -- --help
+
+  # -- MCP interoperability e2e: independent client vs live MCP servers/gateway --
   # Exercises the full HTTP stack from outside the process:
   #   tools/list, tools/call, find_skills, load_skill, unload_skill,
   #   progressive loading (discover -> load -> call -> unload),
   #   gateway search -> describe -> load_skill -> call.
   # Reuses the wheel artifact from `build-wheel` (ubuntu-latest) to avoid
   # rebuilding the same wheel in a separate workflow.
-  mcpcall-e2e:
-    name: mcpcall e2e
+  mcp-interop-e2e:
+    name: MCP interoperability e2e
     needs: [build-wheel]
     runs-on: ubuntu-latest
     steps:

@@ -1,4 +1,4 @@
-//! Local/remote DCC control routing for `dcc-mcp-cli`.
+//! Local/remote DCC control routing for `dccmcp`.
 //!
 //! The CLI has one user-facing workflow: list/search/describe/load/call a DCC
 //! instance. The built-in `local` profile uses the shared FileRegistry and the
@@ -113,8 +113,7 @@ impl DccControlPlane {
             .await;
         }
 
-        let client =
-            DccMcpClient::with_gateway(self.endpoint.clone(), HttpGateway::with_timeout(timeout));
+        let client = DccMcpClient::with_timeout(self.endpoint.clone(), timeout);
         match (dcc_type, instance_id) {
             (Some(dcc_type), Some(instance_id)) => client
                 .direct_call(DirectCallRequest {

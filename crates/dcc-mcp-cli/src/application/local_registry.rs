@@ -1,4 +1,4 @@
-//! Local FileRegistry inventory for `dcc-mcp-cli list`.
+//! Local FileRegistry inventory for `dccmcp list`.
 //!
 //! This is the local-mode inventory path: it reads the same core default
 //! registry directory used by sidecars and gateway runners, prunes dead rows

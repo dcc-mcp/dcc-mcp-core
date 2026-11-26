@@ -135,9 +135,9 @@ catalog 明确需要固定宿主 Python 解释器时才使用 `install.python_pa
 再更新 `marketplace.json`：
 
 ```bash
-dcc-mcp-cli marketplace pack . --out dist/
+dccmcp marketplace pack . --out dist/
 gh release upload v0.1.0 dist/my-skill.zip --clobber
-dcc-mcp-cli marketplace publish . \
+dccmcp marketplace publish . \
   --catalog ../marketplace/marketplace.json \
   --install-url https://github.com/<owner>/<repo>/releases/download/v0.1.0/my-skill.zip \
   --sha256 sha256:<digest>
@@ -161,7 +161,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Pack marketplace package
-        run: dcc-mcp-cli marketplace pack . --out dist/
+        run: dccmcp marketplace pack . --out dist/
       - name: Upload release asset
         run: gh release upload "${GITHUB_REF_NAME}" dist/*.zip --clobber
         env:
@@ -295,7 +295,7 @@ Marketplace 面板反映与 CLI 相同的来源配置。来源管理功能通过
 | 刷新运行中的 adapter | 安装/更新/卸载后运行 `reload-skills --dcc-type <dcc>` | 后端报告 `reload_required` 时自动刷新 |
 
 两种界面共享同一套已安装包状态，但运行中的 adapter 只有在启动时，或显式运行
-`dcc-mcp-cli reload-skills --dcc-type <dcc>` 后，才会看到 CLI 新安装的包。
+`dccmcp reload-skills --dcc-type <dcc>` 后，才会看到 CLI 新安装的包。
 Admin UI 在后端报告 `reload_required` 时会自动触发该刷新。
 
 ## 参见

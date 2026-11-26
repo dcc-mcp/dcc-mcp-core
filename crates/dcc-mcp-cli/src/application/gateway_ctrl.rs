@@ -271,8 +271,7 @@ pub async fn ensure_local_gateway_for_endpoint(
     let args = gateway_ensure::EnsureGatewayArgs {
         host,
         port,
-        name: env_string("DCC_MCP_GATEWAY_NAME")
-            .or_else(|| Some("dcc-mcp-cli-gateway".to_string())),
+        name: env_string("DCC_MCP_GATEWAY_NAME").or_else(|| Some("dccmcp-gateway".to_string())),
         registry_dir,
         remote_host: env_string("DCC_MCP_GATEWAY_REMOTE_HOST")
             .unwrap_or_else(|| "0.0.0.0".to_string()),

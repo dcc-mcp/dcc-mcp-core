@@ -10,7 +10,7 @@ allowed-tools: Bash Read Write Edit
 metadata:
   dcc-mcp:
     dcc: python
-    version: "0.19.60"  # x-release-please-version
+    version: "0.21.0"  # x-release-please-version
     layer: infrastructure
     compatibility: "Python 3.7+, dcc-mcp-core 0.17+"
     search-hint: "create dcc mcp skill, validate skill, scaffold skill, SKILL.md, tools.yaml, scripts, groups, prompts, skill taxonomy"
@@ -66,17 +66,17 @@ an external integration requires a fixed listener.
 
 ## CLI-First Control Path
 
-Use the `dcc-mcp` skill and `dcc-mcp-cli` for skill discovery, loading,
+Use the `dcc-mcp` skill and `dccmcp` for skill discovery, loading,
 validation, and live calls whenever the agent can run shell commands. If the
 CLI is missing, follow the consent-gated official installation instructions in
-`dcc-mcp`. Keep it current with `dcc-mcp-cli update check`, then
-`dcc-mcp-cli update apply`; the apply step stages the next CLI launch and does
+`dcc-mcp`. Keep it current with `dccmcp update check`, then
+`dccmcp update apply`; the apply step stages the next CLI launch and does
 not replace a running server binary.
 
 Before publishing a skill package, validate the host discovery and package
-metadata contract with `dcc-mcp-cli discover` and `dcc-mcp-cli lint`. Publish
+metadata contract with `dccmcp discover` and `dccmcp lint`. Publish
 remote ZIP entries with an HTTPS install URL and the SHA-256 digest produced by
-`dcc-mcp-cli marketplace pack`. The generated archive must exclude VCS data,
+`dccmcp marketplace pack`. The generated archive must exclude VCS data,
 cache directories, bytecode, and symlinked files.
 
 ## Quick Start
@@ -222,7 +222,7 @@ validation are complete. Keep one stable `session_id` in call metadata, then
 query the narrowest useful slice:
 
 ```bash
-dcc-mcp-cli stats --range 24h --dcc-type <dcc> --session-id <session-id>
+dccmcp stats --range 24h --dcc-type <dcc> --session-id <session-id>
 ```
 
 Get the `review_skill_improvement` prompt from this skill and supply the stats
@@ -232,7 +232,7 @@ credentials, or unredacted payloads.
 
 Prefer `no_change`, then improving an existing skill, and create a new skill
 only for a repeated, reusable workflow that no current skill owns. Validate any
-accepted change with `validate_skill_dir` or `dcc-mcp-cli lint` before loading
+accepted change with `validate_skill_dir` or `dccmcp lint` before loading
 it. Statistics inform a proposal; they never authorize editing or publishing a
 skill without the task owner's requested scope.
 

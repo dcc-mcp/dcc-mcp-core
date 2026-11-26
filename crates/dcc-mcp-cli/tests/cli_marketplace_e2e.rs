@@ -451,14 +451,15 @@ fn marketplace_multi_dcc_install_uses_one_shared_directory_for_each_host() {
     assert_eq!(installed["dcc"], "any");
     assert_eq!(
         installed["path"],
-        install_root.join("any").join("shared-skill").to_string_lossy().as_ref()
+        install_root
+            .join("any")
+            .join("shared-skill")
+            .to_string_lossy()
+            .as_ref()
     );
 
     for dcc in ["blender", "maya"] {
-        let listed = run_json_with_env(
-            &["marketplace", "list-installed", "--dcc", dcc],
-            &envs,
-        );
+        let listed = run_json_with_env(&["marketplace", "list-installed", "--dcc", dcc], &envs);
         assert_eq!(listed["count"], 1);
         assert_eq!(listed["packages"][0]["dcc"], "any");
     }

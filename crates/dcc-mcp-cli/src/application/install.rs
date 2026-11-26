@@ -8,6 +8,7 @@ use dcc_mcp_models::DccName;
 use serde::Serialize;
 use thiserror::Error;
 
+use crate::application::dcc_discovery::{discover_dcc_installations, preferred_python};
 use crate::domain::install::{
     InstallPlan, InstallPlanError, InstallPlanner, InstallPolicy, InstallRequest, InstallStepAction,
 };
@@ -15,7 +16,7 @@ use crate::domain::install::{
 const BUNDLED_CATALOG: &str = include_str!("../../../../dcc-mcp-catalog.yml");
 const INSTALL_DISABLED_ENV: &str = "DCC_MCP_INSTALL_DISABLED";
 const INSTALL_DISABLED_PROMPT_ENV: &str = "DCC_MCP_INSTALL_DISABLED_PROMPT";
-const DEFAULT_INSTALL_DISABLED_PROMPT: &str = "Automatic DCC adapter installation is disabled in this environment. Ask your Pipeline TD or studio deployment owner to deploy {adapter} for {dcc_type}, then start the DCC plugin and rerun `dcc-mcp-cli list`.";
+const DEFAULT_INSTALL_DISABLED_PROMPT: &str = "Automatic DCC adapter installation is disabled in this environment. Ask your Pipeline TD or studio deployment owner to deploy {adapter} for {dcc_type}, then start the DCC plugin and rerun `dccmcp list`.";
 
 #[derive(Debug, Error)]
 pub enum InstallError {
@@ -100,7 +101,14 @@ impl InstallService {
     /// Generate an install plan (display-only, no execution).
     pub fn plan(&self, request: InstallRequest) -> Result<InstallPlan, InstallError> {
         let entries = self.load_entries(request.catalog_path.as_deref())?;
-        let plan = InstallPlanner::plan(&entries, request)?;
+        let discovery = discover_dcc_installations(Some(&request.dcc_type), &[]);
+        let mut request = request;
+        if request.python.is_none() {
+            request.python = preferred_python(&request.dcc_type, &[])
+                .map(|path| path.to_string_lossy().into_owned());
+        }
+        let mut plan = InstallPlanner::plan(&entries, request)?;
+        plan.detected_installations = discovery.installations;
         Ok(self.apply_auto_install_policy(plan))
     }
 
@@ -344,6 +352,12 @@ fn execute_pip_install(
     extras: Option<&[String]>,
     python: Option<&str>,
 ) -> Result<Option<StepRollback>, InstallError> {
+    validate_pip_identifier(package, "package")?;
+    if let Some(extras) = extras {
+        for extra in extras {
+            validate_pip_identifier(extra, "extra")?;
+        }
+    }
     let python_cmd = python.unwrap_or("python");
     let mut cmd = Command::new(python_cmd);
     cmd.args(pip_install_args(package, extras));
@@ -420,12 +434,14 @@ fn execute_git_clone(
         std::fs::create_dir_all(parent)?;
     }
 
+    validate_remote_install_url(url)?;
+
     let mut cmd = Command::new("git");
     cmd.arg("clone").arg("--depth").arg("1");
     if let Some(r) = ref_.filter(|v| !v.trim().is_empty()) {
         cmd.arg("--branch").arg(r);
     }
-    cmd.arg(url).arg(dest);
+    cmd.arg("--").arg(url).arg(dest);
 
     let status = cmd.status().map_err(|e| InstallError::StepFailed {
         step: "git-clone".into(),
@@ -454,11 +470,21 @@ fn execute_zip_extract(
         });
     }
 
+    validate_remote_install_url(url)?;
+    if sha256.is_none() && is_remote_url(url) {
+        return Err(InstallError::StepFailed {
+            step: "zip-checksum".into(),
+            message: "remote ZIP installs require a SHA-256 digest".into(),
+        });
+    }
+
     // Download the archive
-    let response = reqwest::blocking::get(url).map_err(|e| InstallError::StepFailed {
-        step: "zip-download".into(),
-        message: format!("failed to download {url}: {e}"),
-    })?;
+    let response = reqwest::blocking::get(url)
+        .and_then(reqwest::blocking::Response::error_for_status)
+        .map_err(|e| InstallError::StepFailed {
+            step: "zip-download".into(),
+            message: format!("failed to download {url}: {e}"),
+        })?;
 
     let bytes = response.bytes().map_err(|e| InstallError::StepFailed {
         step: "zip-download".into(),
@@ -473,6 +499,16 @@ fn execute_zip_extract(
             .iter()
             .map(|b| format!("{b:02x}"))
             .collect::<String>();
+        let expected = expected
+            .trim()
+            .strip_prefix("sha256:")
+            .unwrap_or(expected.trim());
+        if expected.len() != 64 || !expected.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return Err(InstallError::StepFailed {
+                step: "zip-checksum".into(),
+                message: "SHA-256 digest must contain 64 hexadecimal characters".into(),
+            });
+        }
         if !actual_hex.eq_ignore_ascii_case(expected) {
             return Err(InstallError::StepFailed {
                 step: "zip-checksum".into(),
@@ -493,14 +529,70 @@ fn execute_zip_extract(
         message: format!("failed to open zip archive: {e}"),
     })?;
 
-    archive
-        .extract(dest)
-        .map_err(|e| InstallError::StepFailed {
-            step: "zip-extract".into(),
-            message: format!("failed to extract to {}: {e}", dest.display()),
-        })?;
+    for index in 0..archive.len() {
+        let mut file = archive
+            .by_index(index)
+            .map_err(|e| InstallError::StepFailed {
+                step: "zip-extract".into(),
+                message: format!("failed to read ZIP entry: {e}"),
+            })?;
+        let Some(relative) = file.enclosed_name() else {
+            return Err(InstallError::StepFailed {
+                step: "zip-extract".into(),
+                message: format!("archive entry escapes install root: {}", file.name()),
+            });
+        };
+        let output = dest.join(relative);
+        if file.is_dir() {
+            std::fs::create_dir_all(&output)?;
+            continue;
+        }
+        if let Some(parent) = output.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let mut target = std::fs::File::create(&output)?;
+        std::io::copy(&mut file, &mut target)?;
+    }
 
     Ok(Some(StepRollback::RemovePath(dest.to_path_buf())))
+}
+
+fn validate_pip_identifier(value: &str, kind: &str) -> Result<(), InstallError> {
+    if value.is_empty()
+        || !value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
+    {
+        return Err(InstallError::StepFailed {
+            step: "validate-install-metadata".into(),
+            message: format!("invalid pip {kind} '{value}'"),
+        });
+    }
+    Ok(())
+}
+
+fn is_remote_url(url: &str) -> bool {
+    url.starts_with("http://") || url.starts_with("https://")
+}
+
+fn validate_remote_install_url(url: &str) -> Result<(), InstallError> {
+    if !is_remote_url(url) {
+        return Ok(());
+    }
+    let parsed = reqwest::Url::parse(url).map_err(|error| InstallError::StepFailed {
+        step: "validate-install-metadata".into(),
+        message: format!("invalid install URL '{url}': {error}"),
+    })?;
+    let loopback = parsed
+        .host_str()
+        .is_some_and(|host| matches!(host, "localhost" | "127.0.0.1" | "::1"));
+    if parsed.scheme() != "https" && !(parsed.scheme() == "http" && loopback) {
+        return Err(InstallError::StepFailed {
+            step: "validate-install-metadata".into(),
+            message: format!("remote install URL must use HTTPS: {url}"),
+        });
+    }
+    Ok(())
 }
 
 fn execute_path_copy(source: &Path, dest: &Path) -> Result<Option<StepRollback>, InstallError> {
@@ -541,7 +633,7 @@ fn execute_register_dcc(
     // plugin starts, stays alive, and advertises itself in the registry.
     eprintln!();
     eprint!("    └─ note: start or enable the '{_dcc_type}' plugin, ");
-    eprintln!("then re-run `dcc-mcp-cli list` to confirm self-registration.");
+    eprintln!("then re-run `dccmcp list` to confirm self-registration.");
     Ok(None)
 }
 
@@ -900,6 +992,7 @@ mod tests {
                 icon: None,
                 showcase: None,
             },
+            detected_installations: Vec::new(),
             steps: vec![
                 InstallStep {
                     name: "install".into(),

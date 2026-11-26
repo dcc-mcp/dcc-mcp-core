@@ -1,4 +1,4 @@
-"""Probe dcc-mcp-cli availability and gateway instance inventory."""
+"""Probe DCCMCP availability and gateway instance inventory."""
 
 from __future__ import annotations
 
@@ -40,7 +40,7 @@ def _run_json(argv: list[str]) -> tuple[bool, dict[str, Any]]:
 
 
 def probe(
-    cli: str = "dcc-mcp-cli",
+    cli: str = "dccmcp",
     base_url: str | None = None,
     *,
     ensure_cli: bool = False,
@@ -48,6 +48,8 @@ def probe(
 ) -> dict[str, Any]:
     """Return CLI availability, health, and instance inventory."""
     resolved = shutil.which(cli)
+    if resolved is None and cli == "dccmcp":
+        resolved = shutil.which("dcc-mcp-cli")
     url = base_url or os.environ.get("DCC_MCP_BASE_URL") or DEFAULT_BASE_URL
     result: dict[str, Any] = {
         "cli": cli,
@@ -119,8 +121,8 @@ def probe(
 
 def main() -> int:
     """CLI entry point."""
-    parser = argparse.ArgumentParser(description="Probe dcc-mcp-cli and gateway inventory")
-    parser.add_argument("--cli", default="dcc-mcp-cli")
+    parser = argparse.ArgumentParser(description="Probe DCCMCP and gateway inventory")
+    parser.add_argument("--cli", default="dccmcp")
     parser.add_argument("--base-url", default=os.environ.get("DCC_MCP_BASE_URL") or DEFAULT_BASE_URL)
     parser.add_argument("--ensure-cli", action="store_true")
     parser.add_argument("--install-dir", default=os.environ.get("DCC_MCP_INSTALL_DIR"))

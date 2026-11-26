@@ -7,13 +7,15 @@ use anyhow::Context;
 #[cfg(test)]
 use base64::Engine;
 use clap::{Parser, Subcommand, ValueEnum};
+use dcc_mcp_client::McpHttpClient;
 use dcc_mcp_skills::validator::IssueSeverity;
 use dcc_mcp_skills::{SkillValidationReport, validate_skill_dir};
 use serde::Serialize;
-use serde_json::{Map, Value};
+use serde_json::{Map, Value, json};
 
 use crate::application::client::DccMcpClient;
 use crate::application::control_plane::DccControlPlane;
+use crate::application::dcc_discovery::discover_dcc_installations;
 use crate::application::doctor::{DoctorRequest, run_doctor};
 use crate::application::gateway_ctrl;
 use crate::application::gateway_ensure;
@@ -38,7 +40,7 @@ use super::marketplace_cmd;
 const DEFAULT_BASE_URL: &str = "http://127.0.0.1:9765";
 
 #[derive(Debug, Parser)]
-#[command(name = "dcc-mcp-cli", about, version)]
+#[command(name = "dccmcp", about, version)]
 pub struct Args {
     #[arg(long, global = true, env = "DCC_MCP_BASE_URL")]
     base_url: Option<String>,
@@ -128,6 +130,15 @@ enum Command {
         /// Read a custom adapter catalog instead of the release catalog.
         #[arg(long, env = "DCC_MCP_CATALOG_PATH")]
         catalog: Option<PathBuf>,
+    },
+    /// Detect locally installed DCC applications without launching them.
+    Discover {
+        /// Optional DCC type or human alias to filter, such as `maya` or `3ds Max`.
+        #[arg(long)]
+        dcc_type: Option<String>,
+        /// Additional roots to scan. Repeat for local or mounted volumes.
+        #[arg(long = "path")]
+        paths: Vec<PathBuf>,
     },
     /// Search callable tools through local MCP or the selected gateway profile.
     Search {
@@ -271,6 +282,114 @@ enum Command {
         #[command(flatten)]
         daemon: dcc_mcp_sidecar::gateway_daemon::GatewayArgs,
     },
+    /// Use the shared MCP client against any Streamable HTTP endpoint.
+    Mcp {
+        #[command(subcommand)]
+        action: McpAction,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum McpAction {
+    /// Perform the MCP initialize handshake and print the negotiated session.
+    Initialize(McpInitializeArgs),
+    /// Work with MCP tools.
+    Tools {
+        #[command(subcommand)]
+        action: McpToolsAction,
+    },
+    /// Work with MCP resources.
+    Resources {
+        #[command(subcommand)]
+        action: McpResourcesAction,
+    },
+    /// Work with MCP prompts.
+    Prompts {
+        #[command(subcommand)]
+        action: McpPromptsAction,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum McpToolsAction {
+    /// List all tools, following MCP pagination cursors.
+    List(McpConnectionArgs),
+    /// Call one MCP tool by its server-visible name.
+    Call(McpToolCallArgs),
+}
+
+#[derive(Debug, Subcommand)]
+enum McpResourcesAction {
+    /// List all resources, following MCP pagination cursors.
+    List(McpConnectionArgs),
+    /// Read one resource by URI.
+    Read(McpResourceReadArgs),
+}
+
+#[derive(Debug, Subcommand)]
+enum McpPromptsAction {
+    /// List all prompts, following MCP pagination cursors.
+    List(McpConnectionArgs),
+    /// Render one prompt with JSON arguments.
+    Get(McpPromptGetArgs),
+}
+
+#[derive(Debug, Clone, clap::Args)]
+struct McpConnectionArgs {
+    /// MCP endpoint, for example http://127.0.0.1:9765/mcp.
+    #[arg(long, env = "DCC_MCP_MCP_URL")]
+    url: Option<String>,
+    /// Timeout for each HTTP request.
+    #[arg(long, default_value = "30")]
+    timeout_secs: u64,
+}
+
+#[derive(Debug, Clone, clap::Args)]
+struct McpInitializeArgs {
+    #[command(flatten)]
+    connection: McpConnectionArgs,
+    /// Client name advertised in initialize.
+    #[arg(long, default_value = "dccmcp")]
+    client_name: String,
+    /// Client version advertised in initialize.
+    #[arg(long, default_value = env!("CARGO_PKG_VERSION"))]
+    client_version: String,
+}
+
+#[derive(Debug, Clone, clap::Args)]
+struct McpToolCallArgs {
+    #[command(flatten)]
+    connection: McpConnectionArgs,
+    /// Server-visible MCP tool name.
+    #[arg(long)]
+    name: String,
+    /// JSON object passed as MCP tool arguments.
+    #[arg(long = "json", default_value = "{}")]
+    arguments_json: String,
+    /// Optional JSON object passed as MCP `_meta`.
+    #[arg(long)]
+    meta_json: Option<String>,
+}
+
+#[derive(Debug, Clone, clap::Args)]
+struct McpResourceReadArgs {
+    #[command(flatten)]
+    connection: McpConnectionArgs,
+    /// Resource URI.
+    #[arg(long)]
+    uri: String,
+}
+
+#[derive(Debug, Clone, clap::Args)]
+struct McpPromptGetArgs {
+    #[command(flatten)]
+    connection: McpConnectionArgs,
+    /// Prompt name.
+    #[arg(long)]
+    name: String,
+    /// JSON object containing prompt argument values.
+    #[arg(long = "arguments-json", default_value = "{}")]
+    arguments_json: String,
 }
 
 #[derive(Debug, Subcommand)]
@@ -557,10 +676,23 @@ pub async fn run() -> anyhow::Result<()> {
 fn apply_staged_update() {
     // Apply any staged binary update before running commands (CLI restart
     // is the user's next invocation after `update apply`).
-    match dcc_mcp_updater::Updater::apply_staged_update(env!("CARGO_PKG_NAME")) {
+    match dcc_mcp_updater::Updater::apply_staged_update(runtime_cli_name()) {
         Ok(true) => eprintln!("info: staged binary update applied"),
         Ok(false) => { /* no update was staged */ }
         Err(e) => eprintln!("warning: failed to apply staged binary update: {e}"),
+    }
+}
+
+pub(crate) fn runtime_cli_name() -> &'static str {
+    let name = std::env::current_exe().ok().and_then(|path| {
+        path.file_stem()
+            .and_then(|name| name.to_str())
+            .map(str::to_owned)
+    });
+    match name.as_deref() {
+        Some("dcc-mcp-cli") => "dcc-mcp-cli",
+        Some("dccmcp") => "dccmcp",
+        _ => "dccmcp",
     }
 }
 
@@ -664,6 +796,9 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
         Command::DccTypes { catalog } => {
             let service = InstallService::new(PathBuf::from("dcc-mcp-catalog.yml"));
             to_json(service.dcc_types(catalog.as_deref())?)?
+        }
+        Command::Discover { dcc_type, paths } => {
+            to_json(discover_dcc_installations(dcc_type.as_deref(), &paths))?
         }
         Command::Search {
             query,
@@ -911,7 +1046,7 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                 binary,
                 current_version,
             } => {
-                let binary_name = binary.unwrap_or_else(|| env!("CARGO_PKG_NAME").to_string());
+                let binary_name = binary.unwrap_or_else(|| runtime_cli_name().to_string());
                 let current_version =
                     current_version.unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_string());
                 let service = crate::application::update::UpdateService::new(
@@ -928,7 +1063,7 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
             UpdateAction::Apply => {
                 let service = crate::application::update::UpdateService::new(
                     &base_url,
-                    env!("CARGO_PKG_NAME"),
+                    runtime_cli_name(),
                     env!("CARGO_PKG_VERSION"),
                 );
                 to_json(service.apply_update().await?)?
@@ -946,6 +1081,7 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
                 return Ok(());
             }
         }
+        Command::Mcp { action } => run_mcp_cmd(action, &base_url).await?,
     };
 
     print_value(&value, output)?;
@@ -953,6 +1089,80 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
         std::process::exit(1);
     }
     Ok(())
+}
+
+async fn run_mcp_cmd(action: McpAction, default_base_url: &str) -> anyhow::Result<Value> {
+    match action {
+        McpAction::Initialize(args) => {
+            let mut client = new_mcp_client(&args.connection, default_base_url)?
+                .with_client_info(args.client_name, args.client_version);
+            to_json(client.initialize().await?)
+        }
+        McpAction::Tools { action } => match action {
+            McpToolsAction::List(args) => {
+                let mut client = new_mcp_client(&args, default_base_url)?;
+                let tools = client.tools_list_all().await?;
+                Ok(json!({
+                    "count": tools.len(),
+                    "tools": tools,
+                }))
+            }
+            McpToolsAction::Call(args) => {
+                let arguments = parse_json_object(&args.arguments_json, "--json")?;
+                let meta = args
+                    .meta_json
+                    .as_deref()
+                    .map(|raw| parse_json_object(raw, "--meta"))
+                    .transpose()?;
+                let mut client = new_mcp_client(&args.connection, default_base_url)?;
+                to_json(client.tools_call(args.name, arguments, meta).await?)
+            }
+        },
+        McpAction::Resources { action } => match action {
+            McpResourcesAction::List(args) => {
+                let mut client = new_mcp_client(&args, default_base_url)?;
+                let resources = client.resources_list_all().await?;
+                Ok(json!({
+                    "count": resources.len(),
+                    "resources": resources,
+                }))
+            }
+            McpResourcesAction::Read(args) => {
+                let mut client = new_mcp_client(&args.connection, default_base_url)?;
+                to_json(client.resources_read(args.uri).await?)
+            }
+        },
+        McpAction::Prompts { action } => match action {
+            McpPromptsAction::List(args) => {
+                let mut client = new_mcp_client(&args, default_base_url)?;
+                let prompts = client.prompts_list_all().await?;
+                Ok(json!({
+                    "count": prompts.len(),
+                    "prompts": prompts,
+                }))
+            }
+            McpPromptsAction::Get(args) => {
+                let arguments = parse_json_object(&args.arguments_json, "--arguments-json")?
+                    .as_object()
+                    .cloned()
+                    .context("--arguments-json must be a JSON object")?;
+                let mut client = new_mcp_client(&args.connection, default_base_url)?;
+                to_json(client.prompts_get(args.name, arguments).await?)
+            }
+        },
+    }
+}
+
+fn new_mcp_client(
+    connection: &McpConnectionArgs,
+    default_base_url: &str,
+) -> anyhow::Result<McpHttpClient> {
+    let raw_url = connection.url.as_deref().unwrap_or(default_base_url);
+    let mcp_url = endpoint_for_mcp(raw_url);
+    Ok(McpHttpClient::with_timeout(
+        mcp_url,
+        Duration::from_secs(connection.timeout_secs.max(1)),
+    )?)
 }
 
 struct LintCommandResult {
@@ -1107,7 +1317,7 @@ fn gateway_endpoint_for_command(
         Command::Health | Command::Stats { .. } | Command::Update { .. } => {
             Some(Endpoint::new(base_url))
         }
-        Command::Doctor { .. } | Command::DccTypes { .. } => None,
+        Command::Doctor { .. } | Command::DccTypes { .. } | Command::Discover { .. } => None,
         Command::List
         | Command::Search { .. }
         | Command::Describe { .. }
@@ -1118,6 +1328,10 @@ fn gateway_endpoint_for_command(
         | Command::WaitReady { .. }
         | Command::ReloadSkills { .. }
         | Command::StopInstance { .. } => Some(Endpoint::new(base_url)),
+        Command::Mcp { action } if mcp_action_url(action).is_none() => {
+            Some(Endpoint::new(base_url))
+        }
+        Command::Mcp { .. } => None,
         // Local mode still executes these commands through FileRegistry/direct
         // MCP where that is the richer path, but the CLI owns gateway
         // lifecycle by default so agents can rely on the admin/control plane.
@@ -1125,6 +1339,24 @@ fn gateway_endpoint_for_command(
         | Command::Marketplace { .. }
         | Command::Lint(_)
         | Command::Gateway { .. } => None,
+    }
+}
+
+fn mcp_action_url(action: &McpAction) -> Option<&str> {
+    match action {
+        McpAction::Initialize(args) => args.connection.url.as_deref(),
+        McpAction::Tools { action } => match action {
+            McpToolsAction::List(args) => args.url.as_deref(),
+            McpToolsAction::Call(args) => args.connection.url.as_deref(),
+        },
+        McpAction::Resources { action } => match action {
+            McpResourcesAction::List(args) => args.url.as_deref(),
+            McpResourcesAction::Read(args) => args.connection.url.as_deref(),
+        },
+        McpAction::Prompts { action } => match action {
+            McpPromptsAction::List(args) => args.url.as_deref(),
+            McpPromptsAction::Get(args) => args.connection.url.as_deref(),
+        },
     }
 }
 

@@ -149,7 +149,7 @@ operator workflows exposed by the embedded dashboard.
 The **Command Center** panel provides copyable agent prompts, human CLI
 commands, and MCP configuration snippets for Claude Desktop, Cursor, CodeBuddy,
 VS Code, Cline, and Codex / OpenAI. Commands use the current gateway URL and
-highlight that `dcc-mcp-cli` auto-ensures the local gateway before live DCC
+highlight that `dccmcp` auto-ensures the local gateway before live DCC
 operations.
 
 ![Admin Skills paths panel](../assets/admin-ui/admin-skills-paths.png)
@@ -1133,7 +1133,7 @@ Safety rules for agents:
   operation hot-reloaded live backends. Environment variables continue to win
   over file-backed Admin edits until restart.
 - Marketplace and skill-path mutations should be followed by Skills inventory
-  refresh and, when needed, `dcc-mcp-cli reload-skills`.
+  refresh and, when needed, `dccmcp reload-skills`.
 - Use `/v1/debug/*` aliases for stable agent-facing reads when available; they
   mirror the Admin JSON shape without depending on the visual route.
 
@@ -1143,7 +1143,7 @@ Use the dashboard as an operations surface, not as a static report:
 
 1. **Start from Command Center** when onboarding an agent or a human operator.
    The prompt tab is for agents; the human CLI tab is for copyable commands.
-   `dcc-mcp-cli` auto-ensures a local loopback gateway for normal gateway-backed
+   `dccmcp` auto-ensures a local loopback gateway for normal gateway-backed
    commands, so operators should not add a separate preflight step unless they
    are troubleshooting lifecycle state.
 2. **Use Instances for server updates.** Each instance row shows the current

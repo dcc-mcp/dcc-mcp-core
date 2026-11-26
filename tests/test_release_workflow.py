@@ -128,8 +128,9 @@ def test_release_workflow_builds_deployable_server_zip_per_platform() -> None:
     assert '--platform "${{ matrix.platform }}"' in run
     assert '--server-bin "${{ matrix.artifact_name }}"' in run
     assert '--cli-bin "${{ matrix.cli_artifact_name }}"' in run
-    assert "--capture-helper target/release/dcc-mcp-capture-helper.exe" in run
-    assert "--ui-control-host target/release/dcc-mcp-ui-control-host.exe" in run
+    assert '--dccmcp-bin "${{ matrix.dccmcp_artifact_name }}"' in run
+    assert "--capture-helper target/x86_64-pc-windows-msvc/release/dcc-mcp-capture-helper.exe" in run
+    assert "--ui-control-host target/x86_64-pc-windows-msvc/release/dcc-mcp-ui-control-host.exe" in run
 
     host_build = next(step for step in build["steps"] if step.get("name") == "Build and stage Windows runtime hosts")
     assert host_build["if"] == "matrix.os == 'windows-latest'"
@@ -140,8 +141,8 @@ def test_release_workflow_builds_deployable_server_zip_per_platform() -> None:
     )
     assert host_inject["if"] == "matrix.os == 'windows-latest'"
     assert "scripts/release/inject_capture_helper.py" in host_inject["run"]
-    assert "target/release/dcc-mcp-capture-helper.exe" in host_inject["run"]
-    assert "target/release/dcc-mcp-ui-control-host.exe" in host_inject["run"]
+    assert "target/x86_64-pc-windows-msvc/release/dcc-mcp-capture-helper.exe" in host_inject["run"]
+    assert "target/x86_64-pc-windows-msvc/release/dcc-mcp-ui-control-host.exe" in host_inject["run"]
 
     raw_upload = next(
         step
@@ -155,3 +156,20 @@ def test_release_workflow_builds_deployable_server_zip_per_platform() -> None:
 
     notify = next(step for step in jobs["publish"]["steps"] if step["name"] == "Notify Multica release-ready autopilot")
     assert r"^dcc-mcp-server-[0-9A-Za-z.+-]+-(linux-x86_64|windows-x86_64|macos-universal2)\.zip$" in notify["run"]
+
+
+def test_release_workflow_publishes_checksum_sidecars_for_downloadable_assets() -> None:
+    jobs = _release_jobs()
+    build = jobs["build-binaries"]
+    checksum = next(step for step in build["steps"] if step.get("id") == "release-checksums")
+    assert "scripts/release/generate_asset_checksums.py" in checksum["run"]
+    assert "${{ matrix.artifact_name }}" in checksum["run"]
+    assert "${{ matrix.cli_artifact_name }}" in checksum["run"]
+
+    upload = next(
+        step
+        for step in build["steps"]
+        if step.get("uses") == "softprops/action-gh-release@v3"
+    )
+    assert "${{ matrix.cli_artifact_name }}.sha256" in upload["with"]["files"]
+    assert "dcc-mcp-release-checksums-${{ matrix.platform }}.txt" in upload["with"]["files"]

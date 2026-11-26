@@ -9,7 +9,8 @@ description: >-
   DCC-MCP. Interface-specific intent such as clicking a menu, dismissing a
   dialog, or controlling a window routes to DCC UI Control after structured
   tools are checked. OpenClaw
-  and other shell agents use dcc-mcp-cli inventory/search/describe/call;
+  and other shell agents use dccmcp inventory/search/describe/call. The
+  compatibility alias dcc-mcp-cli remains supported;
   MCP-native IDEs use the gateway MCP surface. Not for tasks unrelated to DCC
   software.
 license: MIT-0
@@ -18,8 +19,8 @@ metadata:
   dcc-mcp:
     dcc: python
     layer: infrastructure
-    compatibility: Cross-platform Windows/macOS/Linux. Prefers dcc-mcp-cli on PATH; can download release asset from GitHub; local profile needs no gateway env. DCC_MCP_BASE_URL is optional for remote/legacy gateway REST fallback.
-    version: "0.19.60"  # x-release-please-version
+    compatibility: Cross-platform Windows/macOS/Linux. Prefers dccmcp on PATH; can download release asset from GitHub; local profile needs no gateway env. DCC_MCP_BASE_URL is optional for remote/legacy gateway REST fallback.
+  version: "0.21.0"  # x-release-please-version
     search-hint: "dcc control operate UI control menu dialog window button click keyboard Maya Blender Houdini Photoshop 3ds Max Nuke Unreal Godot RenderDoc Substance connect create edit render automate cli gateway stats 操作 控制 界面 菜单 弹窗 窗口 按钮 点击 键盘"
     tags: "dcc, dcc-ui-control, ui-control, maya, blender, houdini, photoshop, nuke, unreal, godot, renderdoc, cli, gateway, clawhub, openclaw"
   openclaw:
@@ -27,16 +28,33 @@ metadata:
     homepage: https://github.com/dcc-mcp/dcc-mcp-core/blob/main/skills/dcc-mcp/SKILL.md
 ---
 
-# DCC-MCP — Default DCC Control
+# DCCMCP — Default DCC Control
+
+The primary agent command is `dccmcp`. Existing installations can continue to
+use the compatibility alias `dcc-mcp-cli`.
+
+The CLI is maintained and released from
+[`dcc-mcp/dcc-mcp-cli`](https://github.com/dcc-mcp/dcc-mcp-cli). The core
+repository provides the shared MCP client, gateway, adapter runtime, and this
+skill package.
 
 > **Route DCC intent here first.** MCP-native agents call the structured gateway
-> tools directly; shell-only agents use `dcc-mcp-cli` — no MCP connector
+> tools directly; shell-only agents use `dccmcp` — no MCP connector
 > required.
+
+
+Existing installations can use the compatibility alias `dcc-mcp-cli`. These
+commands remain supported during migration.
+
+```bash
+dcc-mcp-cli dcc-types
+dcc-mcp-cli stats --range 24h --dcc-type maya --session-id task-42
+```
 
 Use this skill whenever the user asks to operate a supported DCC application.
 In an MCP-native host, use the gateway's structured inventory, search,
 describe, load, and call tools. In an **agent or headless CLI host** without an
-MCP connector, control DCC-MCP through **`dcc-mcp-cli`**. The CLI uses local
+MCP connector, control DCC-MCP through **`dccmcp`**. The CLI uses local
 FileRegistry + direct per-DCC MCP in the built-in `local` profile, and gateway
 REST (`/v1/search`, `/v1/describe`, `/v1/call`) for named remote profiles.
 
@@ -71,8 +89,9 @@ For these requests:
 
 1. **Prefer structured DCC-MCP tools** over direct application scripting,
    DCC UI Control, generic Computer Use, or shell automation.
-2. If host support is unclear, run `dcc-mcp-cli dcc-types`; use its exact
-   `dcc_type` value instead of guessing aliases.
+2. If host support is unclear, run `dccmcp discover` and
+   `dccmcp dcc-types`; use the exact catalog `dcc_type` value instead of
+   guessing aliases.
 3. Inventory live instances before choosing a host. If more than one matching
    instance exists, use task context or ask the user which scene/session owns
    the change.
@@ -92,16 +111,16 @@ different DCC application.
 
 ## Agent Path vs IDE Path
 
-DCC-MCP supports two integration paths. `dcc-mcp-cli` is the default for every
+DCC-MCP supports two integration paths. `dccmcp` is the default for every
 shell-capable agent. Native MCP remains the fallback for MCP-only IDE clients
 or when the user explicitly chooses that integration.
 
 | Dimension | **Agent path** (this skill) | **IDE path** (native MCP) |
 |-----------|----------------------------|---------------------------|
 | **Who** | OpenClaw, Hermes, Codex CLI, CI bots, custom agent runtimes, and any other host with shell access | MCP-only Cursor, Claude Desktop, VS Code MCP, or another client without shell access |
-| **Transport** | `dcc-mcp-cli` → local MCP or remote gateway REST | MCP Streamable HTTP → gateway `/mcp` |
+| **Transport** | `dccmcp` → local MCP or remote gateway REST | MCP Streamable HTTP → gateway `/mcp` |
 | **Discovery surface** | `search` → `describe` → `call` via CLI or bundled Python helper | Gateway MCP tools: `search`, `describe`, `load_skill`, `call` |
-| **Setup** | Install this skill and keep the official `dcc-mcp-cli` on `PATH`; installation/download requires user consent | Add gateway URL to IDE MCP settings (see repo `docs/guide/*`) |
+| **Setup** | Install this skill and keep the official `dccmcp` on `PATH`; installation/download requires user consent | Add gateway URL to IDE MCP settings (see repo `docs/guide/*`) |
 | **When to choose** | Default whenever the agent can run shell commands | The client cannot run shell commands or the user explicitly requests native MCP |
 | **Resources / prompts** | Not covered here; use REST `/v1/context` or IDE MCP if needed | `resources/read`, `prompts/get`, SSE subscribe via MCP |
 
@@ -109,7 +128,7 @@ or when the user explicitly chooses that integration.
 
 1. **Use this routing policy first** for every DCC-control request, whether the
    host is MCP-native or shell-only.
-2. **Shell-capable host** — use `dcc-mcp-cli`
+2. **Shell-capable host** — use `dccmcp`
    (`inventory` → `search` → `describe` or `load-skill` → `call`), even when a
    native MCP connector is also available.
 3. **MCP-only host** — call the gateway/DCC structured tools directly
@@ -122,20 +141,44 @@ or when the user explicitly chooses that integration.
 
 ### CLI installation
 
-If `dcc-mcp-cli` is missing, obtain the user's consent before installing the
+If both `dccmcp` and its `dcc-mcp-cli` compatibility alias are missing, obtain the user's consent before installing the
 latest official release:
 
 ```bash
 # Linux/macOS
-curl -fsSL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.sh | sh
+curl -fsSL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-cli/main/scripts/install-cli.sh | sh
 
 # Windows PowerShell
-powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.ps1 | iex"
+powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-cli/main/scripts/install-cli.ps1 | iex"
 ```
 
-After installation, use `dcc-mcp-cli update check` and
-`dcc-mcp-cli update apply` to keep the CLI current. The apply step stages the
+After installation, use `dccmcp update check` and
+`dccmcp update apply` to keep the CLI current. The apply step stages the
 new CLI for the next launch; it does not update a running `dcc-mcp-server`.
+
+Before creating an adapter install plan, run the read-only host discovery
+command. It checks PATH, configured search roots, common application folders,
+and mounted Windows volumes without launching a DCC.
+
+```bash
+dccmcp discover
+dccmcp discover --dcc-type maya
+dccmcp discover --dcc-type maya --path "D:/Autodesk"
+```
+
+`dccmcp install --dcc-type <dcc>` includes matching local installations in
+`detected_installations` and automatically selects a detected host Python when
+the plan does not receive `--python`. Treat this as a setup hint. Start the
+host plugin and confirm a live registry row with `dccmcp list` before
+calling tools.
+
+Set `DCC_MCP_DCC_SEARCH_PATHS` to a platform-separated list of additional
+studio or mounted-volume roots when an installation is outside the standard
+folders.
+
+Release downloads are verified with SHA-256 sidecars. Keep
+`DCC_MCP_ALLOW_UNSIGNED_DOWNLOADS` unset unless a trusted legacy mirror has no
+sidecar and the operator has explicitly accepted that exception.
 
 ### DCC UI Control fallback
 
@@ -161,15 +204,15 @@ Shell agents should use the stable CLI wrapper instead of hand-building legacy
 tool slugs:
 
 ```bash
-dcc-mcp-cli ui-control snapshot --instance-id <id> \
+dccmcp ui-control snapshot --instance-id <id> \
   --json '{"session_id":"menu","process_id":1234}'
-dcc-mcp-cli ui-control find --instance-id <id> \
+dccmcp ui-control find --instance-id <id> \
   --json '{"session_id":"menu","label":"Settings","role":"menu_item"}'
-dcc-mcp-cli ui-control act --instance-id <id> \
+dccmcp ui-control act --instance-id <id> \
   --json '{"session_id":"menu","control_id":"settings","action":"click","snapshot_id":"<snapshot_id>"}'
-dcc-mcp-cli ui-control snapshot --instance-id <id> \
+dccmcp ui-control snapshot --instance-id <id> \
   --json '{"session_id":"menu","process_id":1234}'
-dcc-mcp-cli ui-control stop --instance-id <id> \
+dccmcp ui-control stop --instance-id <id> \
   --json '{"session_id":"menu"}'
 ```
 
@@ -207,7 +250,7 @@ agents without maintaining per-host MCP server lists.
 
 ## Gateway Profiles And Local-First Inventory
 
-`dcc-mcp-cli` has a built-in `local` profile. In local mode, agent-control
+`dccmcp` has a built-in `local` profile. In local mode, agent-control
 commands first ensure the machine-wide loopback gateway is healthy, then
 `list` reads the core default FileRegistry directly, and `search`, `describe`,
 `load-skill`, `call`, `wait-ready`, and guarded `stop-instance` talk to the
@@ -223,11 +266,11 @@ that, they remain visible for diagnostics. Use `wait-ready` or `doctor` when a
 listed instance is still booting.
 
 ```bash
-dcc-mcp-cli gateway register https://workstation.example:19293 --name pcA
-dcc-mcp-cli gateway list
-dcc-mcp-cli gateway set pcA
-dcc-mcp-cli gateway set local
-dcc-mcp-cli list --gateway pcA
+dccmcp gateway register https://workstation.example:19293 --name pcA
+dccmcp gateway list
+dccmcp gateway set pcA
+dccmcp gateway set local
+dccmcp list --gateway pcA
 ```
 
 Use `--gateway <name>` to override the current profile for one command.
@@ -239,7 +282,7 @@ Agent-control commands (`list`, `search`, `describe`, `load-skill`, `call`,
 such as `health`, `update`, and `smoke` without an explicit `--url` auto-ensure
 loopback HTTP gateway targets. File-only commands and explicit lifecycle
 commands do not auto-start the gateway.
-When startup state is unclear, run `dcc-mcp-cli doctor` before troubleshooting
+When startup state is unclear, run `dccmcp doctor` before troubleshooting
 adapters. It reports profile config/current selection, the registry directory
 and local inventory, direct-control readiness counts, gateway daemon status, and
 server binary path/source/version without launching or downloading anything.
@@ -258,9 +301,9 @@ when setup, lifecycle, or transport troubleshooting is needed.
 
 ## Connection Order
 
-1. Use `dcc-mcp-cli list` for local inventory, or `dcc-mcp-cli list --gateway <name>` for a remote profile.
-2. Use `dcc-mcp-cli` for all subsequent commands when it is on `PATH`.
-3. If missing, ask user permission, then download `dcc-mcp-cli` from GitHub Releases.
+1. Use `dccmcp list` for local inventory, or `dccmcp list --gateway <name>` for a remote profile.
+2. Use `dccmcp` for all subsequent commands when it is on `PATH`.
+3. If missing, ask user permission, then download `dccmcp` from GitHub Releases.
 4. If the download fails, use the bundled Python stdlib REST fallback.
 
 Install via OpenClaw/ClawHub, or point your agent at this `SKILL.md` after cloning
@@ -276,10 +319,10 @@ remove the old package to avoid duplicate intent routing.
 
 | Situation | You MUST |
 |-----------|----------|
-| **Starting any local DCC task** | Run `dcc-mcp-cli list`; it ensures the local gateway, then reads the local FileRegistry |
-| **Startup state is ambiguous** | Run `dcc-mcp-cli doctor`; inspect selected profile, registry dir, local inventory, direct-control readiness counts, daemon status, and server binary diagnostics |
-| **Starting any remote DCC task** | Select or override a profile with `dcc-mcp-cli gateway set <name>` or `dcc-mcp-cli list --gateway <name>` |
-| `dcc-mcp-cli` missing | Ask permission before `--ensure-cli`; fallback Python REST is allowed if download fails |
+| **Starting any local DCC task** | Run `dccmcp list`; it ensures the local gateway, then reads the local FileRegistry |
+| **Startup state is ambiguous** | Run `dccmcp doctor`; inspect selected profile, registry dir, local inventory, direct-control readiness counts, daemon status, and server binary diagnostics |
+| **Starting any remote DCC task** | Select or override a profile with `dccmcp gateway set <name>` or `dccmcp list --gateway <name>` |
+| `dccmcp` missing | Ask permission before `--ensure-cli`; fallback Python REST is allowed if download fails |
 | CLI auto-ensure fails | Stop; explain the result; do not run agent-control or gateway endpoint commands until the gateway is reachable |
 | Inventory returns `total == 0` | Stop; do not run `search`, `describe`, or `call` |
 | Remote gateway unreachable | Stop; explain; ask user permission before troubleshooting |
@@ -304,17 +347,20 @@ Run this as the **very first step** every time you begin local work or after a
 DCC adapter restarts:
 
 ```bash
+# Installed host applications and host Python interpreters, without launching DCCs
+dccmcp discover
+
 # Supported adapter identifiers, only when support is unclear
-dcc-mcp-cli dcc-types
+dccmcp dcc-types
 
 # Local FileRegistry inventory
-dcc-mcp-cli list
+dccmcp list
 
 # No-launch startup diagnostics when state is unclear
-dcc-mcp-cli doctor
+dccmcp doctor
 
 # Optional gateway health check
-dcc-mcp-cli health
+dccmcp health
 ```
 
 Interpret the result:
@@ -329,7 +375,7 @@ Interpret the result:
 
 ## Step 1 — Select a Live Instance
 
-Run `dcc-mcp-cli list` whenever a DCC starts or stops. Report `total`, counts by
+Run `dccmcp list` whenever a DCC starts or stops. Report `total`, counts by
 `dcc_type`, stale rows, and the chosen `instance_id` or `instance_short`. If
 `total == 0`, stop and ask whether the user wants setup guidance. Continue only
 after explicit approval.
@@ -342,7 +388,7 @@ Only run this when inventory shows at least one non-stale target:
 
 ```bash
 # CLI (primary)
-dcc-mcp-cli search --query sphere --dcc-type maya --limit 20
+dccmcp search --query sphere --dcc-type maya --limit 20
 
 # Python fallback
 python scripts/dcc_gateway.py search --query sphere --dcc-type maya --limit 20
@@ -363,7 +409,7 @@ Never hand-build slugs.
 
 ```bash
 # CLI (primary)
-dcc-mcp-cli describe maya.a1b2c3d4.maya_primitives__create_sphere
+dccmcp describe maya.a1b2c3d4.maya_primitives__create_sphere
 
 # Python fallback
 python scripts/dcc_gateway.py describe maya.a1b2c3d4.maya_primitives__create_sphere
@@ -377,12 +423,12 @@ Read `tool.inputSchema` and safety annotations before calling.
 
 ```bash
 # CLI (primary)
-dcc-mcp-cli call maya.a1b2c3d4.maya_primitives__create_sphere \
+dccmcp call maya.a1b2c3d4.maya_primitives__create_sphere \
   --json '{"radius":2.0}' \
   --meta-json '{"agent_context":{"session_id":"task-42"}}'
 
 # When the workflow reserved this instance, repeat the exact lease owner.
-dcc-mcp-cli call maya.a1b2c3d4.maya_primitives__create_sphere \
+dccmcp call maya.a1b2c3d4.maya_primitives__create_sphere \
   --json '{"radius":2.0}' \
   --meta-json '{"lease_owner":"workflow-42","agent_context":{"session_id":"task-42"}}'
 
@@ -416,8 +462,8 @@ For generated scripts, binary descriptors, or other payloads that may exceed a
 shell's command-line limit, pass the JSON object through a UTF-8 file or stdin:
 
 ```bash
-dcc-mcp-cli call godot_project__write_script --json-file payload.json
-generate_payload | dcc-mcp-cli call godot_project__write_script --json-file -
+dccmcp call godot_project__write_script --json-file payload.json
+generate_payload | dccmcp call godot_project__write_script --json-file -
 ```
 
 Use `--json` or `--json-file`, never both. `--json-file -` keeps large payloads
@@ -433,7 +479,7 @@ patterns and common errors.
 Only after task acceptance, query narrowly scoped gateway evidence:
 
 ```bash
-dcc-mcp-cli stats --range 24h --dcc-type maya --session-id task-42
+dccmcp stats --range 24h --dcc-type maya --session-id task-42
 ```
 
 Then load `dcc-mcp-skills-creator` and request its
@@ -456,16 +502,16 @@ that source for a studio mirror or pinned deployment.
 
 ```bash
 # Check whether the local CLI has an update.
-dcc-mcp-cli update check
+dccmcp update check
 
 # Check a server/instance version shown in the admin panel.
-dcc-mcp-cli update check --binary dcc-mcp-server --current-version 0.18.16
+dccmcp update check --binary dcc-mcp-server --current-version 0.18.16
 
 # Stage a CLI binary update for the next CLI launch.
-dcc-mcp-cli update apply
+dccmcp update apply
 ```
 
-`dcc-mcp-cli update apply` only stages the CLI binary. To update a running
+`dccmcp update apply` only stages the CLI binary. To update a running
 server binary, run the server-side command in that server environment:
 
 ```bash
@@ -476,13 +522,13 @@ dcc-mcp-server update apply
 Use marketplace commands for skills:
 
 ```bash
-dcc-mcp-cli marketplace search --query rigging --dcc maya --limit 20
-dcc-mcp-cli marketplace inspect <package_name>
-dcc-mcp-cli marketplace install <package_name> --dcc maya
-dcc-mcp-cli reload-skills --dcc-type maya
-dcc-mcp-cli marketplace outdated --dcc maya
-dcc-mcp-cli marketplace update <package_name> --dcc maya
-dcc-mcp-cli reload-skills --dcc-type maya
+dccmcp marketplace search --query rigging --dcc maya --limit 20
+dccmcp marketplace inspect <package_name>
+dccmcp marketplace install <package_name> --dcc maya
+dccmcp reload-skills --dcc-type maya
+dccmcp marketplace outdated --dcc maya
+dccmcp marketplace update <package_name> --dcc maya
+dccmcp reload-skills --dcc-type maya
 ```
 
 Host-neutral and multi-DCC packages are installed once under the shared
@@ -492,31 +538,31 @@ host-specific marketplace root, and `--dcc all` addresses the shared root.
 Use marketplace release commands for package authors and CI:
 
 ```bash
-dcc-mcp-cli marketplace pack ./my-skill --out dist/
-dcc-mcp-cli marketplace publish ./my-skill \
+dccmcp marketplace pack ./my-skill --out dist/
+dccmcp marketplace publish ./my-skill \
   --catalog ./marketplace.json \
   --install-url https://github.com/<owner>/<repo>/releases/download/v0.1.0/my-skill.zip \
   --sha256 sha256:<digest>
 ```
 
 After installing or updating skills, first run
-`dcc-mcp-cli reload-skills --dcc-type <dcc>` so running adapters re-scan the
-marketplace skill path. Then use `dcc-mcp-cli load-skill` for a live instance
+`dccmcp reload-skills --dcc-type <dcc>` so running adapters re-scan the
+marketplace skill path. Then use `dccmcp load-skill` for a live instance
 when the adapter has not auto-loaded the skill yet.
 
 Use `install` for adapter plans, not marketplace skills:
 
 ```bash
-dcc-mcp-cli install --dcc-type maya --version 2026
-dcc-mcp-cli install --dcc-type maya --version 2026 --python "C:/Program Files/Autodesk/Maya2026/bin/mayapy.exe"
-dcc-mcp-cli install --dcc-type maya --version 2026 --python "C:/Program Files/Autodesk/Maya2026/bin/mayapy.exe" --execute
+dccmcp install --dcc-type maya --version 2026
+dccmcp install --dcc-type maya --version 2026 --python "C:/Program Files/Autodesk/Maya2026/bin/mayapy.exe"
+dccmcp install --dcc-type maya --version 2026 --python "C:/Program Files/Autodesk/Maya2026/bin/mayapy.exe" --execute
 ```
 
 Agents must ask before using `--execute`. The executor prompts for consent,
 rolls back completed steps if a later step fails, verifies pip packages with
 `pip show`, and verifies git/zip/path installs by checking their target path.
 Package install is not online registration: the DCC plugin or sidecar must
-start and remain alive before `dcc-mcp-cli list` shows an instance. Treat the
+start and remain alive before `dccmcp list` shows an instance. Treat the
 install JSON `next_steps` array as the authoritative machine-readable follow-up
 sequence. If it includes `read-install-instructions`, read that adapter
 repository's raw `install.md` first; it owns host-specific setup. Then

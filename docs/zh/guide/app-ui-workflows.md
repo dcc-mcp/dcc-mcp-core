@@ -44,15 +44,15 @@ REST 客户端通过 `/v1/search`、`/v1/describe` 和 `/v1/call` 使用相同�
 ## DCC UI Control 回退
 
 **DCC UI Control** 是对外统一的跨平台能力名。Shell Agent 使用
-`dcc-mcp-cli ui-control`；`app_ui__*` 仅作为 MCP 原生客户端和现有适配器的兼容工具命名。
+`dccmcp ui-control`；`app_ui__*` 仅作为 MCP 原生客户端和现有适配器的兼容工具命名。
 不要把这项 DCC 范围内的能力称为通用 Computer Use。
 
 CLI 契约不绑定平台：
 
 ```bash
-dcc-mcp-cli ui-control snapshot --instance-id <id> --json '{"session_id":"ui","process_id":1234}'
-dcc-mcp-cli ui-control act --instance-id <id> --json '{"session_id":"ui","control_id":"ok","action":"click","snapshot_id":"<snapshot_id>"}'
-dcc-mcp-cli ui-control stop --instance-id <id> --json '{"session_id":"ui"}'
+dccmcp ui-control snapshot --instance-id <id> --json '{"session_id":"ui","process_id":1234}'
+dccmcp ui-control act --instance-id <id> --json '{"session_id":"ui","control_id":"ok","action":"click","snapshot_id":"<snapshot_id>"}'
+dccmcp ui-control stop --instance-id <id> --json '{"session_id":"ui"}'
 ```
 
 当前 Windows 提供原生范围窗口覆盖层和输入参考后端。macOS/Linux 适配器应保持同一

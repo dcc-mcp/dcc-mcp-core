@@ -566,6 +566,27 @@ pub(crate) fn spawn_local_mcp_fixture() -> LocalMcpFixture {
 
                 let method = body.get("method").and_then(Value::as_str).unwrap_or("");
                 match method {
+                    "initialize" => (
+                        StatusCode::OK,
+                        Json(json!({
+                            "jsonrpc": "2.0",
+                            "id": body.get("id").cloned().unwrap_or(json!(null)),
+                            "result": {
+                                "protocolVersion": "2025-03-26",
+                                "capabilities": {
+                                    "tools": {"listChanged": true}
+                                },
+                                "serverInfo": {
+                                    "name": "fixture-local",
+                                    "version": "0.0.0-test"
+                                }
+                            }
+                        })),
+                    ),
+                    "notifications/initialized" => (
+                        StatusCode::ACCEPTED,
+                        Json(json!({})),
+                    ),
                     "tools/list" => (
                         StatusCode::OK,
                         Json(json!({

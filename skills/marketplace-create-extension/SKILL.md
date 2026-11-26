@@ -30,7 +30,7 @@ metadata:
 ## CLI-First Control Path
 
 For marketplace and live-DCC operations, use the `dcc-mcp` skill and
-`dcc-mcp-cli` whenever shell access is available. Its consent-gated install and
+`dccmcp` whenever shell access is available. Its consent-gated install and
 `update check` → `update apply` contract is the single source of truth; do not
 invent a package-local CLI bootstrap path.
 

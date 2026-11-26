@@ -6,7 +6,7 @@ prompts:
         description: Bounded summary of the completed user-visible task.
         required: true
       - name: stats_json
-        description: JSON returned by dcc-mcp-cli stats for the task scope.
+        description: JSON returned by dccmcp stats for the task scope.
         required: true
       - name: validation_summary
         description: Bounded summary of artifacts and acceptance checks.

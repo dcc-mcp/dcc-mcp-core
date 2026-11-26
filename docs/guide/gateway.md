@@ -418,6 +418,13 @@ All discovery sources collapse into the same `gateway://instances` and
 `instances[*].mcp_url`; newer agents should also inspect `source`,
 `source_meta`, and the top-level `by_source` counts.
 
+Read `gateway://instances/{instance_id}` or
+`GET /v1/instances/{instance_id}/context` when one concrete target has been
+chosen. The single-instance response adds live process and machine CPU/memory,
+the backend's current scene/documents, loaded skill names and action count,
+plus reusable resource/context/call routes. Admin's **Copy for Agent** button
+copies the same `gateway://instances/{instance_id}` URI.
+
 ```text
 Local workstation
   DCC sidecar -> FileRegistry services.json -> gateway source: "file"
@@ -752,7 +759,7 @@ single-instance behavior: entries default to `capacity: 1`, no lease owner, and
 `status: "available"`.
 
 An active lease is enforced on both gateway-routed calls and the local
-`dcc-mcp-cli` direct-MCP path. The lease holder must include the same owner
+`dccmcp` direct-MCP path. The lease holder must include the same owner
 label on every call:
 
 ```json

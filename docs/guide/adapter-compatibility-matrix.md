@@ -2,7 +2,7 @@
 
 This matrix tracks every known DCC-MCP adapter, its core version pin, adapter
 version, and supported DCC version range. It should match the adapter entries
-in `dcc-mcp-catalog.yml`, because `dcc-mcp-cli install --dcc-type <dcc>` uses
+in `dcc-mcp-catalog.yml`, because `dccmcp install --dcc-type <dcc>` uses
 that catalog as its first-party install source. Every adapter release **must**
 submit a PR updating this matrix before the release PR merges.
 
@@ -82,10 +82,10 @@ adapter row above changes, update the matching catalog entry in the same PR:
 - `name`, `url`, `version`, and `min_core_version` must match this matrix.
 - Adapter rows must have the `adapter` tag and install metadata.
 - Adapter install metadata should include `instructions_url` pointing at the
-  adapter-maintained raw `install.md` so `dcc-mcp-cli install` can hand agents
+  adapter-maintained raw `install.md` so `dccmcp install` can hand agents
   the current host-specific setup runbook.
 - Skill pack rows may share the same `dcc`, but must not be selected by
-  `dcc-mcp-cli install --dcc-type <dcc>` when an adapter row exists.
+  `dccmcp install --dcc-type <dcc>` when an adapter row exists.
 
 ## Outdated Policy
 

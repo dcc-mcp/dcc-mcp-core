@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.21.0](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.20.55...v0.21.0) (2026-11-26)
+
+### Breaking Changes
+
+* `dccmcp` is now the primary command and `dcc-mcp-cli` remains a compatibility alias.
+* The CLI source and release lifecycle move to [dcc-mcp/dcc-mcp-cli](https://github.com/dcc-mcp/dcc-mcp-cli).
+* The reusable MCP Streamable HTTP client is exposed as the `dcc-mcp-client` crate for DCCMCP Desktop and other integrations.
+
+### Migration
+
+* Install the CLI from the dedicated repository or use the updated installer scripts.
+* Replace new automation references to `dcc-mcp-cli` with `dccmcp`.
+* Existing `dcc-mcp-cli` installations continue to work during the compatibility window.
+
 ## [0.19.60](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.19.59...v0.19.60) (2026-07-19)
 
 

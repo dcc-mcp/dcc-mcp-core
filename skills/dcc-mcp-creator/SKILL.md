@@ -13,7 +13,7 @@ metadata:
     dcc: python
     layer: infrastructure
     compatibility: "dcc-mcp-core 0.17+, Python 3.7+"
-    version: "0.19.60"  # x-release-please-version
+    version: "0.21.0"  # x-release-please-version
     search-hint: >-
       create DCC MCP adapter, Nuke MCP, DccServerBase, HostExecutionBridge,
       dispatcher, readiness, resources, gateway, Blender, 3ds Max, Unreal,
@@ -37,11 +37,11 @@ skill taxonomy), load `dcc-mcp-skills-creator` instead.
 
 ## CLI-First Control Path
 
-Use the `dcc-mcp` skill and `dcc-mcp-cli` for discovery, validation, and live
+Use the `dcc-mcp` skill and `dccmcp` for discovery, validation, and live
 DCC control whenever the agent can run shell commands. If the CLI is missing,
 follow the consent-gated official installation instructions in `dcc-mcp`.
-Before long-lived validation, run `dcc-mcp-cli update check`; use
-`dcc-mcp-cli update apply` to stage the latest CLI for the next launch. This
+Before long-lived validation, run `dccmcp update check`; use
+`dccmcp update apply` to stage the latest CLI for the next launch. This
 does not replace a running server binary.
 
 ## Runtime Vocabulary
@@ -70,8 +70,8 @@ routable.
 
 ## Fast Workflow
 
-1. Run `dcc-mcp-cli discover` to identify existing host installations, then
-   run `dcc-mcp-cli dcc-types` before creating a repository. If the DCC type is
+1. Run `dccmcp discover` to identify existing host installations, then
+   run `dccmcp dcc-types` before creating a repository. If the DCC type is
    already cataloged, improve that adapter instead of creating a duplicate.
    Custom types remain supported; add the new adapter to `dcc-mcp-catalog.yml`
    and the compatibility matrix in the same core PR.
@@ -135,7 +135,7 @@ routable.
       `intent` may only raise the native host's independent UIA/input
       classification. Do not introduce a model-supplied `confirmed`/`approved`
       flag or environment bypass.
-8. Use CLI profiles (`dcc-mcp-cli gateway ...`, `list/search/describe/call`) as the user UX; treat `dcc-mcp-server` modes as runtime plumbing. Read `docs/guide/gateway.md` before changing daemon, guardian, sentinel, registry, or idle-timeout behavior.
+8. Use CLI profiles (`dccmcp gateway ...`, `list/search/describe/call`) as the user UX; treat `dcc-mcp-server` modes as runtime plumbing. Read `docs/guide/gateway.md` before changing daemon, guardian, sentinel, registry, or idle-timeout behavior.
    Once an instance is selected, reuse `gateway://instances/{instance_id}` or
    `GET /v1/instances/{instance_id}/context` for live process/machine
    performance, scene/documents, loaded skills, and canonical follow-up routes.
