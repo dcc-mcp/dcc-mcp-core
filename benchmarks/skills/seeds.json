@@ -637,7 +637,7 @@
         "dcc-mcp.dcc": "python",
         "dcc-mcp.layer": "infrastructure",
         "dcc-mcp.compatibility": "Cross-platform Windows/macOS/Linux. Prefers dccmcp on PATH; can download release asset from GitHub; local profile needs no gateway env. DCC_MCP_BASE_URL is optional for remote/legacy gateway REST fallback.",
-        "dcc-mcp.version": "0.21.1",
+        "dcc-mcp.version": "0.21.2",
         "dcc-mcp.search-hint": "dcc control operate UI control menu dialog window button click keyboard Maya Blender Houdini Photoshop 3ds Max Nuke Unreal Godot RenderDoc Substance connect create edit render automate cli gateway stats 操作 控制 界面 菜单 弹窗 窗口 按钮 点击 键盘",
         "dcc-mcp.tags": "dcc, dcc-ui-control, ui-control, maya, blender, houdini, photoshop, nuke, unreal, godot, renderdoc, cli, gateway, clawhub, openclaw"
       },
@@ -661,7 +661,7 @@
       ],
       "search-hint": "dcc control operate UI control menu dialog window button click keyboard Maya Blender Houdini Photoshop 3ds Max Nuke Unreal Godot RenderDoc Substance connect create edit render automate cli gateway stats 操作 控制 界面 菜单 弹窗 窗口 按钮 点击 键盘",
       "tools": [],
-      "version": "0.21.1",
+      "version": "0.21.2",
       "depends": [],
       "scripts": [
         "skills/dcc-mcp/scripts/check_cli.py",
