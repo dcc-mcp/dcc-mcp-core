@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/dcc-mcp/dcc-mcp-core/blob/main/contracts/agent-plugin.schema.json",
+  "title": "DCCMCP Agent Plugin Manifest",
+  "description": "Packaging contract for an agent-facing DCCMCP skill and its runtime entry points.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "id", "name", "version", "runtime", "entrypoints", "capabilities", "commands", "permissions"],
+  "properties": {
+    "schema_version": {"const": "1"},
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:[-.][a-z0-9]+)*$"
+    },
+    "name": {"type": "string", "minLength": 1},
+    "version": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$"
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "minimum_cli", "transports"],
+      "properties": {
+        "kind": {"const": "dccmcp-cli"},
+        "minimum_cli": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$"
+        },
+        "transports": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"enum": ["streamable-http", "rest"]}
+        }
+      }
+    },
+    "entrypoints": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "path"],
+        "properties": {
+          "kind": {"enum": ["skill"]},
+          "path": {"const": "SKILL.md"}
+        }
+      }
+    },
+    "capabilities": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "commands": {
+      "type": "array",
+      "minItems": 1,
+      "contains": {
+        "type": "object",
+        "required": ["name", "compatibility_aliases"],
+        "properties": {
+          "name": {"const": "dccmcp"},
+          "compatibility_aliases": {"contains": {"const": "dcc-mcp-cli"}}
+        }
+      },
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "compatibility_aliases"],
+        "properties": {
+          "name": {"type": "string", "minLength": 1},
+          "compatibility_aliases": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {"type": "string", "minLength": 1}
+          }
+        }
+      }
+    },
+    "permissions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["network", "filesystem", "process"],
+      "properties": {
+        "network": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "filesystem": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "process": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1},
+          "allOf": [
+            {"contains": {"const": "dccmcp"}},
+            {"contains": {"const": "dcc-mcp-cli"}}
+          ]
+        }
+      }
+    }
+  }
+}

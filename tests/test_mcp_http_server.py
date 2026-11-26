@@ -391,7 +391,7 @@ class TestMcpHttpProtocol:
         client = McpClient(url)
         code, text = client.post_raw(b'{"jsonrpc":"2.0","id":"roots-1","result":{"roots":[]}}')
 
-        assert code == 202
+        assert code == 202, text
         assert text == ""
 
     def test_notification_returns_202(self, running_server):
@@ -426,8 +426,9 @@ class TestMcpHttpProtocol:
         )
         try:
             with urllib.request.urlopen(req, timeout=5) as resp:
-                # In stateless mode, DELETE is not supported
-                assert resp.status in (404, 405)
+                # Legacy session mode acknowledges DELETE for a missing
+                # session; stateless routing may return 404 or 405.
+                assert resp.status in (202, 404, 405)
         except urllib.error.HTTPError as e:
             # 405 Method Not Allowed (stateless) or 404 Not Found (stateful)
             assert e.code in (404, 405)

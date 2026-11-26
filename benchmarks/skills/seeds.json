@@ -384,7 +384,7 @@
           "task_category": "mutate"
         },
         "dcc-mcp.layer": "infrastructure",
-        "dcc-mcp.compatibility": "Cross-platform routing contract. The current DCC-CUA host is installed and verified through the official dcc-mcp-cli component manifest; exact platform capabilities remain runtime-discovered.",
+        "dcc-mcp.compatibility": "Cross-platform routing contract. The current DCC-CUA host is a separately released runtime forwarded by dccmcp; exact platform capabilities remain runtime-discovered.",
         "dcc-mcp.version": "0.1.0",
         "dcc-mcp.search-hint": "dcc-cua DCC CUA dcc cua our dcc-cua our dcc cua 我们的 dcc-cua 我们的 dcc cua project-owned UI control browser DOM exact PID HWND computer use automation",
         "dcc-mcp.tags": "dcc-cua, dcc-ui-control, ui-control, browser-dom, exact-window, computer-use, infrastructure"
@@ -618,6 +618,168 @@
         "domain": "diagnostics",
         "workflow_stage": "diagnostics",
         "task_category": "diagnose"
+      }
+    },
+    {
+      "name": "dcc-mcp",
+      "description": "Default DCC control skill — connect to and operate live Maya, Blender, Houdini, Photoshop, 3ds Max, Nuke, Unreal, Godot, RenderDoc, Substance 3D, and other DCC apps through structured DCC-MCP tools. Use this skill first whenever the user asks to operate or control something in a DCC app, even when they do not mention DCC-MCP. Interface-specific intent such as clicking a menu, dismissing a dialog, or controlling a window routes to DCC UI Control after structured tools are checked. OpenClaw and other shell agents use dccmcp inventory/search/describe/call. The compatibility alias dcc-mcp-cli remains supported; MCP-native IDEs use the gateway MCP surface. Not for tasks unrelated to DCC software.",
+      "license": "MIT-0",
+      "compatibility": "",
+      "allowed-tools": [
+        "Bash",
+        "Read"
+      ],
+      "metadata": {
+        "openclaw": {
+          "emoji": "🖥️",
+          "homepage": "https://github.com/dcc-mcp/dcc-mcp-core/blob/main/skills/dcc-mcp/SKILL.md"
+        },
+        "dcc-mcp.dcc": "python",
+        "dcc-mcp.layer": "infrastructure",
+        "dcc-mcp.compatibility": "Cross-platform Windows/macOS/Linux. Prefers dccmcp on PATH; can download release asset from GitHub; local profile needs no gateway env. DCC_MCP_BASE_URL is optional for remote/legacy gateway REST fallback.",
+        "dcc-mcp.version": "0.21.2",
+        "dcc-mcp.search-hint": "dcc control operate UI control menu dialog window button click keyboard Maya Blender Houdini Photoshop 3ds Max Nuke Unreal Godot RenderDoc Substance connect create edit render automate cli gateway stats 操作 控制 界面 菜单 弹窗 窗口 按钮 点击 键盘",
+        "dcc-mcp.tags": "dcc, dcc-ui-control, ui-control, maya, blender, houdini, photoshop, nuke, unreal, godot, renderdoc, cli, gateway, clawhub, openclaw"
+      },
+      "dcc": "python",
+      "tags": [
+        "dcc",
+        "dcc-ui-control",
+        "ui-control",
+        "maya",
+        "blender",
+        "houdini",
+        "photoshop",
+        "nuke",
+        "unreal",
+        "godot",
+        "renderdoc",
+        "cli",
+        "gateway",
+        "clawhub",
+        "openclaw"
+      ],
+      "search-hint": "dcc control operate UI control menu dialog window button click keyboard Maya Blender Houdini Photoshop 3ds Max Nuke Unreal Godot RenderDoc Substance connect create edit render automate cli gateway stats 操作 控制 界面 菜单 弹窗 窗口 按钮 点击 键盘",
+      "tools": [],
+      "version": "0.21.2",
+      "depends": [],
+      "scripts": [
+        "skills/dcc-mcp/scripts/check_cli.py",
+        "skills/dcc-mcp/scripts/dcc_gateway.py"
+      ],
+      "skill_path": "skills/dcc-mcp",
+      "metadata_files": [],
+      "groups": [],
+      "layer": "infrastructure"
+    },
+    {
+      "name": "dcc-mcp-creator",
+      "description": "Infrastructure skill - guide developers and agents through creating or modernizing a full DCC-MCP adapter for Nuke, Blender, 3ds Max, Unreal, ZBrush, Houdini, Maya, and custom studio tools. Use when building server, dispatcher, gateway, packaging, and runtime integration. Not for authoring individual SKILL.md tool packages - use dcc-mcp-skills-creator.",
+      "license": "MIT-0",
+      "compatibility": "",
+      "allowed-tools": [
+        "Bash",
+        "Read",
+        "Write",
+        "Edit"
+      ],
+      "metadata": {
+        "openclaw": {
+          "homepage": "https://github.com/dcc-mcp/dcc-mcp-core/blob/main/skills/dcc-mcp-creator/SKILL.md"
+        },
+        "dcc-mcp.dcc": "python",
+        "dcc-mcp.layer": "infrastructure",
+        "dcc-mcp.recall-context": {
+          "app_type": "python",
+          "domain": "adapter-development",
+          "workflow_stage": "authoring",
+          "task_category": "mutate"
+        },
+        "dcc-mcp.compatibility": "dcc-mcp-core 0.17+, Python 3.7+",
+        "dcc-mcp.version": "0.21.0",
+        "dcc-mcp.search-hint": "create DCC MCP adapter, Nuke MCP, DccServerBase, HostExecutionBridge, dispatcher, readiness, resources, gateway, Blender, 3ds Max, Unreal, ZBrush, Houdini, Maya",
+        "dcc-mcp.tags": "adapter-development, host-runtime, dispatcher, gateway, nuke, blender, 3dsmax, unreal, zbrush",
+        "dcc-mcp.skill-reference-docs": [
+          "references/*.md"
+        ]
+      },
+      "dcc": "python",
+      "tags": [
+        "adapter-development",
+        "host-runtime",
+        "dispatcher",
+        "gateway",
+        "nuke",
+        "blender",
+        "3dsmax",
+        "unreal",
+        "zbrush"
+      ],
+      "search-hint": "create DCC MCP adapter, Nuke MCP, DccServerBase, HostExecutionBridge, dispatcher, readiness, resources, gateway, Blender, 3ds Max, Unreal, ZBrush, Houdini, Maya",
+      "tools": [],
+      "version": "0.21.0",
+      "depends": [],
+      "scripts": [],
+      "skill_path": "skills/dcc-mcp-creator",
+      "metadata_files": [],
+      "groups": [],
+      "layer": "infrastructure",
+      "recall_context": {
+        "app_type": "python",
+        "domain": "adapter-development",
+        "workflow_stage": "authoring",
+        "task_category": "mutate"
+      }
+    },
+    {
+      "name": "dcc-mcp-skills-creator",
+      "description": "Infrastructure skill - create, validate, scaffold, and review DCC-MCP skills for the dcc-mcp-core ecosystem. Use when authoring SKILL.md, tools.yaml, scripts, groups, prompts, or skill taxonomy. Not for creating a full DCC-MCP adapter repository - use dcc-mcp-creator.",
+      "license": "MIT-0",
+      "compatibility": "",
+      "allowed-tools": [
+        "Bash",
+        "Read",
+        "Write",
+        "Edit"
+      ],
+      "metadata": {
+        "openclaw": {
+          "homepage": "https://github.com/dcc-mcp/dcc-mcp-core/blob/main/skills/dcc-mcp-skills-creator/SKILL.md"
+        },
+        "dcc-mcp.dcc": "python",
+        "dcc-mcp.recall-context": {
+          "app_type": "python",
+          "domain": "skill-authoring",
+          "workflow_stage": "authoring",
+          "task_category": "mutate"
+        },
+        "dcc-mcp.version": "0.21.0",
+        "dcc-mcp.layer": "infrastructure",
+        "dcc-mcp.compatibility": "Python 3.7+, dcc-mcp-core 0.17+",
+        "dcc-mcp.search-hint": "create dcc mcp skill, validate skill, scaffold skill, SKILL.md, tools.yaml, scripts, groups, prompts, skill taxonomy",
+        "dcc-mcp.tools": "tools.yaml",
+        "dcc-mcp.prompts": "prompts.yaml",
+        "dcc-mcp.skill-reference-docs": [
+          "references/*.md"
+        ]
+      },
+      "dcc": "python",
+      "tags": [],
+      "search-hint": "create dcc mcp skill, validate skill, scaffold skill, SKILL.md, tools.yaml, scripts, groups, prompts, skill taxonomy",
+      "tools": [],
+      "version": "0.21.0",
+      "depends": [],
+      "scripts": [],
+      "skill_path": "skills/dcc-mcp-skills-creator",
+      "metadata_files": [],
+      "groups": [],
+      "prompts_file": "prompts.yaml",
+      "layer": "infrastructure",
+      "recall_context": {
+        "app_type": "python",
+        "domain": "skill-authoring",
+        "workflow_stage": "authoring",
+        "task_category": "mutate"
       }
     },
     {
@@ -1420,9 +1582,8 @@
           "workflow_stage": "authoring",
           "task_category": "mutate"
         },
-        "dcc-mcp.version": "0.20.55",
+        "dcc-mcp.version": "0.21.0",
         "dcc-mcp.layer": "infrastructure",
-        "dcc-mcp.maintainer": "dcc-mcp",
         "dcc-mcp.search-hint": "create marketplace extension, scaffold extension package, new skill package, SKILL.md generator, marketplace entry, extension authoring",
         "dcc-mcp.tags": "marketplace, extension, scaffolding, authoring, infrastructure",
         "dcc-mcp.tools": "tools.yaml",
@@ -1540,7 +1701,7 @@
           }
         }
       ],
-      "version": "0.20.55",
+      "version": "0.21.0",
       "depends": [],
       "scripts": [
         "skills/marketplace-create-extension/scripts/create_extension.py"
@@ -1575,11 +1736,10 @@
           "app_type": "python",
           "domain": "marketplace",
           "workflow_stage": "publishing",
-          "task_category": "export"
+          "task_category": "mutate"
         },
-        "dcc-mcp.version": "0.20.55",
+        "dcc-mcp.version": "0.21.0",
         "dcc-mcp.layer": "infrastructure",
-        "dcc-mcp.maintainer": "dcc-mcp",
         "dcc-mcp.search-hint": "publish extension, register extension, marketplace catalog, upsert catalog entry, marketplace.json, extension publishing, release to marketplace",
         "dcc-mcp.tags": "marketplace, publishing, catalog, infrastructure",
         "dcc-mcp.tools": "tools.yaml"
@@ -1752,7 +1912,7 @@
           }
         }
       ],
-      "version": "0.20.55",
+      "version": "0.21.0",
       "depends": [],
       "scripts": [
         "skills/marketplace-publish-extension/scripts/publish.py"
@@ -1765,7 +1925,7 @@
         "app_type": "python",
         "domain": "marketplace",
         "workflow_stage": "publishing",
-        "task_category": "export"
+        "task_category": "mutate"
       }
     },
     {

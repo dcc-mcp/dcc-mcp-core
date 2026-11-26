@@ -21,18 +21,12 @@ openclaw skills install @loonghao/dcc-mcp
 npx --yes clawhub@0.23.1 install @loonghao/dcc-mcp
 ```
 
-Substitute a creator slug only for its matching development task. Start a new
-agent turn after installation.
-
-### CLI from the `dcc-mcp` Skill
-
-```bash
-# Run from the installed dcc-mcp Skill directory.
-python scripts/check_cli.py --ensure-cli --pretty
-```
+This installs the standalone `dccmcp` control-plane binary and its
+`dcc-mcp-cli` compatibility alias from the latest GitHub Release. Pin a
+release with `DCC_MCP_VERSION=v0.21.2`.
 
 For agents, obtain user consent before installing or downloading a new binary.
-The bundled helper is fixed to the official `dcc-mcp/dcc-mcp-core` release. It
+The bundled helper is fixed to the official `dcc-mcp/dcc-mcp-cli` release. It
 validates the platform update manifest and CLI SHA-256 before replacing the
 binary, and fails closed on an invalid URL, manifest, digest, or download.
 SHA-256 verifies that the binary matches the release manifest. This helper is
@@ -43,14 +37,14 @@ Without the Skill, download the official installer to a local file, inspect it,
 and only then execute that file:
 
 ```bash
-curl -fL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.sh -o install-cli.sh
+curl -fL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-cli/main/scripts/install-cli.sh -o install-cli.sh
 cat install-cli.sh
 # After reviewing the file:
 sh ./install-cli.sh
 ```
 
 ```powershell
-Invoke-WebRequest https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.ps1 -OutFile .\install-cli.ps1
+Invoke-WebRequest https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-cli/main/scripts/install-cli.ps1 -OutFile .\install-cli.ps1
 Get-Content -Raw .\install-cli.ps1
 # After reviewing the file and subject to the current execution policy:
 & .\install-cli.ps1
@@ -60,31 +54,33 @@ The installer uses the same fixed official source, manifest, and SHA-256
 checks as the bundled helper. Never pipe it directly into a shell or bypass the
 machine's script execution policy.
 
-Pin a release with `sh ./install-cli.sh --version v0.19.63` or
-`& .\install-cli.ps1 -Version v0.19.63`.
+Pin a release with `sh ./install-cli.sh --version v0.21.2` or
+`& .\install-cli.ps1 -Version v0.21.2`.
 
 Keep an official installation current with:
 
 ```bash
-dcc-mcp-cli update check
-dcc-mcp-cli update          # check, download, and stage in one step
+dccmcp update check
+dccmcp update apply
 ```
 
 Official release builds refresh their cached update status in a detached
 background process at most once per 24 hours. Failed checks retry after one hour
 and never block the foreground command. When `cli_update.version_status` is
 `update_available`, agents should show the current/latest versions; the reported
-`update_policy.apply_command` is `dcc-mcp-cli update`, which checks, downloads,
+`update_policy.apply_command` is `dccmcp update`, which checks, downloads,
 and stages the update in one step with no separate confirmation flag.
-`dcc-mcp-cli update` requires the release-manifest SHA-256, verifies the
+`dccmcp update` requires the release-manifest SHA-256, verifies the
 downloaded CLI, and stages it for the next launch. Replacement re-verifies the
 staged bytes and restarts the CLI with the same arguments. It does not replace
 or restart a running `dcc-mcp-server`; update that server in its own
 environment. Set `DCC_MCP_DISABLE_UPDATE_CHECK=1` to disable passive checks.
 
-The CLI is also available as a standalone ZIP archive
-(`dcc-mcp-cli-<version>-<platform>.zip`) from each
-[GitHub Release](https://github.com/dcc-mcp/dcc-mcp-core/releases).
+The CLI is also available as standalone ZIP archives
+(`dccmcp-<version>-<platform>.zip` and the compatibility
+`dcc-mcp-cli-<version>-<platform>.zip`) from each
+[CLI GitHub Release](https://github.com/dcc-mcp/dcc-mcp-cli/releases). On macOS,
+install the maintained formula with `brew tap dcc-mcp/tap && brew install dccmcp`.
 
 ### MCP Registry
 
@@ -110,7 +106,7 @@ standard MCP client, use this local Streamable HTTP path instead:
    Keep this foreground process running. `gateway` selects the gateway mode;
    `--remote-port 0` disables the secondary listener, and `--gateway-persist`
    prevents idle exit while no DCC is registered. This package does **not**
-   install `dcc-mcp-cli` or a DCC adapter. The pinned release needs a matching
+   install `dccmcp` or a DCC adapter. The pinned release needs a matching
    platform wheel; do not silently substitute an unreviewed version. If port
    9765 is occupied, inspect the existing gateway before reusing it, or select
    an unused `--port` and update the client URL accordingly.
@@ -279,11 +275,11 @@ and cancellation guarantees.
 With `dcc-mcp` loaded, use the CLI as the structured control path:
 
 ```bash
-dcc-mcp-cli dcc-types
-dcc-mcp-cli list
-dcc-mcp-cli search --query "create sphere" --dcc-type maya
-dcc-mcp-cli describe <tool-slug>
-dcc-mcp-cli call <tool-slug> --json '{"radius":2.0}'
+dccmcp dcc-types
+dccmcp list
+dccmcp search --query "create sphere" --dcc-type maya
+dccmcp describe <tool-slug>
+dccmcp call <tool-slug> --json '{"radius":2.0}'
 ```
 
 Use the slug returned by `search`; never construct it. If `list` returns zero

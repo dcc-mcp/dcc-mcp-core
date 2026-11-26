@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import shutil
 import sys
+from typing import Optional
 from zipfile import ZIP_DEFLATED
 from zipfile import ZipFile
 from zipfile import ZipInfo
@@ -52,11 +53,22 @@ def build_bundle(
     *,
     version: str,
     platform: str,
-    binary_name: str,
-    binary_path: Path,
+    binary_name: Optional[str] = None,
+    binary_path: Optional[Path] = None,
     out_dir: Path,
+    cli_bin: Optional[Path] = None,
+    name_prefix: Optional[str] = None,
 ) -> Path:
-    """Create a deployable standalone binary zip and return its path."""
+    """Create a deployable standalone binary zip and return its path.
+
+    ``binary_name``/``binary_path`` remain supported for release workflows and
+    older callers. ``name_prefix``/``cli_bin`` are the clearer CLI-oriented
+    aliases used by newer integrations.
+    """
+    binary_name = name_prefix or binary_name or "dcc-mcp-cli"
+    binary_path = cli_bin or binary_path
+    if binary_path is None:
+        raise ValueError("binary_path or cli_bin is required")
     version = _validate_filename_part(version, label="version")
     platform = _validate_filename_part(platform, label="platform")
     binary_name = _validate_filename_part(binary_name, label="binary name")
@@ -77,18 +89,24 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--version", required=True)
     parser.add_argument("--platform", required=True)
-    parser.add_argument("--binary-name", required=True)
-    parser.add_argument("--binary-path", type=Path, required=True)
+    parser.add_argument("--binary-name")
+    parser.add_argument("--binary-path", type=Path)
+    parser.add_argument("--name-prefix")
+    parser.add_argument("--cli-bin", type=Path)
     parser.add_argument("--out-dir", type=Path, default=Path())
     args = parser.parse_args()
 
     try:
+        if args.binary_path is None and args.cli_bin is None:
+            parser.error("one of --binary-path or --cli-bin is required")
         bundle_path = build_bundle(
             version=args.version,
             platform=args.platform,
             binary_name=args.binary_name,
             binary_path=args.binary_path,
             out_dir=args.out_dir,
+            cli_bin=args.cli_bin,
+            name_prefix=args.name_prefix,
         )
     except Exception as exc:
         _github_error(str(exc))

@@ -76,13 +76,11 @@ Commits that reach no user
 --------------------------
 
 The type is a statement about a title, not about what the commit touched, and
-the two disagree often enough to matter. ``33974311`` ``fix(winget): judge
-manifest validation by its error marker, not its exit code`` carries a visible
-type and changes exactly two files, ``.github/workflows/winget-first-manifest.yml``
-and ``tests/test_winget_first_manifest.py``: no wheel, sdist, binary or
-published schema can carry any of it. Read as a type alone it is a
-user-visible commit missing from the notes, so the gate failed and four PyPI
-routes stayed on the previous version for a whole release window.
+the two disagree often enough to matter. The historical WinGet manifest
+renderer lived under the Core repository and changed only CI and tests, so it
+could not affect a published Core artefact. WinGet publication now belongs to
+the standalone ``dcc-mcp-cli`` repository, where its release workflow consumes
+the ``dccmcp`` assets directly.
 
 A commit whose every path sits under ``.github/`` or ``tests/`` is therefore
 classified contributor-only and held to no notes requirement, whatever its

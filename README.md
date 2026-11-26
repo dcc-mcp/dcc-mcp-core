@@ -14,90 +14,30 @@
 
 [Website](https://dcc-mcp.github.io/) · [Marketplace](https://dcc-mcp.github.io/marketplace) · [Showcase](https://dcc-mcp.github.io/showcase) · [For Agents](https://dcc-mcp.github.io/agents) · [Ecosystem](https://dcc-mcp.github.io/ecosystem)
 
-**One MCP control plane for every DCC: an AI agent turns one prompt into a finished Blender material in 60 seconds.**
+dcc-mcp-core turns Maya, Blender, Houdini, Photoshop, Godot, RenderDoc, and
+custom studio hosts into discoverable MCP and REST capabilities. It provides
+the gateway, skills, structured results, main-thread dispatch, diagnostics,
+IPC, and workflows needed to operate real desktop sessions. The standalone
+DCCMCP command-line control plane is released from
+[`dcc-mcp/dcc-mcp-cli`](https://github.com/dcc-mcp/dcc-mcp-cli).
 
-~~~bash
-pip install dcc-mcp-core
-~~~
-
-**Try this →** [Blender material 60s Showcase](https://dcc-mcp.github.io/showcase/): the shortest path from one prompt to a rendered material in a live Blender session, powered by [`dcc-mcp-blender`](https://github.com/dcc-mcp/dcc-mcp-blender). See [Quick start: operate a DCC](#quick-start-operate-a-dcc) for the full CLI path.
-
-**Skill-first, Rust-powered control plane for a growing creative-tool ecosystem.**
-
-dcc-mcp-core connects agents to desktop DCCs, game engines, 2D tools,
-production systems, asset providers, profilers, and custom studio hosts through
-discoverable MCP and REST capabilities. It provides the gateway, Skills,
-structured results, main-thread dispatch, diagnostics, IPC, workflows, and
-packaged CLI/server binaries needed to operate real sessions.
-
-**One protocol, across every registered host.** Every host adapter in this
-ecosystem implements the same MCP protocol and the same tool contract. The
-registry is the source of truth, and the count is reproducible from a checkout:
+The adapter registry is the source of truth for host coverage. The reproducible
+catalog query below reports **49 adapter entries** in [`dcc-mcp-catalog.yml`](dcc-mcp-catalog.yml).
+See the [complete generated host list](docs/adapter-coverage.md) for every
+current entry and its install metadata. Selected hosts include Maya, Blender,
+Houdini, Photoshop, Unreal, Unity, Godot, RenderDoc, and custom studio hosts.
 
 ~~~bash
 rg -c '^    tags: \[.*"adapter".*\]' dcc-mcp-catalog.yml
 ~~~
 
 That reports **49 adapter entries** in [`dcc-mcp-catalog.yml`](dcc-mcp-catalog.yml).
-See the [complete generated host list](docs/adapter-coverage.md) for every current
-entry and its install metadata. The count includes experimental discovery-only
-PhotoCraft; it does not establish release-qualified support or automatic
-installation for every entry. Selected examples include:
-
-| Area | Selected hosts |
-|---|---|
-| Desktop DCC | Maya, Blender, Houdini, 3ds Max, Cinema 4D, Nuke, Katana, MotionBuilder, ZBrush, Mari, Substance 3D Designer, Substance 3D Painter, Marmoset |
-| Engines and real-time | Unreal, Unity, Godot, Tiled, TouchDesigner |
-| Design, image, video | Photoshop, Illustrator, GIMP, Krita, After Effects, Premiere, Kdenlive, PowerPoint, OBS, ComfyUI |
-| CAD, procedural, interchange | FreeCAD, OpenSCAD, SketchUp, Material Maker, LiquiGen, OpenUSD |
-| Production tracking and QA | Flow Production Tracking (ShotGrid), RenderDoc, Shogun, Wwise |
-
-The full list, with install metadata, is published in the
-[ecosystem directory](https://dcc-mcp.github.io/ecosystem).
-
-**Three shared contracts keep it one matrix.** Host coverage is only useful if
-the adapters stay interchangeable. Three contracts published by core are what
-stop host adapters from becoming unrelated servers:
-
-| Contract | What it guarantees | Where to verify |
-|---|---|---|
-| Core shared contract | One shared asset-import contract (`asset_import`), one discovery decision schema (`dcc-discovery-decision-v1`), and postcondition write-then-read-back so a tool proves its own result | `python/dcc_mcp_core/asset_import.py`, `contracts/dcc-discovery-decision-v1.schema.json`, `python/dcc_mcp_core/runtime/postcondition.py` |
-| Recipe runtime | `recipes__list` / `recipes__get` / `recipes__validate` / `recipes__apply` driven by a declarative `RECIPES.yaml`, so a host ships capabilities as data instead of a bespoke server | `skills/mesh-ops/RECIPES.yaml` |
-| Marketplace Skill contract | Every published entry carries `examplePrompts`; `Skills`, `Studio` and `Infrastructure` entries must also declare `recovery` and `undo`, so failures have a next step and edits have one rollback step | Enforced in dcc-mcp/marketplace by [`validate_marketplace.py`](https://github.com/dcc-mcp/marketplace/blob/main/scripts/validate_marketplace.py) — run `python scripts/validate_marketplace.py prompt-contract` (see [`prompt-contract.md`](https://github.com/dcc-mcp/marketplace/blob/main/docs/prompt-contract.md)) |
-
-**How to compare us.** Compare host coverage and contract completeness — both
-reproducible from the commands and files above. We do not claim a ranking, and
-we do not compare on stars or tool counts.
-
-## Features
-
-- **Bundled agent skill.** Every checkout and every release ships
-  [`llms.txt`](llms.txt) — a compact index — and
-  [`llms-full.txt`](llms-full.txt), the full API reference. Both are
-  machine-readable, so an agent can read them straight from the repository and
-  start working without installing a Skill, browsing the marketplace, or
-  scraping rendered docs.
-- **Skills as the production unit.** Ship capability as a versioned `SKILL.md`
-  package with `tools.yaml`, progressive discovery, lint and schema
-  validation, and hot reload
-  ([`DccSkillHotReloader`](python/dcc_mcp_core/hotreload.py)).
-- **Main-thread dispatch.** Actions are queued onto the DCC's main thread, so
-  calls are safe against applications that crash when scripted off-thread.
-- **Structured results and postconditions.** Every call returns typed results,
-  and the shared postcondition contract writes then reads back so a tool has
-  to prove its own effect.
-- **Multi-instance routing.** One gateway fronts every live DCC session and
-  publishes `gateway://instances`, so an agent talks to one endpoint no matter
-  how many hosts are running.
-- **UI Control as a fallback.** For tools with no API at all, bounded
-  screenshot-and-click automation brings them into the same control plane
-  ([DCC UI Control](#dcc-ui-control)).
 
 ## Choose your entry point
 
 | You want to… | Start with |
 |---|---|
-| Control a running DCC from an agent or CI job | Install the [`dcc-mcp` Agent Skill](https://clawhub.ai/loonghao/skills/dcc-mcp), then use [dcc-mcp-cli](docs/guide/cli-reference.md) |
+| Control a running DCC from an agent or CI job | [DCCMCP CLI](docs/guide/cli-reference.md) |
 | Expose a DCC adapter over MCP/REST | [create_skill_server](docs/guide/getting-started.md) |
 | Start a server from a resolved package (Rez) | [dcc-mcp-core serve](docs/guide/rez-skill-packages.md) |
 | Add tools without Python registration code | [SKILL.md + tools.yaml](docs/guide/skills.md) |
@@ -108,10 +48,11 @@ we do not compare on stars or tool counts.
 
 ## The current contract
 
-The default agent path is CLI + REST:
+The default agent path is DCCMCP CLI + REST. The primary command is `dccmcp`.
+`dcc-mcp-cli` remains a compatibility alias.
 
 ~~~text
-dcc-mcp-cli dcc-types (when adapter support is unclear)
+dccmcp dcc-types (when adapter support is unclear)
   -> list
   -> search
   -> describe
@@ -134,164 +75,67 @@ For direct per-DCC MCP connections, the compatibility discovery names
 (search_tools, describe_tool, and call_tool) remain available where the server
 exposes them. New gateway integrations should use the canonical names above.
 
-## Why dcc-mcp-core exists
+### MCP protocol and Agent Skills support
 
-The shortest DCC agent demo asks a model to write and run a `mayapy`, `hython`,
-or Blender Python script. A production pipeline cannot depend on getting the
-right script from the model on every turn. Repeated code generation costs
-tokens, varies with the model and context, and leaves every adapter to rebuild
-transport, main-thread dispatch, validation, process lifecycle, routing, and
-diagnostics.
+The HTTP endpoint advertises MCP `2026-07-28` through `server/discover` and
+serves the official `io.modelcontextprotocol/skills` extension. Agents can use
+`skills/list`, `skills/get`, `resources/read`, and
+`resources/directory/read` to discover workflow instructions and verify
+complete SHA-256 file manifests. Reading a skill file does not activate its
+tools.
 
-dcc-mcp-core moves that common engineering into one reusable control plane:
+The same endpoint accepts MCP `initialize` sessions for `2025-11-25`,
+`2025-06-18`, and `2025-03-26`. The DCCMCP CLI keeps the
+`2025-11-25` initialize path as its compatibility default while newer MCP
+clients can use the modern discovery lifecycle.
 
-| Layer | Reused capability |
-|---|---|
-| Integration | MCP and REST endpoints, Host RPC/IPC, typed schemas, resources, prompts, and structured results |
-| DCC runtime | Main-thread affinity, readiness, multi-instance routing, async jobs, cancellation, checkpoints, workflows, artefacts, and UI Control |
-| Skill delivery | `SKILL.md` packages, progressive discovery, lint/schema validation, hot reload, persistence, marketplace distribution, and project/team scopes |
-| Operations | CLI, gateway, Admin UI, policies, audit records, traces, logs, metrics, health checks, and VRS replay |
+The shared MCP client is also available for generic MCP endpoints:
 
-This project provides the infrastructure for agents to control DCC
-applications; it does not build or prescribe the agent itself. Agents and
-models will change, while studio interfaces, permission boundaries, and
-pipeline knowledge still need to be maintained. The framework turns those
-investments into reusable engineering assets.
-
-### Existing tools need AI access too
-
-Adding an AI-facing interface to a new tool is usually straightforward. The
-harder problem is making years of existing tools usable by agents when they
-have no API, cannot be modified, or expose part of a workflow only through a
-window or modal dialog.
-
-For that gap, dcc-mcp-core provides the bounded Computer Use-style
-[DCC UI Control](#dcc-ui-control) capability. It combines exact-window
-screenshots, semantic controls when available, scoped actions, waits, recording,
-policy checks, audit, and result verification. Native Skills/APIs remain the
-preferred path; UI Control lets legacy and interface-only workflows join the
-same agent control plane without pretending that every application has a clean
-programmable API.
-
-### MCP is an entry point, not the ceiling
-
-MCP is the industry-standard agent interface we reuse, not the limit of the
-framework. A stable Python, C++, HTTP, command-port, or native plugin interface
-can be integrated under the same discovery, execution, safety, and operations
-contracts.
-
-We also include useful vendor capabilities instead of replacing them. Unreal
-Engine 5.8 introduced an
-[experimental built-in MCP server and Toolset Registry](https://dev.epicgames.com/documentation/unreal-engine/unreal-mcp-in-unreal-editor).
-The
-[Unreal Official MCP Bridge](https://github.com/dcc-mcp/dcc-mcp-unreal/blob/main/src/dcc_mcp_unreal/skills/unreal-official-mcp/SKILL.md)
-enables and calls those official toolsets through DCC MCP without
-redistributing them. Vendor tools, DCC-MCP tools, and studio tools can share
-one agent-facing workflow.
-
-### Skills are the production unit
-
-A Skill turns proven pipeline knowledge into a versioned, typed, testable, and
-distributable operation. A lower-cost model may struggle to invent
-scene-editing logic from scratch but remain effective when selecting a
-well-described tool and supplying validated arguments. Studios can distribute
-different Skill sets by project and production stage, reducing repeated code
-generation, token use, and model-dependent variance.
-
-This is also the practical customization boundary for studio TDs and TAs. Core
-and adapters keep ownership of host connectivity, main-thread execution,
-routing, safety, and observability. A TD or TA can encode the actual project
-flow—naming and scene checks, asset preparation, publish gates, cache/export
-rules, and review hand-offs—as a Skill made from `SKILL.md`, `tools.yaml`, and
-the studio's existing scripts. Those Skills can be tested, scoped to a project
-or team, and distributed through a public or private marketplace without
-forking the control plane or rebuilding an adapter.
-
-### One contract, a growing ecosystem
-
-The same Skill and runtime contract now spans much more than the original DCC
-adapters:
-
-| Area | Examples |
-|---|---|
-| Desktop DCCs | Maya, Blender, Houdini, 3ds Max, Nuke, Katana, MotionBuilder, ZBrush |
-| Design and content tools | Photoshop, Substance 3D Designer/Painter, After Effects, Premiere, GIMP, Krita |
-| Game and 2D engines | Unreal Engine, Unity, Godot, Tiled, Material Maker |
-| Pipeline and quality | OpenUSD, Flow Production Tracking, MaterialX, texture/publish workflows, RenderDoc, Tracy |
-| Reusable Skills | Asset providers, generative 2D/3D services, UI automation, rigging, procedural authoring, game release and acceptance |
-
-Browse every integration in the
-[ecosystem directory](https://dcc-mcp.github.io/ecosystem), or use
-the [official Marketplace](https://dcc-mcp.github.io/marketplace) to discover
-optional Skills without changing an adapter.
-
-[![DCC-MCP Skill Marketplace](docs/assets/admin-ui/admin-marketplace.png)](https://dcc-mcp.github.io/marketplace)
-
-The Admin UI closes the feedback loop. Calls, traces, logs, health, statistics,
-and usage data show which tools agents selected and where they failed. Teams can
-improve a description, schema, or implementation, then verify the result
-against real calls instead of treating tool use as a black box.
-
-The boundaries remain explicit. Core cannot safely preempt arbitrary code
-already running on a DCC main thread, guarantee rollback for host APIs without
-transactions, or define one lossless mesh/rig/material model for every
-application. Host semantics still belong in adapters and pipeline Skills.
+~~~bash
+dccmcp mcp initialize --url http://127.0.0.1:9765/mcp
+dccmcp mcp tools list --url http://127.0.0.1:9765/mcp
+dccmcp mcp tools call --url http://127.0.0.1:9765/mcp --name create_sphere --json '{"radius": 2.0}'
+~~~
 
 ## Quick start: operate a DCC
 
-`dcc-mcp-cli` is the preferred control path for every shell-capable agent.
-
-If you have a Python toolchain, one command installs it on Linux, macOS and
-Windows:
-
-~~~bash
-uvx dcc-mcp-cli --version      # run it without installing
-
-# or install it into a managed tool environment
-uv tool install dcc-mcp-cli
-pipx install dcc-mcp-cli
-
-# or into the current environment
-pip install dcc-mcp-cli
-~~~
-
-Package-manager installs also support `dcc-mcp-cli update`, which checks,
-downloads, and stages the latest CLI in one step. The package manager's own
-record then lags behind the binary on disk and the CLI reports that mismatch as
-an advisory; prefer `uv tool upgrade dcc-mcp-cli` (or
-`pip install --upgrade dcc-mcp-cli`) when you want its metadata to stay in sync.
-
-Otherwise, obtain the user's consent, install the public `dcc-mcp`
-Skill below, and run its bundled verified helper from the Skill directory:
-
-~~~bash
-python scripts/check_cli.py --ensure-cli --pretty
-~~~
-
-Without the Skill, download the official installer to a local file, inspect it,
-and only then execute that file:
+`dccmcp` is the preferred control path for every shell-capable agent.
+The installed `dcc-mcp-cli` compatibility alias accepts the same commands.
+If it is missing, obtain the user's consent before installing the latest
+official release:
 
 ~~~bash
 # Linux/macOS
-curl -fL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.sh -o install-cli.sh
+curl -fL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-cli/main/scripts/install-cli.sh -o install-cli.sh
 cat install-cli.sh
 # After reviewing the file:
 sh ./install-cli.sh
+
+# Windows PowerShell
+Invoke-WebRequest https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-cli/main/scripts/install-cli.ps1 -OutFile .\install-cli.ps1
+Get-Content -Raw .\install-cli.ps1
+# After reviewing the file:
+& .\install-cli.ps1
 ~~~
 
 ~~~powershell
 # Windows PowerShell
-Invoke-WebRequest https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.ps1 -OutFile .\install-cli.ps1
+Invoke-WebRequest https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-cli/main/scripts/install-cli.ps1 -OutFile .\install-cli.ps1
 Get-Content -Raw .\install-cli.ps1
 # After reviewing the file and subject to the current execution policy:
 & .\install-cli.ps1
 ~~~
 
-Both paths accept only the official `dcc-mcp/dcc-mcp-core` release, validate
+Both paths accept only the official `dcc-mcp/dcc-mcp-cli` release, validate
 the platform update manifest and CLI SHA-256, and leave any existing binary
 untouched if validation or download fails. This is an integrity check, not a
 digital signature. Never pipe a remote installer directly into a shell or
 bypass the machine's script execution policy.
+
+Windows users can use `winget install --id DccMcp.DccMcpCli --exact` when the
+package is available. macOS users can use
+`brew tap dcc-mcp/tap && brew install dccmcp`. Both package-manager routes
+are published by the standalone CLI repository.
 
 ### Install the Agent Skill you need
 
@@ -337,27 +181,26 @@ Skills remain under `python/dcc_mcp_core/skills/`.
 Keep an official build current through the release manifest:
 
 ~~~bash
-dcc-mcp-cli update check
-dcc-mcp-cli update          # check, download, and stage in one step
+dccmcp update
+dccmcp update check
+dccmcp update apply
+dccmcp --auto-update list
 ~~~
 
-Official release builds refresh a cached update status in the background every
-24 hours without blocking the foreground command. Available updates appear as
-structured `cli_update` data. `dcc-mcp-cli update` checks, downloads, and stages
-the latest CLI for the next launch in one step, with no separate confirmation
-flag; `update apply` and `--yes` remain accepted for backward compatibility. It
-does not update or restart a running `dcc-mcp-server`; update that server in its
-own environment.
+`dccmcp update` checks, downloads, verifies, and stages the latest CLI for the
+next launch. Set `DCC_MCP_CLI_AUTO_UPDATE=true` to enable the same best-effort
+behavior before ordinary commands. Update failures are warnings in automatic
+mode. These commands do not update a running `dcc-mcp-server`; update that
+server in its own environment.
 
 Then discover a live capability before calling it:
 
 ~~~bash
-dcc-mcp-cli dcc-types
-dcc-mcp-cli --output json dcc-types --dcc-type unreal
-dcc-mcp-cli list
-dcc-mcp-cli search --query "create sphere" --dcc-type maya --limit 20
-dcc-mcp-cli describe <tool-slug>
-dcc-mcp-cli call <tool-slug> --json '{"radius": 2.0}' \
+dccmcp dcc-types
+dccmcp list
+dccmcp search --query "create sphere" --dcc-type maya --limit 20
+dccmcp describe <tool-slug>
+dccmcp call <tool-slug> --json '{"radius": 2.0}' \
   --meta-json '{"agent_context":{"session_id":"task-42"}}'
 ~~~
 
@@ -377,24 +220,24 @@ Replace the placeholder with the slug returned by search. For remote workstation
 register a gateway profile and select it:
 
 ~~~bash
-dcc-mcp-cli gateway register https://workstation.example:19293 --name pcA
-dcc-mcp-cli gateway set pcA
-dcc-mcp-cli list
+dccmcp gateway register https://workstation.example:19293 --name pcA
+dccmcp gateway set pcA
+dccmcp list
 ~~~
 
-Use dcc-mcp-cli doctor when startup or readiness is unclear. Open the local
+Use `dccmcp doctor` when startup or readiness is unclear. Open the local
 Admin UI at [http://127.0.0.1:9765/admin](http://127.0.0.1:9765/admin) after the
 gateway is available.
 
 When a call fails, preserve its `request_id`, run `doctor` or a failure-filtered
-`stats` query, and use gateway-owned `dcc-mcp-cli feedback`. A live adapter's
+`stats` query, and use gateway-owned `dccmcp feedback`. A live adapter's
 `dcc_feedback__report` is only a thin Core forwarder to the same endpoint.
 Gateway-routed failures also expose a
 public-safe `/v1/debug/issue-reports/<request_id>` payload for a reviewed bug
 report; raw bundles must never be uploaded automatically.
 
 After a task is accepted, agents can inspect bounded gateway evidence with
-`dcc-mcp-cli stats --range 24h --session-id task-42`. A zero call count means
+`dccmcp stats --range 24h --session-id task-42`. A zero call count means
 no telemetry evidence, and direct local calls may not be represented. Feed the
 result plus short task and validation summaries to the
 [`review_skill_improvement` prompt](https://github.com/dcc-mcp/dcc-mcp-agent-plugins/blob/main/plugins/dcc-mcp/skills/dcc-mcp-skills-creator/prompts.yaml).
@@ -486,7 +329,7 @@ tools:
 ~~~
 
 Run the same production validator used by CI with
-dcc-mcp-cli lint path/to/skills. See [Skills](docs/guide/skills.md) for schemas,
+`dccmcp lint path/to/skills`. See [Skills](docs/guide/skills.md) for schemas,
 groups, dependencies, testing, and migration rules.
 
 ## DCC UI Control
@@ -621,8 +464,8 @@ repository does not duplicate version or package counts in this README.
 - [Adapter onboarding](docs/guide/new-adapter-onboarding.md) — the supported
   adapter implementation and release path.
 - [Documentation index](docs/guide/INDEX.md) — the complete guide/API map.
-- [AI agent guide](docs/guide/ai-agent-guide.md) and [AGENTS.md](AGENTS.md) — agent workflow
-  and repository rules.
+- [AGENTS.md](AGENTS.md) and [agents-reference.md](docs/guide/agents-reference.md)
+  — agent workflow and repository rules.
 
 ## Development
 

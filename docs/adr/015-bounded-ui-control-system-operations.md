@@ -40,7 +40,7 @@ contains `remote control`, `remote connection`, or `allow remote` are treated
 as account/access changes and always require action-time confirmation.
 
 Add a separate `ui_control__system_operation` tool, exposed by
-`dcc-mcp-cli ui-control system-operation`. It opens a short-lived system
+`dccmcp ui-control system-operation`. It opens a short-lived system
 session and does not accept a PID, HWND, snapshot, coordinate, command, or
 executable. Protocol v2 advertises this through the
 `typed_system_operations` capability.

@@ -6,6 +6,7 @@ over HTTP using ``urllib`` to exercise the resources JSON-RPC surface.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from typing import Any
 import urllib.error
@@ -27,9 +28,48 @@ def _post_json(
     headers: dict[str, str] | None = None,
 ) -> tuple[int, dict[str, Any]]:
     """POST a JSON-RPC message using McpClient and return (status_code, response_body)."""
-    client = McpClient(url)
-    code, resp = client.post(body, extra_headers=headers)
+    params = body.get("params")
+    request_meta = params.get("_meta", {}) if isinstance(params, dict) else {}
+    is_modern = request_meta.get("io.modelcontextprotocol/protocolVersion")
+    client = McpClient(
+        url,
+        auto_init=body.get("method") != "initialize" and not is_modern,
+    )
+    if is_modern:
+        client.protocol_version = request_meta["io.modelcontextprotocol/protocolVersion"]
+    if body.get("method") == "initialize":
+        client.protocol_version = body.get("params", {}).get(
+            "protocolVersion",
+            "2025-11-25",
+        )
+    request_headers = dict(headers or {})
+    if client.protocol_version >= "2026-07-28":
+        request_headers.setdefault("Mcp-Method", body.get("method", ""))
+        method = body.get("method")
+        name_key = (
+            "uri"
+            if method
+            in {
+                "resources/read",
+                "resources/subscribe",
+                "resources/unsubscribe",
+            }
+            else "name"
+            if method in {"tools/call", "prompts/get"}
+            else None
+        )
+        if name_key and isinstance(params, dict) and params.get(name_key):
+            request_headers.setdefault("Mcp-Name", params[name_key])
+    code, resp = client.post(body, extra_headers=request_headers)
     return code, resp
+
+
+def _modern_meta() -> dict[str, Any]:
+    return {
+        "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+        "io.modelcontextprotocol/clientCapabilities": {},
+        "io.modelcontextprotocol/clientInfo": {"name": "pytest-modern", "version": "1.0"},
+    }
 
 
 @pytest.fixture(scope="module")
@@ -148,47 +188,25 @@ class TestResourcesCapability:
 
     def test_resources_subscribe_and_unsubscribe(self, resource_server):
         _, _, url = resource_server
-        # initialize to pick up a session id
-        code, body = _post_json(
-            url,
-            {
-                "jsonrpc": "2.0",
-                "id": 10,
-                "method": "initialize",
-                "params": {
-                    "protocolVersion": "2025-03-26",
-                    "capabilities": {},
-                    "clientInfo": {"name": "sub", "version": "1.0"},
-                },
-            },
-        )
-        assert code == 200
-        # In stateless mode (rmcp), __session_id is no longer injected into the
-        # response body.  Subsequent requests work without a session ID header.
-        session_id = body["result"].get("__session_id", "")
-
-        code, body = _post_json(
-            url,
+        client = McpClient(url)
+        code, body = client.post(
             {
                 "jsonrpc": "2.0",
                 "id": 11,
                 "method": "resources/subscribe",
                 "params": {"uri": "scene://current"},
             },
-            headers={"Mcp-Session-Id": session_id},
         )
         assert code == 200
         assert body.get("error") is None
 
-        code, body = _post_json(
-            url,
+        code, body = client.post(
             {
                 "jsonrpc": "2.0",
                 "id": 12,
                 "method": "resources/unsubscribe",
                 "params": {"uri": "scene://current"},
             },
-            headers={"Mcp-Session-Id": session_id},
         )
         assert code == 200
         assert body.get("error") is None
@@ -238,62 +256,127 @@ def test_dcc_server_base_registers_custom_resource_producer(tmp_path):
         server.stop()
 
 
-def test_dcc_server_base_exposes_host_errors_through_mcp_resources(tmp_path, monkeypatch):
-    """Host console errors are readable through the existing MCP resources."""
-    monkeypatch.setenv("DCC_MCP_LOG_DIR", str(tmp_path / "logs"))
+def test_skills_extension_lists_and_reads_a_catalogued_skill(tmp_path):
+    """The Skills extension uses the catalog without loading the skill tools."""
 
-    skills_dir = tmp_path / "skills"
-    skills_dir.mkdir()
+    class AdapterServer(DccServerBase):
+        pass
+
+    skills_root = tmp_path / "skills"
+    skill_dir = skills_root / "demo"
+    references_dir = skill_dir / "references"
+    references_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: demo\ndescription: Demo skill\nlicense: MIT\n---\n\n# Demo\n",
+        encoding="utf-8",
+    )
+    guide = b"# Guide\n"
+    (references_dir / "guide.md").write_bytes(guide)
+
     opts = DccServerOptions.from_env(
-        "photoshop",
-        skills_dir,
+        "skills-extension-test",
+        skills_root,
         port=0,
         enable_gateway_failover=False,
         enable_file_logging=False,
         enable_job_persistence=False,
         enable_telemetry=False,
     )
-    server = DccServerBase(opts)
-    server.report_host_error(
-        "generator callback failed",
-        source="photoshop.console",
-        metadata={"document": "poster.psd"},
+    server = AdapterServer(opts)
+    server.register_builtin_actions(
+        extra_skill_paths=[str(skills_root)],
+        include_bundled=False,
     )
-
     handle = server.start(install_atexit_hook=False)
     try:
-        _, listed = _post_json(
+        code, discovered = _post_json(
             handle.mcp_url(),
-            {"jsonrpc": "2.0", "id": 30, "method": "resources/list"},
+            {
+                "jsonrpc": "2.0",
+                "id": 29,
+                "method": "server/discover",
+                "params": {"_meta": _modern_meta()},
+            },
         )
-        uris = {item["uri"] for item in listed["result"]["resources"]}
-        output_uri = next(uri for uri in uris if uri.startswith("output://instance/photoshop-"))
-        events_uri = next(uri for uri in uris if uri.startswith("events://session/photoshop-"))
+        assert code == 200, discovered
+        assert "2026-07-28" in discovered["result"]["supportedVersions"]
+        assert (
+            discovered["result"]["capabilities"]["extensions"]["io.modelcontextprotocol/skills"]["directoryRead"]
+            is True
+        )
 
-        _, output = _post_json(
+        code, listed = _post_json(
+            handle.mcp_url(),
+            {
+                "jsonrpc": "2.0",
+                "id": 30,
+                "method": "skills/list",
+                "params": {"_meta": _modern_meta()},
+            },
+        )
+        assert code == 200, listed
+        assert listed["result"]["resultType"] == "complete"
+        assert listed["result"]["cacheScope"] == "private"
+        assert listed["result"]["ttlMs"] == 0
+        skill = next(item for item in listed["result"]["skills"] if item["uri"] == "skill://demo/SKILL.md")
+        guide_entry = next(item for item in skill["resources"] if item["uri"] == "skill://demo/references/guide.md")
+        assert guide_entry["size"] == len(guide)
+        assert guide_entry["digest"] == f"sha256:{hashlib.sha256(guide).hexdigest()}"
+
+        code, fetched = _post_json(
             handle.mcp_url(),
             {
                 "jsonrpc": "2.0",
                 "id": 31,
-                "method": "resources/read",
-                "params": {"uri": output_uri},
+                "method": "skills/get",
+                "params": {
+                    "uri": "skill://demo/SKILL.md",
+                    "_meta": _modern_meta(),
+                },
             },
         )
-        assert "generator callback failed" in output["result"]["contents"][0]["text"]
+        assert code == 200, fetched
+        assert fetched["result"]["resultType"] == "complete"
+        assert fetched["result"]["skill"]["uri"] == "skill://demo/SKILL.md"
+        assert fetched["result"]["skill"]["frontmatter"]["license"] == "MIT"
 
-        _, events = _post_json(
+        code, read = _post_json(
             handle.mcp_url(),
             {
                 "jsonrpc": "2.0",
                 "id": 32,
                 "method": "resources/read",
-                "params": {"uri": events_uri},
+                "params": {
+                    "uri": "skill://demo/references/guide.md",
+                    "_meta": _modern_meta(),
+                },
             },
         )
-        payload = json.loads(events["result"]["contents"][0]["text"])
-        assert payload["events"][0]["source"] == "photoshop.console"
-        assert payload["events"][0]["level"] == "error"
-        assert payload["events"][0]["metadata"]["details"]["document"] == "poster.psd"
+        assert code == 200, read
+        assert read["result"]["contents"][0]["text"] == guide.decode()
+
+        code, directory = _post_json(
+            handle.mcp_url(),
+            {
+                "jsonrpc": "2.0",
+                "id": 33,
+                "method": "resources/directory/read",
+                "params": {
+                    "uri": "skill://demo/references",
+                    "_meta": _modern_meta(),
+                },
+            },
+        )
+        assert code == 200
+        assert directory["result"]["resources"][0]["uri"] == "skill://demo/references/guide.md"
+
+        legacy_code, legacy = _post_json(
+            handle.mcp_url(),
+            {"jsonrpc": "2.0", "id": 34, "method": "skills/list"},
+        )
+        assert legacy_code == 200
+        assert legacy["result"]["skills"][0]["uri"] == "skill://demo/SKILL.md"
+        assert "resultType" not in legacy["result"]
     finally:
         server.stop()
 

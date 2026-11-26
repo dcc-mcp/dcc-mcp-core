@@ -10,7 +10,7 @@ DCC-MCP-Core is a **Rust-powered DCC automation framework** with Python bindings
 +--------------------------------------------------------------------------------+
 | Agent / operator surfaces                                                       |
 | - MCP clients: search -> describe -> load_skill? -> call                       |
-| - CLI users: dcc-mcp-cli list/search/describe/call                              |
+| - CLI users: dccmcp list/search/describe/call                              |
 | - ClawHub/OpenClaw skills: dcc-mcp                                      |
 | - CI and custom clients: REST /v1/*                                             |
 +----------------------------------------+---------------------------------------+
@@ -77,7 +77,7 @@ dcc-mcp-core (workspace root)
 ├── dcc-mcp-http-server   # Reusable HTTP runtime support
 ├── dcc-mcp-http-py       # PyO3 binding boundary for HTTP APIs
 ├── dcc-mcp-http          # Embedded MCP HTTP facade + compatibility re-exports
-├── dcc-mcp-cli           # Client control-plane CLI for gateway REST
+├── dccmcp           # Client control-plane CLI for gateway REST
 ├── dcc-mcp-server        # Binary entry point and CLI wrapper
 ├── dcc-mcp-logging       # Rolling file logging
 ├── dcc-mcp-paths         # Platform path helpers
@@ -136,7 +136,7 @@ dcc-mcp-http ← dcc-mcp-http-types, dcc-mcp-http-server, dcc-mcp-gateway, dcc-m
        ↓
 dcc-mcp-server ← dcc-mcp-http, dcc-mcp-sidecar
 
-dcc-mcp-cli ← dcc-mcp-catalog + gateway REST contract
+dccmcp ← dcc-mcp-catalog + gateway REST contract
 
 ```
 
@@ -205,7 +205,8 @@ dcc-mcp-cli ← dcc-mcp-catalog + gateway REST contract
 
 ### dcc-mcp-protocols
 
-**Purpose**: MCP (Model Context Protocol) type definitions per 2025-03-26 spec.
+**Purpose**: MCP (Model Context Protocol) type definitions shared across the
+supported legacy revisions and the modern 2026-07-28 discovery lifecycle.
 
 **Key Types**:
 - `ToolDefinition`, `ToolAnnotations` — canonical camelCase MCP tool wire schema
@@ -431,7 +432,11 @@ dcc-mcp-cli ← dcc-mcp-catalog + gateway REST contract
 
 ### dcc-mcp-http
 
-**Purpose**: MCP Streamable HTTP facade (2025-03-26 spec) for HTTP-based MCP clients. It owns axum routing, server startup, prompt/resource registries, gateway bootstrap, and compatibility re-exports from the extracted crates.
+**Purpose**: MCP Streamable HTTP facade for HTTP-based MCP clients. It serves
+the modern 2026-07-28 discovery lifecycle and preserves legacy
+initialize/session compatibility. It owns axum routing, server startup,
+prompt/resource registries, gateway bootstrap, and compatibility re-exports
+from the extracted crates.
 
 **Key Components**:
 - `McpHttpServer` — background-thread HTTP server (axum/Tokio).
@@ -452,7 +457,7 @@ dcc-mcp-cli ← dcc-mcp-catalog + gateway REST contract
 
 **Purpose**: Binary composition entry point (`dcc-mcp-server` CLI). The implicit root mode, explicit `auto`, and default `serve` modes run a per-DCC MCP server, ensure the machine-wide gateway daemon, register as a backend, and keep a daemon guardian while the backend is alive. `serve --no-auto-gateway` runs a per-DCC server without touching the shared gateway, `auto --legacy-gateway-election` restores the old embedded first-wins path, and `sidecar` / `gateway` delegate to `dcc-mcp-sidecar` for per-DCC sidecar and machine-wide gateway-daemon runtime.
 
-### dcc-mcp-cli
+### dccmcp
 
 **Purpose**: Client-side control-plane CLI for users, CI, and shell-capable skills. It talks to the gateway REST surface for `health`, `list`, instance-scoped `search`, `load-skill`, `describe`, slug or direct backend `call`, `wait-ready`, guarded `stop-instance`, and adapter install planning; it does not host skills or replace per-DCC servers.
 

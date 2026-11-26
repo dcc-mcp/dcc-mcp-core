@@ -34,16 +34,12 @@ The standalone CUA project owns:
 - trajectory recording and application-specific profiles.
 
 Core neither embeds nor releases the CUA executable in Core release assets.
-The official CLI installer reconciles the independently released executable,
-and operators can run `dcc-mcp-cli components status dcc-cua` or
-`dcc-mcp-cli components ensure dcc-cua --yes`. Component installation consumes
-only the versionless per-target manifest from `dcc-mcp/dcc-cua`, requires a
-SHA-256, strictly binds the version, target, asset name, and official asset URL,
-extracts into a bounded transaction directory, validates the candidate runtime
-manifest, and installs it beside `dcc-mcp-cli`. The Python bridge prefers this
-CLI sibling before falling back to `dcc-cua` on `PATH`; an explicit
-`DCC_MCP_CUA_BINARY` remains authoritative. Core validates `manifest`, prefers
-shared memory when available, and falls back to bounded binary attachments.
+The standalone `dccmcp` CLI forwards `dccmcp cua -- manifest` and
+`dccmcp cua -- host-ensure` to the independently released runtime. Operators
+install and update `dcc-cua` from its own release channel. The Python bridge
+prefers an explicit `DCC_MCP_CUA_BINARY`, then the standard standalone runtime
+locations and `PATH`. Core validates `manifest`, prefers shared memory when
+available, and falls back to bounded binary attachments.
 Core requires stable `dcc-cua` 0.4.0 or newer so the external runtime includes
 the hardened long-session health and recovery contract while preserving Host
 protocol v1 compatibility.

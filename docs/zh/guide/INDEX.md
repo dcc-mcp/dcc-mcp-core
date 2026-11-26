@@ -6,25 +6,18 @@
 
 **如果你是 AI Agent**，请按以下顺序阅读：
 
-| 你的任务 | 首先安装 |
-|----------|----------|
-| 操作实时 DCC 或发现 Marketplace 能力 | [`dcc-mcp`](https://clawhub.ai/loonghao/skills/dcc-mcp) |
-| 创建或现代化完整 DCC-MCP adapter | [`dcc-mcp-creator`](https://clawhub.ai/loonghao/skills/dcc-mcp-creator) |
-| 创建或改进 DCC 专项 Skill 包 | [`dcc-mcp-skills-creator`](https://clawhub.ai/loonghao/skills/dcc-mcp-skills-creator) |
-
 | 优先级 | 文档 | 说明 |
 |--------|------|------|
 | 1 | [`AGENTS.md`](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/AGENTS.md) | 导航地图、响应规则、PR 规则及链接 |
-| 2 | [`docs/guide/ai-agent-guide.md`](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/docs/guide/ai-agent-guide.md) | AI Agent 的技能优先使用工作流 |
-| 3 | [agents-reference.md](agents-reference.md) | **关键** — 陷阱、注意事项、代码风格、常量 |
-| 4 | [skills.md](skills.md) | 如何编写和注册技能 |
-| 5 | [gateway.md](gateway.md) + [dcc-rest-skill-api.md](dcc-rest-skill-api.md) | 网关动态能力与 REST 工作流 |
+| 2 | [agents-reference.md](agents-reference.md) | **关键** — 陷阱、注意事项、代码风格、常量 |
+| 3 | [skills.md](skills.md) | 如何编写和注册技能 |
+| 4 | [gateway.md](gateway.md) + [dcc-rest-skill-api.md](dcc-rest-skill-api.md) | 网关动态能力与 REST 工作流 |
 
 ## 快速上手
 
 | 文档 | 用途 |
 |------|------|
-| [getting-started.md](getting-started.md) | 安装正确的 Agent Skill/CLI、操作 DCC 或暴露第一个 server |
+| [getting-started.md](getting-started.md) | 安装、第一个服务器、第一个工具 |
 | [what-is-dcc-mcp-core.md](what-is-dcc-mcp-core.md) | 项目高层概述与背景 |
 | [architecture.md](architecture.md) | Rust workspace 布局、crate 边界、PyO3 桥接 |
 
@@ -75,7 +68,6 @@
 | [shm.md](shm.md) | 共享内存与零拷贝场景数据 |
 | [usd.md](usd.md) | OpenUSD 桥接：UsdStage、场景信息 JSON |
 | [artefacts.md](artefacts.md) | FileRef + ArtefactStore — 跨工具文件交接 |
-| [adapter-launch-plan-contract.md](adapter-launch-plan-contract.md) | adapter 侧的 `start-instance` 契约：启动计划 schema、argv 占位符、注册行 metadata、就绪位、阻塞状态 |
 | [telemetry.md](telemetry.md) | ToolMetrics、ToolRecorder、RecordingGuard |
 | [observability.md](observability.md) | OTLP exporter、agent workflow spans、网关事件日志（`resources://gateway/events`）、Prometheus 计数器 |
 | [metric-dictionary.md](../../guide/metric-dictionary.md) | 指标字典：单位、采样窗口、空值语义、存储层清单 |

@@ -40,8 +40,10 @@ use helpers::{
 use thread_route::execute_threaded_dispatch;
 
 /// Decode rmcp request `_meta` into our JSON-RPC [`CallToolMeta`] shape.
-pub(crate) fn call_meta_from_rmcp(meta: Option<&rmcp::model::Meta>) -> Option<CallToolMeta> {
-    meta.and_then(|m| serde_json::from_value(Value::Object(m.0.clone())).ok())
+pub(crate) fn call_meta_from_rmcp(
+    meta: Option<&rmcp::model::RequestMetaObject>,
+) -> Option<CallToolMeta> {
+    meta.and_then(|m| serde_json::from_value(serde_json::to_value(m).ok()?).ok())
 }
 
 /// Central entry — mirrors JSON-RPC [`resolve_tool_call`] + registry dispatch (#727736b-era).
@@ -1230,8 +1232,8 @@ mod tests {
 
         let rmcp_result = crate::rmcp_adapter::call_result_to_rmcp(&result);
         assert!(matches!(
-            &rmcp_result.content[1].raw,
-            rmcp::model::RawContent::Image(image)
+            &rmcp_result.content[1],
+            rmcp::model::ContentBlock::Image(image)
                 if image.data == "iVBORw0KGgo=" && image.mime_type == "image/png"
         ));
     }

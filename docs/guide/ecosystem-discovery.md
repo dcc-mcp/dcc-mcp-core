@@ -5,10 +5,10 @@ catalog entries, names, application targets, package formats, and declared
 requirements appear without adding component names to the CLI.
 
 ```bash
-dcc-mcp-cli --output json update discover
-dcc-mcp-cli update discover --query "animation" --limit 20 --output json
-dcc-mcp-cli update discover --target application:editor --output json
-dcc-mcp-cli update discover --offline --provider official_install_catalog --output json
+dccmcp --output json update discover
+dccmcp update discover --query "animation" --limit 20 --output json
+dccmcp update discover --target application:editor --output json
+dccmcp update discover --offline --provider official_install_catalog --output json
 ```
 
 The command returns catalog observations. It does not install packages, inspect

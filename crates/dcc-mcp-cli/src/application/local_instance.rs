@@ -1,4 +1,4 @@
-//! Shared local FileRegistry instance helpers for `dcc-mcp-cli`.
+//! Shared local FileRegistry instance helpers for `dccmcp`.
 //!
 //! Local inventory and direct MCP control must interpret registry rows the same
 //! way. Keep ID matching, `mcp_url`, summaries, and gateway-sentinel filtering
@@ -222,15 +222,6 @@ pub(crate) fn mcp_url(entry: &ServiceEntry) -> String {
                 .map(str::to_string)
         })
         .unwrap_or_else(|| format!("http://{}:{}/mcp", entry.host, entry.port))
-}
-
-pub(crate) fn discovery_mcp_url(entry: &ServiceEntry) -> String {
-    entry
-        .metadata
-        .get("discovery_mcp_url")
-        .filter(|url| !url.trim().is_empty())
-        .cloned()
-        .unwrap_or_else(|| mcp_url(entry))
 }
 
 pub(crate) fn readyz_url(entry: &ServiceEntry) -> String {

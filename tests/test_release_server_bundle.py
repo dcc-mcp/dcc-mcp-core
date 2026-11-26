@@ -22,9 +22,7 @@ def _expected_notice_members() -> set[str]:
 
 def test_build_server_bundle_packages_unsuffixed_unix_binaries(tmp_path) -> None:
     server = tmp_path / "dcc-mcp-server-linux-x86_64"
-    cli = tmp_path / "dcc-mcp-cli-linux-x86_64"
     server.write_bytes(b"server")
-    cli.write_bytes(b"cli")
 
     out_dir = tmp_path / "dist"
     result = subprocess.run(
@@ -37,8 +35,6 @@ def test_build_server_bundle_packages_unsuffixed_unix_binaries(tmp_path) -> None
             "linux-x86_64",
             "--server-bin",
             str(server),
-            "--cli-bin",
-            str(cli),
             "--out-dir",
             str(out_dir),
         ],
@@ -50,16 +46,13 @@ def test_build_server_bundle_packages_unsuffixed_unix_binaries(tmp_path) -> None
     bundle = out_dir / "dcc-mcp-server-0.18.12-linux-x86_64.zip"
     assert result.stdout.strip().endswith(bundle.as_posix())
     with zipfile.ZipFile(bundle) as zf:
-        assert set(zf.namelist()) == _expected_notice_members() | {"dcc-mcp-server", "dcc-mcp-cli"}
+        assert set(zf.namelist()) == _expected_notice_members() | {"dcc-mcp-server"}
         assert zf.read("dcc-mcp-server") == b"server"
-        assert zf.read("dcc-mcp-cli") == b"cli"
 
 
 def test_build_server_bundle_preserves_windows_exe_names(tmp_path) -> None:
     server = tmp_path / "dcc-mcp-server-windows-x86_64.exe"
-    cli = tmp_path / "dcc-mcp-cli-windows-x86_64.exe"
     server.write_bytes(b"server")
-    cli.write_bytes(b"cli")
 
     out_dir = tmp_path / "dist"
     subprocess.run(
@@ -72,8 +65,6 @@ def test_build_server_bundle_preserves_windows_exe_names(tmp_path) -> None:
             "windows-x86_64",
             "--server-bin",
             str(server),
-            "--cli-bin",
-            str(cli),
             "--out-dir",
             str(out_dir),
         ],
@@ -82,30 +73,61 @@ def test_build_server_bundle_preserves_windows_exe_names(tmp_path) -> None:
 
     bundle = out_dir / "dcc-mcp-server-0.18.12-windows-x86_64.zip"
     with zipfile.ZipFile(bundle) as zf:
-        assert set(zf.namelist()) == _expected_notice_members() | {"dcc-mcp-server.exe", "dcc-mcp-cli.exe"}
+        assert set(zf.namelist()) == _expected_notice_members() | {"dcc-mcp-server.exe"}
 
 
-def test_build_server_bundle_includes_supplied_license_text(tmp_path, monkeypatch) -> None:
-    for name, content in {
-        "LICENSE": "license\n",
-        "NOTICE": "notice\n",
-        "THIRD_PARTY_NOTICES.txt": "third-party notices\n",
-        "THIRD_PARTY_LICENSES.txt": "controlled license text\n",
-    }.items():
-        (tmp_path / name).write_bytes(content.encode("utf-8"))
-    server = tmp_path / "server"
-    cli = tmp_path / "cli"
+def test_build_server_bundle_includes_windows_helpers_when_declared(tmp_path) -> None:
+    server = tmp_path / "dcc-mcp-server-linux-x86_64"
+    helper = tmp_path / "dcc-mcp-capture-helper.exe"
+    ui_control_host = tmp_path / "dcc-mcp-ui-control-host.exe"
     server.write_bytes(b"server")
-    cli.write_bytes(b"cli")
-    monkeypatch.setattr(build_server_bundle, "REPO_ROOT", tmp_path)
+    helper.write_bytes(b"helper")
+    ui_control_host.write_bytes(b"ui-control-host")
+
+    out_dir = tmp_path / "dist"
+    subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT),
+            "--version",
+            "0.18.12",
+            "--platform",
+            "linux-x86_64",
+            "--server-bin",
+            str(server),
+            "--capture-helper",
+            str(helper),
+            "--ui-control-host",
+            str(ui_control_host),
+            "--out-dir",
+            str(out_dir),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    bundle = out_dir / "dcc-mcp-server-0.18.12-linux-x86_64.zip"
+    with zipfile.ZipFile(bundle) as zf:
+        assert set(zf.namelist()) == _expected_notice_members() | {
+            "dcc-mcp-server",
+            "dcc-mcp-capture-helper.exe",
+            "dcc-mcp-ui-control-host.exe",
+        }
+
+
+def test_build_server_bundle_accepts_server_without_cli_payload(tmp_path) -> None:
+    server = tmp_path / "dcc-mcp-server-windows-x86_64.exe"
+    server.write_bytes(b"server")
 
     bundle = build_server_bundle.build_bundle(
         version="0.18.12",
-        platform="linux-x86_64",
+        platform="windows-x86_64",
         server_bin=server,
-        cli_bin=cli,
+        capture_helper=None,
+        ui_control_host=None,
         out_dir=tmp_path / "dist",
     )
 
     with zipfile.ZipFile(bundle) as archive:
-        assert archive.read("THIRD_PARTY_LICENSES.txt") == b"controlled license text\n"
+        assert set(archive.namelist()) == _expected_notice_members() | {"dcc-mcp-server.exe"}

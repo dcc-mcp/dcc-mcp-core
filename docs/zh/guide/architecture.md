@@ -12,7 +12,7 @@ DCC-MCP-Core 是一个 Rust workspace，通过 PyO3 提供 Python 绑定。当�
 +--------------------------------------------------------------------------------+
 | Agent / operator surfaces                                                       |
 | - MCP clients: search -> describe -> load_skill? -> call                       |
-| - CLI users: dcc-mcp-cli list/search/describe/call                              |
+| - CLI users: dccmcp list/search/describe/call                              |
 | - ClawHub/OpenClaw skills: dcc-mcp                                      |
 | - CI and custom clients: REST /v1/*                                             |
 +----------------------------------------+---------------------------------------+
@@ -72,7 +72,7 @@ dcc-mcp-core (workspace 根目录)
 ├── dcc-mcp-scheduler    # cron/webhook 调度
 ├── dcc-mcp-artefact     # FileRef 与内容寻址交接
 ├── dcc-mcp-http         # Embedded MCP HTTP facade + 兼容 re-export
-├── dcc-mcp-cli          # 客户端控制面 CLI
+├── dccmcp          # 客户端控制面 CLI
 ├── dcc-mcp-server       # 二进制入口点: dcc-mcp-server, gateway runner
 ├── dcc-mcp-logging      # 滚动文件日志
 ├── dcc-mcp-paths        # 平台路径辅助
@@ -114,7 +114,7 @@ dcc-mcp-http ← dcc-mcp-http-types, dcc-mcp-http-server, dcc-mcp-gateway, dcc-m
        ↓
 dcc-mcp-server ← dcc-mcp-http
 
-dcc-mcp-cli ← dcc-mcp-catalog + gateway REST contract
+dccmcp ← dcc-mcp-catalog + gateway REST contract
 ```
 
 ## 各 Crate 职责

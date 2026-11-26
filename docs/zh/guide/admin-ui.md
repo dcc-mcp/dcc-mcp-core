@@ -117,7 +117,7 @@ vx git diff --check
 
 **命令中心** 面板会基于当前 gateway URL 生成可复制的 agent 提示词、human CLI 命令，
 以及 Claude Desktop、Cursor、CodeBuddy、VS Code、Cline 和 Codex / OpenAI 的 MCP
-配置片段。命令会强调 `dcc-mcp-cli` 在访问 live DCC 前会自动确保本机 gateway 存在。
+配置片段。命令会强调 `dccmcp` 在访问 live DCC 前会自动确保本机 gateway 存在。
 
 ![Admin Skills 路径面板](../../assets/admin-ui/admin-skills-paths.png)
 
@@ -590,7 +590,7 @@ HTML 仪表盘包含：
 把仪表盘当作运维操作面，而不是静态报表：
 
 1. **从命令中心开始**：给 Agent 交接时使用提示词标签页；给人类 operator
-   使用 human CLI 标签页。常规 gateway-backed 命令会由 `dcc-mcp-cli`
+   使用 human CLI 标签页。常规 gateway-backed 命令会由 `dccmcp`
    自动确保本机 loopback gateway，除非正在排查生命周期问题，否则不需要额外
    增加手动预启动步骤。
 2. **实例升级走 Instances 面板**：每个实例行会显示当前 server/adapter 版本。

@@ -20,7 +20,9 @@ openclaw skills install @loonghao/dcc-mcp
 npx --yes clawhub@0.23.1 install @loonghao/dcc-mcp
 ```
 
-只有任务进入对应开发边界时才替换为 creator slug。安装后开启新的 agent turn。
+这会从最新 GitHub Release 安装独立的 `dccmcp` 控制面二进制，同时保留
+`dcc-mcp-cli` 兼容别名。
+需要固定版本时设置 `DCC_MCP_VERSION=v0.21.2`。
 
 ### 从 `dcc-mcp` Skill 安装 CLI
 
@@ -30,7 +32,7 @@ python scripts/check_cli.py --ensure-cli --pretty
 ```
 
 Agent 在安装或下载新二进制前必须先征得用户同意。这个 bundled helper 只接受
-官方 `dcc-mcp/dcc-mcp-core` release；它会先验证当前平台的 update manifest 和
+官方 `dcc-mcp/dcc-mcp-cli` release；它会先验证当前平台的 update manifest 和
 CLI SHA-256，再替换二进制。URL、manifest、摘要或下载异常时会 fail closed，
 不会覆盖已有 CLI。SHA-256 用于确认二进制与 release manifest 一致；该 helper
 是首次安装的信任边界，安装完成后由 gateway 驱动的更新还会验证 release workflow
@@ -40,14 +42,14 @@ CLI SHA-256，再替换二进制。URL、manifest、摘要或下载异常时会 
 本地文件：
 
 ```bash
-curl -fL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.sh -o install-cli.sh
+curl -fL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-cli/main/scripts/install-cli.sh -o install-cli.sh
 cat install-cli.sh
 # 检查完成后：
 sh ./install-cli.sh
 ```
 
 ```powershell
-Invoke-WebRequest https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.ps1 -OutFile .\install-cli.ps1
+Invoke-WebRequest https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-cli/main/scripts/install-cli.ps1 -OutFile .\install-cli.ps1
 Get-Content -Raw .\install-cli.ps1
 # 检查完成后，遵循当前执行策略：
 & .\install-cli.ps1
@@ -57,28 +59,30 @@ installer 与 bundled helper 使用相同的固定官方来源、manifest 和 SH
 校验。不要把远程 installer 直接通过管道交给 shell，也不要绕过机器的脚本执行
 策略。
 
-固定版本可运行 `sh ./install-cli.sh --version v0.19.63`，或
-`& .\install-cli.ps1 -Version v0.19.63`。
+固定版本可运行 `sh ./install-cli.sh --version v0.21.2`，或
+`& .\install-cli.ps1 -Version v0.21.2`。
 
 官方安装可以通过以下命令保持最新：
 
 ```bash
-dcc-mcp-cli update check
-dcc-mcp-cli update          # 一步完成检查、下载并暂存
+dccmcp update check
+dccmcp update apply
 ```
 
 官方 release build 最多每 24 小时通过独立后台进程刷新一次更新状态缓存；检查失败
 会在一小时后再试，不会阻塞或破坏当前命令。若结果包含
 `cli_update.version_status: "update_available"`，agent 应展示当前/最新版本；
-`update_policy.apply_command` 为 `dcc-mcp-cli update`，可一步完成检查、下载与暂存，
-无需单独确认标志。`dcc-mcp-cli update` 会强制读取 release manifest 的 SHA-256、
+`update_policy.apply_command` 为 `dccmcp update`，可一步完成检查、下载与暂存，
+无需单独确认标志。`dccmcp update` 会强制读取 release manifest 的 SHA-256、
 校验下载的 CLI，并为下一次启动暂存。替换前会再次校验 staged bytes，之后用相同
 参数重启 CLI。它不会替换或重启正在运行的 `dcc-mcp-server` 或 DCC host，server
 需要在自己的运行环境中单独更新。设置 `DCC_MCP_DISABLE_UPDATE_CHECK=1` 可关闭
 被动检查，但不影响显式 `update check`。
 
 CLI 也提供了独立 ZIP 包（`dcc-mcp-cli-<version>-<platform>.zip`），
-可从每个 [GitHub Release](https://github.com/dcc-mcp/dcc-mcp-core/releases) 下载。
+可从每个 [CLI GitHub Release](https://github.com/dcc-mcp/dcc-mcp-cli/releases) 下载。
+macOS 可使用 `brew tap dcc-mcp/tap && brew install dccmcp` 安装并通过
+`brew upgrade dccmcp` 更新。
 
 ### MCP Registry
 
@@ -101,7 +105,7 @@ Agent 操作 DCC 时，仍推荐先按上面的[公开 Agent Skills](#公开-age
 
    保持此前台进程运行。`gateway` 明确选择网关模式；`--remote-port 0` 关闭第二监听
    端口，`--gateway-persist` 防止尚无 DCC 注册时因空闲而退出。这个包**不包含**
-   `dcc-mcp-cli`，也不会安装 DCC adapter。所选版本必须有匹配当前平台的 wheel，
+   `dccmcp`，也不会安装 DCC adapter。所选版本必须有匹配当前平台的 wheel，
    不要静默换用未经检查的版本。如果 9765 已占用，应先核对现有网关，或选择空闲的
    `--port` 并相应修改客户端 URL。
 
@@ -160,11 +164,11 @@ pip install -e .
 加载 `dcc-mcp` 后，把 CLI 作为结构化控制路径：
 
 ```bash
-dcc-mcp-cli dcc-types
-dcc-mcp-cli list
-dcc-mcp-cli search --query "create sphere" --dcc-type maya
-dcc-mcp-cli describe <tool-slug>
-dcc-mcp-cli call <tool-slug> --json '{"radius":2.0}'
+dccmcp dcc-types
+dccmcp list
+dccmcp search --query "create sphere" --dcc-type maya
+dccmcp describe <tool-slug>
+dccmcp call <tool-slug> --json '{"radius":2.0}'
 ```
 
 只使用 `search` 返回的 slug，不要自行拼接。如果 `list` 返回零实例，按 Skill

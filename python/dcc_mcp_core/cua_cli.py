@@ -96,13 +96,16 @@ def resolve_cua_command(configured: Optional[str] = None) -> List[str]:
 
 
 def _resolve_cli_sibling() -> Optional[str]:
-    """Prefer the component installed beside the official ``dcc-mcp-cli``."""
-    cli = shutil.which("dcc-mcp-cli")
-    if not cli:
-        return None
+    """Prefer the component installed beside the official DCCMCP CLI."""
     file_name = "dcc-cua.exe" if os.name == "nt" else "dcc-cua"
-    candidate = Path(cli).resolve().parent / file_name
-    return str(candidate) if candidate.is_file() else None
+    for cli_name in ("dccmcp", "dcc-mcp-cli"):
+        cli = shutil.which(cli_name)
+        if not cli:
+            continue
+        candidate = Path(cli).resolve().parent / file_name
+        if candidate.is_file():
+            return str(candidate)
+    return None
 
 
 def _cua_executable_name() -> str:

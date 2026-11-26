@@ -268,8 +268,11 @@ class McpClient:
         if code != 200:
             raise RuntimeError(f"initialize failed: HTTP {code}")
         # Extract session ID from response header (stateful mode)
-        if headers and headers.get("Mcp-Session-Id"):
-            self.session_id = headers["Mcp-Session-Id"]
+        if headers:
+            self.session_id = next(
+                (value for key, value in headers.items() if key.lower() == "mcp-session-id"),
+                None,
+            )
         # Unwrap JSON-RPC response envelope
         if isinstance(resp, dict) and "result" in resp:
             return resp["result"]
@@ -324,9 +327,33 @@ class McpClient:
         try:
             with urllib.request.urlopen(req, timeout=10) as resp:
                 resp_headers = {k: v for k, v in resp.getheaders()}
-                return resp.status, json.loads(resp.read()), resp_headers
+                raw_response = resp.read().decode()
+                content_type = next(
+                    (value for key, value in resp_headers.items() if key.lower() == "content-type"),
+                    "",
+                )
+                return (
+                    resp.status,
+                    _decode_mcp_response(raw_response, content_type),
+                    resp_headers,
+                )
         except urllib.error.HTTPError as e:
             return e.code, {}, None
+
+
+def _decode_mcp_response(raw_response: str, content_type: str) -> dict[str, Any]:
+    """Decode JSON and single-response Streamable HTTP SSE payloads."""
+    if "text/event-stream" not in content_type.lower():
+        return json.loads(raw_response)
+
+    decoded: dict[str, Any] = {}
+    for line in raw_response.splitlines():
+        if not line.startswith("data:"):
+            continue
+        payload = line[5:].lstrip()
+        if payload:
+            decoded = json.loads(payload)
+    return decoded
 
 
 # ── Shared port allocation & TCP reachability helpers ──────────────────

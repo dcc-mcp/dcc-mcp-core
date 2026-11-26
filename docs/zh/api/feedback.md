@@ -2,7 +2,7 @@
 
 > **[English](../../api/feedback.md)**
 
-代理反馈与决策理由机制。Gateway 提供 `POST /v1/feedback` 与 `dcc-mcp-cli feedback`，即使没有在线 DCC 也可提交；在线实例的 `dcc_feedback__report` 仅作为共享 Core 实现的 gateway 转发入口。另可提取和构建 `tools/call` 请求中的 `_meta.dcc.rationale` 决策理由。
+代理反馈与决策理由机制。Gateway 提供 `POST /v1/feedback` 与 `dccmcp feedback`，即使没有在线 DCC 也可提交；在线实例的 `dcc_feedback__report` 仅作为共享 Core 实现的 gateway 转发入口。另可提取和构建 `tools/call` 请求中的 `_meta.dcc.rationale` 决策理由。
 
 **导出符号：** `FINDING_V1_SCHEMA_VERSION`, `FindingRuntimeContext`, `FindingValidationError`, `build_finding_v1`, `finding_fingerprint`, `finding_v1_json_schema`, `register_feedback_tool`, `extract_rationale`, `make_rationale_meta`, `get_feedback_entries`, `clear_feedback`
 
@@ -25,9 +25,9 @@ Core 自动填充 DCC、adapter/core/host 版本、OS、instance、稳定 finger
 无需启动或连接 Gateway，即可把已校验的 Finding v1 文件解析到责任仓库：
 
 ```bash
-dcc-mcp-cli feedback route finding.json --json
+dccmcp feedback route finding.json --json
 # 使用经过审查的自定义 catalog：
-dcc-mcp-cli feedback route finding.json --catalog catalog.yml --json
+dccmcp feedback route finding.json --catalog catalog.yml --json
 ```
 
 该命令只读，只返回 `repo`、`issues_url` 和稳定的 `rationale`，不会创建
@@ -61,11 +61,11 @@ Finding 仍保持 `redaction_status.mode="needs-review"`；解析出路由不代
 设为 true 后，可以组装有界诊断证据：
 
 ```bash
-dcc-mcp-cli feedback bundle finding.json --json
+dccmcp feedback bundle finding.json --json
 # 包含 install --execute --json 输出的终态 JSON：
-dcc-mcp-cli feedback bundle finding.json --install-report install-report.json --json
+dccmcp feedback bundle finding.json --install-report install-report.json --json
 # Finding 中没有 PID 或需要指定日志根目录时：
-dcc-mcp-cli feedback bundle finding.json --dcc-pid 4321 --log-dir /safe/log/root --json
+dccmcp feedback bundle finding.json --dcc-pid 4321 --log-dir /safe/log/root --json
 ```
 
 `feedback bundle` 只读且不会自动启动 Gateway。它组合已审查 Finding、脱敏后的
@@ -95,7 +95,7 @@ option/value 对、相对与绝对路径及所有 URL scheme；`file_edit.conten
 使用已审查且 public-safe 的 Finding 生成只读提交计划，无需启动 Gateway：
 
 ```bash
-dcc-mcp-cli feedback file finding.json --json
+dccmcp feedback file finding.json --json
 # 审查 next_step 并获得用户授权后，原样执行 next_step.argv；禁止手工删减或重建。
 ```
 
@@ -130,9 +130,9 @@ Finding 分组，也不应用组织级 Issue form 与 labels。
 具备 shell 能力的 Agent 使用公开 `dcc-mcp` Skill 和现有 CLI 接口：
 
 ```bash
-dcc-mcp-cli doctor
-dcc-mcp-cli stats --range 24h --status failure --session-id <session-id>
-dcc-mcp-cli feedback \
+dccmcp doctor
+dccmcp stats --range 24h --status failure --session-id <session-id>
+dccmcp feedback \
   --tool-name tool_that_failed \
   --intent "goal" \
   --attempt "sanitized attempt" \
@@ -142,11 +142,11 @@ dcc-mcp-cli feedback \
   --instance-id <live-or-dead-instance-id> \
   --request-id <request-id> \
   --job-id <job-id>
-dcc-mcp-cli feedback list --range 7d --dcc <dcc> --severity blocked --json
-dcc-mcp-cli feedback export --range all --dcc <dcc> --json
-dcc-mcp-cli feedback route finding.json --json
-dcc-mcp-cli feedback bundle reviewed-finding.json --json
-dcc-mcp-cli feedback file reviewed-finding.json --json
+dccmcp feedback list --range 7d --dcc <dcc> --severity blocked --json
+dccmcp feedback export --range all --dcc <dcc> --json
+dccmcp feedback route finding.json --json
+dccmcp feedback bundle reviewed-finding.json --json
+dccmcp feedback file reviewed-finding.json --json
 ```
 
 Gateway 会把有界的 `feedback_reported` 记录写入

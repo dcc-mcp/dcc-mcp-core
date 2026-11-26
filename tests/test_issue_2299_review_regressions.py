@@ -206,7 +206,6 @@ def test_resume_navigation_is_explicit_and_never_restarts_the_run() -> None:
 
     assert RESUME_NAVIGATION in _read("AGENTS.md")
     assert RESUME_NAVIGATION in _read(".agents/skills/dcc-mcp-core/SKILL.md")
-    assert "agents-reference.md#start-a-repeatable-sequence-with-workflows_run" in _read("docs/guide/ai-agent-guide.md")
     agents = _read("AGENTS.md")
     assert "do not start a new `workflows_run`" in agents.lower()
 
@@ -220,13 +219,11 @@ def test_resume_navigation_is_explicit_and_never_restarts_the_run() -> None:
 
 
 def test_gateway_guidance_uses_the_current_discovery_flow() -> None:
-    guide = _read("docs/guide/ai-agent-guide.md")
-    gateway_section = guide.split("### IDE Path: Gateway MCP Surface", 1)[1].split("\n### ", 1)[0]
-    assert '`search_tools("materialize script")`' not in gateway_section
-    assert "POST /v1/search" in gateway_section
-    assert '`search(kind="tool"' in gateway_section
-    assert "`describe`" in gateway_section
-    assert "`call`" in gateway_section
+    guide = _read("AGENTS.md")
+    assert '`search_tools("materialize script")`' not in guide
+    assert "POST /v1/search" in guide
+    assert "dccmcp search" in guide
+    assert "dccmcp call" in guide
 
 
 def test_thin_harness_additional_properties_wording_is_accurate() -> None:

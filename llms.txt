@@ -5,22 +5,9 @@
 ## 🚨 CRITICAL: Skills-First Philosophy
 
 **When interacting with DCC applications (Maya, Blender, Houdini, etc.), use
-`dcc-mcp-cli` as the control path for every shell-capable agent and invoke
-dcc-mcp-core Skills through it. Do not confuse the typed CLI with raw DCC
-scripting.**
-
-Choose one published Agent Skill by intent:
-
-| Intent | ClawHub Skill |
-|--------|---------------|
-| Operate a live DCC or discover Marketplace capabilities | [`@loonghao/dcc-mcp`](https://clawhub.ai/loonghao/skills/dcc-mcp) |
-| Create or modernize a complete DCC-MCP adapter | [`@loonghao/dcc-mcp-creator`](https://clawhub.ai/loonghao/skills/dcc-mcp-creator) |
-| Create or improve a DCC-specific Skill package | [`@loonghao/dcc-mcp-skills-creator`](https://clawhub.ai/loonghao/skills/dcc-mcp-skills-creator) |
-
-OpenClaw installs with `openclaw skills install @loonghao/<slug>`. A
-Direct ClawHub CLI uses
-`npx --yes clawhub@0.23.1 install @loonghao/<slug>`.
-Start a new agent turn after installation.
+`dccmcp` as the control path for every shell-capable agent and invoke
+dcc-mcp-core Skills through it. `dcc-mcp-cli` remains a compatibility alias.
+Do not confuse the typed CLI with raw DCC scripting.**
 
 ### Why Skills-First?
 
@@ -37,41 +24,39 @@ Start a new agent turn after installation.
 ### Skills-First Workflow (MEMORIZE!)
 
 ```
-1. DISCOVER: `dcc-mcp-cli search --query "keyword" --dcc-type <dcc>`
-2. CHECK: `dcc-mcp-cli describe <tool-slug>`
-3. ACTIVATE: `dcc-mcp-cli load-skill <skill-name> --dcc-type <dcc>` when required
-4. EXECUTE: `dcc-mcp-cli call <tool-slug> --json '{...}'`
+1. DISCOVER: `dccmcp search --query "keyword" --dcc-type <dcc>`
+2. CHECK: `dccmcp describe <tool-slug>`
+3. ACTIVATE: `dccmcp load-skill <skill-name> --dcc-type <dcc>` when required
+4. EXECUTE: `dccmcp call <tool-slug> --json '{...}'`
 
 `search_tools` tokenizes backend tool names and summaries; literal underscores are honored but not required (`create_sphere` and `sphere` both match). Multi-word natural-language phrases ("create sphere", "rig framework") match word-split tokens across both names and descriptions.
 5. FOLLOW UP: Check next-tools.on-success for suggested next steps
-6. DEBUG: Preserve `request_id`; use `doctor` for startup/readiness and
-   `stats --status failure --session-id <id>` for bounded task evidence.
-7. REPORT: Use gateway-owned `dcc-mcp-cli feedback` so reporting still works
-   after an instance exits; never include credentials or unsanitized payloads.
-   For gateway failures use public-safe `/v1/debug/issue-reports/<request_id>`.
-   Never upload raw bundles or create an external issue without authorization.
+6. DEBUG: On failure, use dcc_diagnostics__screenshot or audit_log
 ```
 
 **❌ DON'T**: Run Maya/Blender/Python scripts directly via subprocess
 **❌ DON'T**: Guess tool names without searching
-**✅ DO**: Always use `dcc-mcp-cli search` before assuming a tool exists
+**✅ DO**: Always use `dccmcp search` before assuming a tool exists
 **✅ DO**: Always check `next-tools` in results for workflow guidance
 
-If `dcc-mcp-cli` is missing, obtain user consent before using the official
-release installers in `README.md`. Keep it current with `dcc-mcp-cli update`,
-which checks, downloads, verifies the manifest SHA-256, and stages the next CLI
-launch in one step; no separate confirmation flag is required. The next launch
-re-verifies the staged bytes, quarantines legacy unsigned staging, and does not
-replace a running server.
+If `dccmcp` and its compatibility alias are missing, obtain user consent before
+using the official release installers in `README.md`. Keep it current with
+`dccmcp update check`, then `dccmcp update`; the update command checks,
+downloads, verifies, and stages the next CLI launch without replacing a running
+server. Use `dccmcp update apply` when an explicit staged-update command is
+needed.
 
-**New to this project?** Read [`docs/guide/ai-agent-guide.md`](docs/guide/ai-agent-guide.md) FIRST.
+**New to this project?** Read [`AGENTS.md`](AGENTS.md) FIRST, then use
+`docs/guide/agents-reference.md` for detailed rules.
+
+**Iteration playbook:** reuse materialized scripts and parameters across repeatable
+runs, and use `workflows_resume` for interrupted persisted workflows instead of
+starting a duplicate run.
 
 **Building a DCC-MCP adapter?** Follow the release train docs in order:
 1. [`new-adapter-onboarding.md`](docs/guide/new-adapter-onboarding.md) — scaffolding template
-2. [`adapter-install-sop.md`](docs/guide/adapter-install-sop.md) — install/status/verify/uninstall/upgrade contract
-3. [`adapter-release-checklist.md`](docs/guide/adapter-release-checklist.md) — release gate checklist
-4. [`adapter-compatibility-matrix.md`](docs/guide/adapter-compatibility-matrix.md) — per-DCC version table
-5. [`adapter-core-version-contract.md`](docs/guide/adapter-core-version-contract.md) — core `0.x` bound contract: every adapter declaration needs an upper bound limited to one minor line; `dcc_mcp_core-0` and `<1.0.0` are violations
+2. [`adapter-release-checklist.md`](docs/guide/adapter-release-checklist.md) — release gate checklist
+3. [`adapter-compatibility-matrix.md`](docs/guide/adapter-compatibility-matrix.md) — per-DCC version table
 
 ---
 
@@ -90,17 +75,17 @@ replace a running server.
 | Sandbox AI actions | `SandboxPolicy` + `SandboxContext` |
 | Share large data zero-copy | `PySharedSceneBuffer.write()` with LZ4 compression |
 | Expose DCC tools over HTTP/MCP | `create_skill_server("maya", McpHttpConfig())` — Skills-First setup with an OS-assigned instance port discoverable through the CLI/gateway; falls back to `McpHttpServer(registry, config)` for manual registry wiring |
+| Serve Agent Skills through MCP | `McpHttpConfig.enable_skills_extension` enables `skills/list`, `skills/get`, `resources/directory/read`, and `skill://` `resources/read` entries with complete SHA-256 manifests; reading `SKILL.md` does not activate tools; see `docs/api/skills-extension.md` |
 | Register MCP prompts from Python (issue #792) | `handle = server.prompts(); handle.register_prompt(name, template, description=..., arguments=[...])` — `server.prompts()` returns `PromptHandle`; registration upserts in-place and appears in the next `prompts/list` / `prompts/get` |
 | Build a DCC adapter | `opts = DccServerOptions.from_env("maya", Path(...)); DccServerBase(opts)` — skill/lifecycle/gateway/hot-reload inherited |
-| Capture DCC startup and runtime errors | Wrap the adapter import/start block with `capture_bootstrap_errors(dcc_name, adapter_version=..., min_core_version=...)`; it writes an Admin-compatible rotating host-error log and re-raises. `DccServerBase` automatically publishes Python error logs and uncaught exceptions through `output://instance/<dcc-pid>` and `events://session/<dcc-pid>`; forward host-native console callbacks with `server.report_host_error(message, source=...)`. |
 | Apply adapter metadata policy before skills load (#1204) | `DccServerBase.set_skill_load_transform(fn)` / `McpHttpServer.set_skill_load_transform(fn)` — callable receives a mutable `SkillMetadata`, may return `None` or a replacement, and applies consistently to direct Python `load_skill`, MCP `load_skill`, REST `/v1/load_skill`, batch, and group load paths. Use `set_after_load_skill_hook(fn)` only to observe `(skill, registered_actions)` after registration. |
 | Drive a DCC main-thread dispatcher | `from dcc_mcp_core.host import HostAdapter, StandaloneHost, TickableDispatcher, QueueDispatcher, BlockingDispatcher`; `TickableDispatcher` is the public minimal protocol (`tick`, `shutdown`, `is_shutdown`) for adapter typing. Do not import private host protocols. |
-| Host a universal Qt sidecar endpoint | `from dcc_mcp_core.host.qt_dispatcher import start_qt_server`; pass `dispatch_handler(payload)` and optional `session_info_provider`; the returned dict-compatible `ServerHandle` exposes `.port`, `.url`, and `.close()`. This is the canonical Python source mirrored byte-for-byte for Rust `qtserver://`; `dcc_mcp_core.qt_dispatcher` is a compatibility alias. |
+| Host a universal Qt sidecar endpoint | `from dcc_mcp_core.qt_dispatcher import start_qt_server`; pass `dispatch_handler(payload)` and optional `session_info_provider`; the returned dict-compatible `ServerHandle` exposes `.port`, `.url`, and `.close()`. This is the canonical Python source mirrored byte-for-byte for Rust `qtserver://`; adapters should not vendor their own copy. |
 | Inspect Qt widget trees in any DCC host (#1332) | `from dcc_mcp_core.skills.qt_ui_inspector import register_qt_ui_inspector` → five read-only tools: `qt_ui_inspector__list_windows`, `qt_ui_inspector__find_widgets`, `qt_ui_inspector__describe_widget`, `qt_ui_inspector__snapshot_tree`, `qt_ui_inspector__wait_for_widget`. DCC-agnostic; lazy-imports Qt binding (qtpy > PySide6 > PySide2 > PyQt6 > PyQt5); returns structured `qt-binding-unavailable` envelope when no binding is present. |
 | Model cross-skill relationships for agent reasoning (#1336) | `from dcc_mcp_core import CapabilityGraph, CapabilityEdge, EdgeKind` — threadsafe in-memory graph for REQUIRES / PRODUCES / DEPENDS_ON / REPLACES / FALLBACK_FOR / COMPATIBLE_WITH edges. `graph.register_skill(skill_id, requires=..., produces=...)` registers a skill's outbound edges from declared metadata; `graph.expand(seeds, max_depth=2)` does bounded BFS; `graph.to_json()`/`from_json()` for serialisation. Feeds into semantic search (#1333), agent memory (#1334), and gateway reranker. |
 | Dispatch script-backed sidecar actions (#1274) | `from dcc_mcp_core.sidecar import SidecarActionDispatcher`; use it as the `start_qt_server(..., dispatch_handler=dispatcher.dispatch_payload)` hook for payloads with `action`, `args`, `request_id`, and optional `script_path` / `source_file`. Core owns validation, source resolution, JSON-safe envelopes, and standard errors (`server-not-running`, `payload-malformed`, `unknown-action`, `no-source-file`, `dispatch-failed`); adapters supply `server_provider`, `action_resolver`, and either `maya_executor(execute_in_process)` or `script_executor(run_skill_script)`. Keep using direct `HostRpcClient` paths for native host RPC that is not script-backed. |
 | Write skill scripts | `skill_entry` + `skill_success` / `skill_error` — zero-boilerplate skill authoring |
-| Materialize ad-hoc scripts on the DCC host (#1220) | Python: `materialize_script(content, dcc_type=..., instance_id=..., session_id=..., ttl_secs=None, reuse=False)` returns `MaterializedScript` with `file_ref`, absolute `file_path`, `sha256`, `bytes`, language/suffix, session/tool/correlation metadata, and reuse/expiry fields. Default root: `~/.dcc-mcp/<dcc_type>/temp/<instance_id>/<session_id>/...`, override with `DCC_MCP_SCRIPT_MATERIALIZATION_ROOT`. Rust: `dcc_mcp_artefact::ScriptMaterializationStore`. Legacy `write_temp_script()` remains a thin compatibility wrapper. **Reuse:** pass `reuse=True` + `reuse_key` for a derived, stable `script_id` (`{reuse_key}_{sha256[:12]}`); a byte-identical repeat returns the same `file_path` with `reused=True`. `resolve_materialized_script` re-verifies and fails closed on hash/expiry mismatch. See the [Iteration Playbook](docs/guide/agents-reference.md#iteration-playbook). |
+| Materialize ad-hoc scripts on the DCC host (#1220) | Python: `materialize_script(content, dcc_type=..., instance_id=..., session_id=..., ttl_secs=None, reuse=False)` returns `MaterializedScript` with `file_ref`, absolute `file_path`, `sha256`, `bytes`, language/suffix, session/tool/correlation metadata, and reuse/expiry fields. Default root: `~/.dcc-mcp/<dcc_type>/temp/<instance_id>/<session_id>/...`, override with `DCC_MCP_SCRIPT_MATERIALIZATION_ROOT`. Rust: `dcc_mcp_artefact::ScriptMaterializationStore`. Legacy `write_temp_script()` remains a thin compatibility wrapper. |
 | Enforce file-backed ad-hoc script execution (#1221) | Use `normalize_file_backed_script_execution_params(...)` with policy set to `auto`, `require`, or `off`, or call `HostExecutionBridge.prepare_script_execution_params(...)` before host execution. `auto` materializes inline `code`; `require` rejects inline code unless a trusted `file_path` / `script_path` is supplied; `off` preserves legacy inline execution. `DccApiExecutor.execute_params(...)` and registered `dcc_execute` tools accept `code`, `file_path`, `script_path`, and `script_materialization_policy`; successful results should expose `context.materialized_script.{path,file_ref,sha256,bytes,reused}`. `DccServerBase` adds the materialization root to `McpHttpConfig.sandbox_policy` path allowlists when wiring a `HostExecutionBridge`. |
 | Agent-facing materialized script API (#1222) | `DccServerBase` registers a `materialize_script` tool exposed through MCP `tools/call` and REST `/v1/call`; discover it with `search_tools("materialize script")`. Inputs: `content`/`code`, `language`, `suffix`, `display_name`, `reuse`, `reuse_key`, `ttl_secs`, `session_id`, `tool_call_id`, `correlation_id`. Output: descriptor only (`file_ref`, `file_path`, `sha256`, `bytes`, `ttl_secs`, `reused`, session/tool/correlation metadata); raw source is never echoed, and gateway trace input capture redacts script-source fields by default. Skill validation warns when script execution tools expose unbounded inline `code` without `file_path`/`script_path`. |
 | Control skill trust level | `SkillScope` (Repo < User < Team < System < Admin) — higher scope shadows lower |
@@ -114,11 +99,11 @@ replace a running server.
 | Inline chart / table / image result (MCP Apps, issue #409) | `skill_success_with_chart(msg, spec)` / `skill_success_with_table(msg, headers, rows)` / `skill_success_with_image(msg, image_data=...)` |
 | Run skill scripts inside embedded DCC (no subprocess) | `SkillCatalog.set_in_process_executor(callable)` on the server's catalog — callable receives `(script_path, params) -> dict` |
 | Claude Code one-click plugin bundle (issue #410) | `build_plugin_manifest(dcc_name, mcp_url, skill_paths, api_key=...)` + `export_plugin_manifest(manifest, path)` or `server.plugin_manifest(version=...)` |
-| Cooperative cancellation in in-process skill scripts (MCP + REST) | `check_dcc_cancelled()` — raises `DccMcpCancelledError` when the server-owned async job is cancelled; `current_job_id()` returns that job id; `current_cancel_token()` exposes a read-only `CancellationProbe` (`cancelled`, `job_id`) |
+| Cooperative cancellation in skill scripts (MCP-only) | `check_cancelled()` — raises `CancelledError` when the active request was cancelled; dispatcher sets `CancelToken` via `set_cancel_token()` |
 | Cooperative cancellation in DCC dispatcher skills (#522) | `check_dcc_cancelled()` — also honours per-job `JobHandle` published via `set_current_job(handle)`; required for skills launched outside an MCP request context (queued batch render, `scriptJob` callback, simulation runner) |
 | Detect a misconfigured GUI binary on `DCC_MCP_PYTHON_EXECUTABLE` (#524) | `is_gui_executable(path)` → `GuiExecutableHint(gui_path, dcc_kind, recommended_replacement)` or `None` for python/unknown binaries; covers maya/houdini/unreal/blender/3dsmax/nuke/modo/motionbuilder/c4d/katana |
 | Auto-correct a GUI binary to its headless sibling (#524) | `correct_python_executable(path)` — returns `mayapy.exe` next to `maya.exe`, `hython` next to `houdini`, `UnrealEditor-Cmd.exe` next to `UnrealEditor.exe`; falls back to original path when no sibling is found on disk |
-| Adapter install/uninstall and sidecar launch without loading `_core` (#1101) | `from dcc_mcp_core.deployment import query_runtime_state, sidecar_readiness_status, wait_for_sidecar_ready, probe_sidecar_tool, stop_runtime_entries, build_sidecar_command, launch_sidecar, sidecar_host_rpc_dispatch_contract, inspect_install_root, safe_remove_tree, safe_replace_tree`; helpers emit the stable `dcc-mcp-server sidecar` argv while the Rust runtime lives in `dcc-mcp-sidecar`; `build_sidecar_command()` returns matching readiness selectors/argv/CLI plus `dispatch_contract` (`uri_valid`, `validation_error`, `dispatch_ready_capable`) and `readiness_contract` (`ready_on_launch=false`, `direct_use_status`); pass `require_dispatch_capable=True` or CLI `--require-dispatch-capable` when startup code must reject malformed `commandport://` / `qtserver://` URIs, `stub://`, or unsupported schemes before claiming tools are callable; `launch_sidecar(...)` always returns `ready=false` / `readiness_checked=false` until `wait_ready_timeout_secs` is provided and the bounded readiness verdict succeeds, so process spawn success is never a direct-use proof; CLI: `dcc-mcp-install-lifecycle sidecar-ready --dcc maya --timeout-secs 5 --probe-tool maya_diagnostics__ping` (`dcc_mcp_core.install_lifecycle` remains compatible) |
+| Adapter install/uninstall and sidecar launch without loading `_core` (#1101) | `from dcc_mcp_core.install_lifecycle import query_runtime_state, sidecar_readiness_status, wait_for_sidecar_ready, probe_sidecar_tool, stop_runtime_entries, build_sidecar_command, launch_sidecar, sidecar_host_rpc_dispatch_contract, inspect_install_root, safe_remove_tree, safe_replace_tree`; helpers emit the stable `dcc-mcp-server sidecar` argv while the Rust runtime lives in `dcc-mcp-sidecar`; `build_sidecar_command()` returns matching readiness selectors/argv/CLI plus `dispatch_contract` (`uri_valid`, `validation_error`, `dispatch_ready_capable`) and `readiness_contract` (`ready_on_launch=false`, `direct_use_status`); pass `require_dispatch_capable=True` or CLI `--require-dispatch-capable` when startup code must reject malformed `commandport://` / `qtserver://` URIs, `stub://`, or unsupported schemes before claiming tools are callable; `launch_sidecar(...)` always returns `ready=false` / `readiness_checked=false` until `wait_ready_timeout_secs` is provided and the bounded readiness verdict succeeds, so process spawn success is never a direct-use proof; CLI: `python -m dcc_mcp_core.install_lifecycle sidecar-ready --dcc maya --timeout-secs 5 --probe-tool maya_diagnostics__ping` |
 | Declarative progressive skill loading on startup (#525) | `MinimalModeConfig(skills=("skill_a","skill_b"), deactivate_groups={"skill_a": ("preview",)})` → `register_builtin_actions(minimal_mode=cfg)`. Env vars: `DCC_MCP_DEFAULT_TOOLS` (comma-separated explicit list, takes precedence), `DCC_MCP_MINIMAL=0` (load every discovered skill). |
 | Re-scan a running adapter's skill dirs without restart (#1400 follow-up) | `register_builtin_actions` auto-registers the `dcc_admin__reload_skills` MCP tool; the elected gateway pushes a best-effort `tools/call` for it to every live backend on any admin skill-path add/remove **and** on `GET /admin/api/skill-paths` (opening the panel), so new `~/.dcc-mcp/<dcc>/skills` packages appear without a restart. Event-driven, zero idle cost. Adapter-side trigger: `DccServerBase.reload_skill_paths()`. |
 | Report broken / skipped skills (maya#138) | `DccServerBase.reload_skill_paths_report()` → `{"count", "skipped"}`; inner core `McpHttpServer.discover_report(extra_paths=None, dcc_name=None)` → `{"count", "skipped"}` (Rust `SkillCatalog::discover_report` → `DiscoverReport`). Skipped dirs (missing/invalid `SKILL.md`) are logged at WARNING and surfaced in the gateway admin operator note. |
@@ -130,12 +115,10 @@ replace a running server.
 | Reuse UI-thread dispatcher lifecycle (#1275) | Subclass `HostUiDispatcherBase` for interactive DCC UI-thread dispatchers; implement only `poke_host_pump()` and optional hooks `format_exception_error`, `format_timeout_error`, `on_job_queued`, `on_job_started`, `on_job_finished`, plus constructor `label=...`. Core owns queueing, sync/async submission, cancellation, timeout waits, shutdown cleanup, active-job tracking, `queue_size()`, `active_count()`, and standard outcome envelopes. |
 | Migrate adapter dispatchers (#1277) | Use `docs/guide/adapter-dispatcher-migration.md` for the decision table: Qt sidecars use `start_qt_server` + `SidecarActionDispatcher`, interactive UI hosts subclass `HostUiDispatcherBase` + `HostPumpController`, headless hosts use `InProcessCallableDispatcher`, and native non-script RPC keeps `HostRpcClient`. `tests/test_dispatcher_migration_conformance.py` is the fake-adapter fixture covering successful dispatch, malformed payloads, missing server/source, executor error, cancellation, timeout, and shutdown cleanup. |
 | Cross-DCC asset round-trip contract (#688) | `dcc_mcp_core.SceneStats(object_count, vertex_count, has_mesh, extra={})` — minimal shape every DCC verifier skill returns from `import_and_inspect(file_path)`; `SceneStats.matches(other, vertex_tolerance=0.05)` adjudicates producer→file→verifier drift. DCC-specific implementations live in downstream repos (`dcc-mcp-blender`, `dcc-mcp-maya`, ...). See `docs/guide/cross-dcc-verification.md`. |
-| Cross-DCC axis and unit planning | `SpatialConvention(right, up, forward, meters_per_unit, name=None)` + `plan_spatial_conversion(source, target, sample_point=None)` — pure, scene-independent signed-axis and physical-unit conversion. Use the `spatial-interchange` skill after inspecting live/file conventions; adapters own scene mutation. |
 | Checkpoint/resume long-running tool executions (issue #436) | `save_checkpoint(job_id, state)` / `get_checkpoint(job_id)` / `checkpoint_every(n, job_id, state_fn)` — persist progress at intervals so interrupted jobs resume from last checkpoint |
 | Project-level state persistence (#576) | `DccProject.open(scene_path)` creates/loads `.dcc-mcp/project.json`; mutate via `add_asset`, `activate_skill`, `activate_tool_group`, `add_checkpoint_id`, `update_metadata`; call `register_project_tools(server, ...)` to expose `project_save`, `project_load`, `project_resume`, and `project_status`; use `resume_session()` to recover scene/assets/skills/checkpoints across DCC restarts |
 | Agent-facing docs:// MCP resources (issue #435) | `register_docs_server(server)` — serves `docs://output-format/*` and `docs://skill-authoring/*` resources; agents fetch only specs they need |
-| Agent feedback / rationale (issues #433, #434, #2257, tracking #2253) | Finding v1 is shared by `dcc_mcp_models::FindingV1`, `dcc_mcp_core.schemas.finding`, and packaged `dcc_mcp_core/schemas/feedback-finding-v1.schema.json`; `dcc_feedback__report` accepts agent-authored phase/severity/observed/expected/repro fields and Core auto-fills runtime identity, fingerprint, and conservative redaction state, while normalizing its legacy form. `dcc-mcp-cli feedback` / `POST /v1/feedback` remain available without live DCCs; accepted adapter reports are mirrored to bounded rotated JSONL under the shared registry; `dcc-mcp-cli feedback list|export --range 7d --dcc <dcc> --json` queries `GET /admin/api/feedback`, which returns newest-first deduplicated records plus invalid/dedup/file counters and fails on incomplete scans; `dcc-mcp-cli feedback route <finding.json> [--catalog <path>] --json` resolves adapter phases through exact catalog `issues_url`, core error namespaces to `dcc-mcp-core`, and Skill findings through captured `metadata.dcc-mcp.links` evidence, failing closed without creating an issue; `extract_rationale(params)` / `make_rationale_meta(text)` handle `_meta.dcc.rationale` |
-| Authorized public Finding filing (tracking #2253) | `dcc-mcp-cli feedback file <finding.json> --json` returns a read-only dedup plan. After review and explicit user authorization, execute the returned `next_step.argv` exactly; it binds the canonical Finding path, canonical catalog path or exact bundled-catalog sentinel, Finding content SHA-256, fingerprint, repository, and catalog SHA-256. Drift, changed exact matches, closed issues, bodies above 65,536 Unicode scalar values, tracker errors, or the 30-second `gh` timeout fail closed before mutation; all `gh` operations are pinned to `github.com`, owned as a process tree, and fully terminated/reaped on timeout with bounded pipe cleanup. |
+| Agent feedback / rationale (issues #433, #434) | `register_feedback_tool(server)` / `extract_rationale(params)` / `make_rationale_meta(text)` — `dcc_feedback__report` tool + `_meta.dcc.rationale` extraction |
 | Runtime DCC namespace introspection (issue #426) | `register_introspect_tools(server)` — `dcc_introspect__list_module`, `dcc_introspect__signature`, `dcc_introspect__search`, `dcc_introspect__eval` |
 | Optional skill metadata extension tools (issue #1229) | `register_metadata_driven_tools(server, skills=..., dcc_name="maya")` — registers optional metadata-driven tools such as recipes and skill reference docs, returning a report with `registered` / `failed` / `skipped` extension outcomes |
 | Skill/domain recipes (issues #428, #616) | `register_recipes_tools(server, skills=...)` — `recipes__list/search/get/validate/apply` tools for Markdown anchors and structured YAML recipe packs |
@@ -147,45 +130,38 @@ replace a running server.
 | Hide unknown DCC types from gateway tools list (issues #553, #555) | `McpHttpConfig.allow_unknown_tools = false` (default) — gateway capability exposure skips entries whose `dcc_type == "unknown"`; flip to `true` only for trusted bootstrapping |
 | Gateway MCP surface is minimal by design (PR A, supersedes #652 / #674; tightened in #813 phase 1) | `tools/list` on the gateway only ever returns the discover+dispatch primitives (`search_skills`, `load_skill`, `unload_skill`, `get_skill_info`, `list_skills`, `search_tools`, `describe_tool`, `call_tool`, `call_tools`, plus `acquire_dcc_instance` / `release_dcc_instance` / diagnostics). The legacy instance discovery triple (`list_dcc_instances`, `get_dcc_instance`, `connect_to_dcc`) was removed in #813 phase 1 — agents now `resources/read uri=gateway://instances` (or `gateway://instances/{id}`) instead, and each entry already carries `mcp_url` so no separate connect verb is needed. The non-standard `instances/list` JSON-RPC method was removed at the same time. Per-tool backend tools are NEVER fanned out — agents discover them via `search_tools` / `describe_tool` and invoke them via `call_tool` or batched `call_tools` (which routes into the per-DCC REST `POST /v1/call` / gateway `POST /v1/call_batch` below). The `GatewayToolExposure` enum and its `tool_exposure` / `publishes_backend_tools` config knobs have been removed; there is a single, unconditional surface now. Diagnostics JSON reports `metrics.mcp_surface = "discover+dispatch"` + `metrics.publishes_backend_tools = false`. |
 | Cursor-safe gateway prompt names (#656) | Aggregating gateway `prompts/list` always emits `i_<id8>__<escaped>` names so they match `decode_tool_name` and survive Cursor's `^[A-Za-z0-9_]+$` filter. |
-| Dynamic DCC capability index + REST API + MCP wrappers (issues #653 / #654 / #655, tracking #657; #810 annotations) | `dcc_mcp_gateway::capability::CapabilityIndex` stores compact (~200 B) per-tool records (`tool_slug`, `backend_tool`, `skill_name`, `summary`, `tags`, `dcc_type`, `instance_id`, `has_schema`) keyed by slug `<dcc>.<id8>.<tool>`; `dcc-mcp-gateway-search` owns reusable tokenization/fuzzy/exact ranking and `dcc_mcp_gateway::capability_service` routes REST and MCP surfaces through the same code path. REST endpoints on the gateway: `POST /v1/search`, `POST /v1/describe`, `POST /v1/call`, `POST /v1/call_batch`, `POST /v1/feedback`, `GET /v1/instances` (mirrors `/instances`). `POST /v1/feedback` is gateway-owned, accepts last-known DCC/instance/request/job correlation, and works with zero live DCC instances; it records a bounded `feedback_reported` entry in `resources://gateway/events`. MCP wrappers exposed through `tools/list` as fixed, cursor-safe names: `search_tools {query, dcc_type, instance_id, tags, scene_hint, limit, offset, loaded_only, include_unloaded_skills, include_stubs, mode}` (default `mode: "fuzzy"` uses `nucleo-matcher` for typo/prefix tolerance per #659; set `mode: "exact"` for pre-#659 substring table; default search omits `__skill__*` / `__group__*` stubs but returns unloaded skills as `skill_candidate` hits with `requires_load_skill: true` unless `include_unloaded_skills=false`; set `include_stubs=true` only when debugging progressive-loading placeholders; `search_page(...)` returns `{hits, total, offset, limit}` for pagination), `describe_tool {tool_slug}`, `call_tool {tool_slug, arguments, meta}`, `call_tools {calls:[{tool_slug, arguments?, meta?}], stop_on_error?}` (max 25 calls; backend-specific fields such as `code` or `file_path` must live inside each `arguments` object, never at the wrapper top level). `search_tools` and `describe_tool` advertise `annotations: {readOnlyHint:true, openWorldHint:true}`; `call_tool` and `call_tools` advertise `{destructiveHint:true, openWorldHint:true, idempotentHint:false}`. The index is refreshed on demand before each search/describe call (short-circuited via per-instance fingerprint) so the first agent query after startup or `load_skill` sees fresh data without waiting for a periodic tick; instances that leave the registry are evicted, and terminal `host-died` backend errors immediately drop that instance's records plus its FileRegistry or HTTP registration row instead of waiting for heartbeat/stale cleanup. Skill stubs (`__skill__*`), gateway-local, and skill-management tools are filtered out of the index so they never appear twice. Slim / REST `tools/list` stays bounded (~17 entries) regardless of how many backends are live — the whole point of the #657 redesign. Ambiguous / offline routing produces structured `{error: {kind, message, candidates}}` envelopes (`kind` ∈ `unknown-slug`, `ambiguous`, `instance-offline`, `backend-error`, `bad-request`). |
-| Per-DCC REST skill API surface (issues #658 / #660) | `dcc_mcp_skill_rest::{SkillRestService, SkillRestConfig, build_skill_rest_router}` mounts a tiny `/v1/*` router on the *per-DCC* `McpHttpServer` so non-MCP agents and remote enterprise platforms can call DCC skills without going through the gateway. Routes: `GET /v1/healthz` (liveness), `GET /v1/readyz` (3-state readiness: process/dispatcher/dcc), `GET /v1/openapi.json` (utoipa-generated OpenAPI 3.x), `GET /v1/skills` (loaded tools), `POST /v1/search` (compact hits, schema-omitted; <512 B/hit token budget), `POST /v1/describe` & `GET /v1/tools/{slug}` (schema + annotations), `POST /v1/call` (invoke; respects skill thread-affinity & main-thread executor), `GET /v1/context` (scene/document snapshot). `SkillRestService::with_context_provider(...)` makes the context request-time; `McpHttpServer` wires it to shared `LiveMeta`, which adapters update through `DccServerBase.update_gateway_metadata(...)`. SOLID: every collaborator is a trait — `SkillCatalogSource`, async `ToolInvoker`, `AuthGate`, `AuditSink`, `ReadinessProbe` — defaults wire to existing `SkillCatalog` + `ToolDispatcher`; host-aware invokers await main-thread dispatch without a per-call helper thread or nested runtime, and adapters swap impls without touching the router. Auth defaults to `AllowLocalhostGate` (loopback-only); remote callers must install `BearerTokenGate::new(vec![token])`. Errors share one envelope `ServiceError {kind, message, hint?, request_id?, candidates?}` with kebab-case `kind` ∈ `unknown-slug` `ambiguous` `skill-not-loaded` `invalid-params` `unauthorized` `bad-request` `affinity-violation` `not-ready` `backend-error` `internal`. Every call emits one `AuditEvent` via the configured `AuditSink`. The exact same `SkillRestService` powers gateway MCP wrappers, guaranteeing REST/MCP envelope parity (regression-tested). Gateway probes prefer `/v1/readyz` and fall back to `/health` only when the readiness endpoint is absent. |
+| Dynamic DCC capability index + REST API + MCP wrappers (issues #653 / #654 / #655, tracking #657; #810 annotations) | `dcc_mcp_gateway::capability::CapabilityIndex` stores compact (~200 B) per-tool records (`tool_slug`, `backend_tool`, `skill_name`, `summary`, `tags`, `dcc_type`, `instance_id`, `has_schema`) keyed by slug `<dcc>.<id8>.<tool>`; `dcc-mcp-gateway-search` owns reusable tokenization/fuzzy/exact ranking and `dcc_mcp_gateway::capability_service` routes REST and MCP surfaces through the same code path. REST endpoints on the gateway: `POST /v1/search`, `POST /v1/describe`, `POST /v1/call`, `POST /v1/call_batch`, `GET /v1/instances` (mirrors `/instances`). MCP wrappers exposed through `tools/list` as fixed, cursor-safe names: `search_tools {query, dcc_type, instance_id, tags, scene_hint, limit, offset, loaded_only, include_unloaded_skills, include_stubs, mode}` (default `mode: "fuzzy"` uses `nucleo-matcher` for typo/prefix tolerance per #659; set `mode: "exact"` for pre-#659 substring table; default search omits `__skill__*` / `__group__*` stubs but returns unloaded skills as `skill_candidate` hits with `requires_load_skill: true` unless `include_unloaded_skills=false`; set `include_stubs=true` only when debugging progressive-loading placeholders; `search_page(...)` returns `{hits, total, offset, limit}` for pagination), `describe_tool {tool_slug}`, `call_tool {tool_slug, arguments, meta}`, `call_tools {calls:[{tool_slug, arguments?, meta?}], stop_on_error?}` (max 25 calls; backend-specific fields such as `code` or `file_path` must live inside each `arguments` object, never at the wrapper top level). `search_tools` and `describe_tool` advertise `annotations: {readOnlyHint:true, openWorldHint:true}`; `call_tool` and `call_tools` advertise `{destructiveHint:true, openWorldHint:true, idempotentHint:false}`. The index is refreshed on demand before each search/describe call (short-circuited via per-instance fingerprint) so the first agent query after startup or `load_skill` sees fresh data without waiting for a periodic tick; instances that leave the registry are evicted, and terminal `host-died` backend errors immediately drop that instance's records plus its FileRegistry or HTTP registration row instead of waiting for heartbeat/stale cleanup. Skill stubs (`__skill__*`), gateway-local, and skill-management tools are filtered out of the index so they never appear twice. Slim / REST `tools/list` stays bounded (~17 entries) regardless of how many backends are live — the whole point of the #657 redesign. Ambiguous / offline routing produces structured `{error: {kind, message, candidates}}` envelopes (`kind` ∈ `unknown-slug`, `ambiguous`, `instance-offline`, `backend-error`, `bad-request`). |
+| Per-DCC REST skill API surface (issues #658 / #660) | `dcc_mcp_skill_rest::{SkillRestService, SkillRestConfig, build_skill_rest_router}` mounts a tiny `/v1/*` router on the *per-DCC* `McpHttpServer` so non-MCP agents and remote enterprise platforms can call DCC skills without going through the gateway. Routes: `GET /v1/healthz` (liveness), `GET /v1/readyz` (3-state readiness: process/dispatcher/dcc), `GET /v1/openapi.json` (utoipa-generated OpenAPI 3.x), `GET /v1/skills` (loaded tools), `POST /v1/search` (compact hits, schema-omitted; <512 B/hit token budget), `POST /v1/describe` & `GET /v1/tools/{slug}` (schema + annotations), `POST /v1/call` (invoke; respects skill thread-affinity & main-thread executor), `GET /v1/context` (scene/document snapshot). SOLID: every collaborator is a trait — `SkillCatalogSource`, `ToolInvoker`, `AuthGate`, `AuditSink`, `ReadinessProbe` — defaults wire to existing `SkillCatalog` + `ToolDispatcher`; adapters swap impls without touching the router. Auth defaults to `AllowLocalhostGate` (loopback-only); remote callers must install `BearerTokenGate::new(vec![token])`. Errors share one envelope `ServiceError {kind, message, hint?, request_id?, candidates?}` with kebab-case `kind` ∈ `unknown-slug` `ambiguous` `skill-not-loaded` `invalid-params` `unauthorized` `bad-request` `affinity-violation` `not-ready` `backend-error` `internal`. Every call emits one `AuditEvent` via the configured `AuditSink`. The exact same `SkillRestService` powers gateway MCP wrappers, guaranteeing REST/MCP envelope parity (regression-tested). Gateway probes prefer `/v1/readyz` and fall back to `/health` only when the readiness endpoint is absent. |
 | Headless USD project resources (issue #1209) | `register_usd_project_resources(server, project_root=..., stage=..., layers=...)` registers canonical `openusd://stage`, `openusd://layers`, `openusd://assets`, `openusd://materials`, `openusd://validation`, `openusd://snapshots`, and `openusd://packages` resources. `UsdProjectResourceProvider.list_resources()` feeds rich MCP `resources/list` records with stable names, descriptions, MIME types, project-root labels, and file-ref metadata without executing tool scripts. The convention is DCC-agnostic for OpenUSD, Houdini Solaris, Maya USD, Blender USD, Unreal, and Omniverse-style adapters. |
 | Adapter readiness binding (issue #1206) | Use `AdapterReadinessBinder.bind_inline(server)`, `.bind_headless(server)`, or `.bind_queue_dispatcher(server, dispatcher, require_first_pump=True)` before `server.start()` instead of hand-toggling readiness in every adapter. The binder publishes one `ReadinessProbe` through `DccServerBase.set_readiness_probe()` / `McpHttpServer.set_readiness_probe()` so MCP `tools/call`, REST `/v1/readyz`, and REST `/v1/call` share process, DCC, catalog, dispatcher, host bridge, and main-thread executor bits. Use `readiness_report_subset(...)` in downstream tests to compare stable bit subsets. |
 | Auto-evict dead gateway instances (issues #551, #552, #556) | Built-in TCP probe task in `dcc_mcp_gateway::tasks::start_gateway_runtime` — connects to each backend's listener, deregisters after `health_check_max_failures` consecutive misses (default 3) and immediately on startup probe miss; expose tuning via `McpHttpConfig.health_check_*` |
-| Crash-safe FileRegistry heartbeat (issue #554) | `FileRegistry` is internally synchronized and writes through a stable sibling tempfile, fsync, and atomic rename under the cross-process `services.lock`; async gateway code shares `Arc<FileRegistry>` directly and uses `*_async` methods so lock backoff and disk I/O run on Tokio's blocking pool instead of under an outer async lock |
-| Per-gateway ingress isolation | `GatewayState.ingress: Arc<GatewayIngressState>` owns the captured `GatewayLimits` plus that gateway's fixed-minute per-client rate window. Use `GatewayIngressState::new(limits)` for embedded multi-gateway runtimes and tests; do not use process-global rate counters or lazy HTTP-limit snapshots. |
-| Per-gateway resilience isolation | `GatewayState.resilience: Arc<GatewayResilienceState>` owns the captured read-retry policy and that gateway's per-backend circuit table. Pass it through backend REST/JSON-RPC discovery and dispatch calls; construct explicit policies in multi-gateway tests instead of relying on process-global lazy config or circuit observations. |
-| HTTP runtime feature snapshot | `dcc_mcp_http_server::ServerState.features: FeatureFlags` is the single runtime copy of `McpHttpConfig.features`; initialize it with `ServerStateBuilder::with_features(...)` and read `state.features.*` in handlers instead of mirroring capability switches as loose booleans. Tool-cache policy remains session state (`SessionConfig.enable_tool_cache`). |
+| Crash-safe FileRegistry heartbeat (issue #554) | `FileRegistry::heartbeat` writes via `tempfile::NamedTempFile::persist` (atomic rename) plus Windows `LockFileEx`/`UnlockFileEx` so concurrent processes never produce a half-written or stomped registry entry |
 | Default rolling file logging (issue #557) | `dcc_mcp_logging::file_logging::default_file_logging_config()` returns a `FileLoggingConfig` with daily rotation under the platform-standard log directory; pair with `init_file_logging(cfg)` |
-| Trim old log files (issues #558, #2273) | `dcc_mcp_logging::file_logging::prune_old_logs(retention_days, max_total_size_mb)` — call on a schedule or at startup to enforce both age- and size-based retention; numeric `dcc-mcp-*.<pid>` prefixes are pruned across process lifetimes while today's logs and logs owned by live processes remain protected |
+| Trim old log files (issue #558) | `dcc_mcp_logging::file_logging::prune_old_logs(retention_days, max_total_size_mb)` — call on a schedule or at startup to enforce both age- and size-based retention |
 | Prometheus `/metrics` endpoint for gateway (issue #559) | Build `dcc-mcp-http` with `--features prometheus`; `attach_gateway_metrics_route(router)` mounts `GET /metrics`, while a 5 s background task in the gateway runtime refreshes `dcc_mcp_instances_total` with `status` labels `active` / `stale` from the live `FileRegistry`; `dcc_mcp_telemetry::PrometheusExporter` also exposes `dcc_mcp_tools_total{dcc_type}`, `dcc_mcp_request_duration_seconds`, `dcc_mcp_requests_failed_total{method,error}` |
 | Zero-config remote MCP relay (issue #504) | `RelayServer::start(RelayConfig, agent_bind, frontend_bind).await` (server) + `dcc_mcp_tunnel_agent::run_once(AgentConfig::new(relay_url, jwt, dcc, local_target)).await` (sidecar) — agent registers, frontend TCP clients select the tunnel via 2-byte length-prefixed id and full-duplex byte-stream over multiplexed sessions |
 | Relay WS frontend + admin endpoint (issue #504) | `RelayServer::start_with(cfg, agent_bind, frontend_bind, OptionalBinds { ws_frontend: Some(addr), admin: Some(addr) }).await` — opt-in `ws://host/tunnel/<id>` upgrade transport (one binary WS message per MCP payload) and read-only `GET /tunnels` JSON listing + `GET /healthz` |
 | Tunnel agent reconnect with back-off | `dcc_mcp_tunnel_agent::run_with_reconnect(cfg, watch_rx).await` → `ReconnectExit::{Shutdown, Fatal}` — wraps `run_once` in an outer loop applying `AgentConfig::reconnect` (Constant or Exponential, doubling capped at `max`); successful registration resets the delay; `Rejected(_)` short-circuits to fail-fast on bad JWT |
 | Mint a tunnel JWT | `dcc_mcp_tunnel_protocol::auth::issue(&TunnelClaims { sub, iat, exp, iss, allowed_dcc }, secret)` — relay validates `allowed_dcc` scope on every registration |
-| Read/write tunnel frames with Tokio | Enable `dcc-mcp-tunnel-protocol/tokio-io`, then use `tokio_io::{read_frame, write_frame, FrameIoError}` — the agent and relay re-export this canonical implementation; their old `transport::TransportError` names are deprecated aliases |
 | Skill hot-reload without server restart | `DccSkillHotReloader(dcc_name, server)` — monitors skill directories and auto-reloads on change |
 | Singleton DCC server factory | `create_dcc_server(instance_holder, lock, server_class, ...)` / `make_start_stop(ServerClass)` — zero-boilerplate singleton server pattern |
 | Skill validation | `validate_skill(skill_dir)` → `SkillValidationReport` with `SkillValidationIssue` list |
 | Rust-backed skill helpers (issues #1255, #1256, #1257, #1258) | `from dcc_mcp_core.skills_helper import json_dumps, json_loads, yaml_dumps, yaml_loads, http_request, http_get_json, http_post_json, load_json_file, dump_json_file, atomic_write_text, file_digest, ensure_within_root, compress_bytes, decompress_bytes, SkillCodecError, SkillFileError, SkillHttpError, skill_success, check_cancelled` — canonical skill-authoring namespace for dependency-light helper APIs; legacy top-level codec imports still work |
-| Dependency-light JSON/YAML | `json_dumps(obj)` / `json_loads(s)` prefer the native Rust backend and fall back to stdlib only in py37-lite; `yaml_dumps(obj)` / `yaml_loads(s)` remain Rust-backed. Canonically exported from `dcc_mcp_core.skills_helper`; the JSON helpers are not a complete stdlib drop-in. TOML runtime helpers are intentionally deferred until a real skill runtime use case appears |
+| Rust-powered JSON/YAML | `json_dumps(obj)` / `json_loads(s)` / `yaml_dumps(obj)` / `yaml_loads(s)` plus `load_json_file(...)` / `load_yaml_file(...)` — zero-dependency serialization, canonically exported from `dcc_mcp_core.skills_helper`; TOML runtime helpers are intentionally deferred until a real skill runtime use case appears |
 | Rust-backed skill file helpers | `ensure_within_root(root, path, must_exist=False)` rejects traversal outside trusted roots; `atomic_write_text/bytes(path, data, root=None, max_bytes=...)` write via same-directory temp files; `file_digest(...)` / `bytes_digest(...)` expose SHA-256; `compress_bytes(...)` / `decompress_bytes(...)` use bounded LZ4 frames. Use `FileRef` / `artefact_put_file` when handing files between tools. |
-| Rust-backed skill HTTP helpers (#1256) | `http_request(method, url, headers=None, query=None, json=None, body=None, timeout_ms=5000, max_bytes=1048576, raise_for_status=False)` returns `HttpResponse(status, headers, bytes, text, json(), url, elapsed_ms, truncated)`; `http_get_json` and `http_post_json` require 2xx and parse with the selected native-first JSON backend. Catch `SkillHttpError` / `HttpStatusError`; use `redact_http_headers` before echoing headers into errors or audit metadata. |
-| Canonical MCP/REST wire normalization | Rust: `dcc-mcp-wire::{normalize_arguments, normalize_meta, decode_call_tool, decode_rest_call}`; Python: `from dcc_mcp_core.wire import normalize_tool_arguments, normalize_tool_meta` (`dcc_mcp_core.host` aliases remain compatibility-only). Missing / `null` / empty-string arguments become `{}`; objects pass through; object-shaped JSON strings are accepted; arrays/numbers/booleans/non-object strings are rejected. |
+| Rust-backed skill HTTP helpers (#1256) | `http_request(method, url, headers=None, query=None, json=None, body=None, timeout_ms=5000, max_bytes=1048576, raise_for_status=False)` returns `HttpResponse(status, headers, bytes, text, json(), url, elapsed_ms, truncated)`; `http_get_json` and `http_post_json` require 2xx and parse with the Rust JSON codec. Catch `SkillHttpError` / `HttpStatusError`; use `redact_http_headers` before echoing headers into errors or audit metadata. |
+| Canonical MCP/REST wire normalization | Rust: `dcc-mcp-wire::{normalize_arguments, normalize_meta, decode_call_tool, decode_rest_call}`; Python host wrappers: `from dcc_mcp_core.host import normalize_tool_arguments, normalize_tool_meta`. Missing / `null` / empty-string arguments become `{}`; objects pass through; object-shaped JSON strings are accepted; arrays/numbers/booleans/non-object strings are rejected. |
 | Discover team-level skills | `scan_and_load_team()` / `scan_and_load_team_lenient()` |
 | Discover user-level skills | `scan_and_load_user()` / `scan_and_load_user_lenient()` |
 | Reference files across tool calls (artefacts) | `FileRef` + `artefact_put_file()` / `artefact_get_bytes()` / `artefact_list()` |
-| Synchronize evolving files across DCC adapters | `AssetSyncRevision` + `FileAssetSyncStore.publish(..., expected_head_revision=N)` create path-free, content-addressed revisions; `materialize(revision, operator_owned_root, subfolder=...)` writes only beneath a trusted consumer root and stale writers raise `AssetSyncConflictError`. Host-specific formats and import/refresh behavior remain adapter-owned. |
 | Host-local executable script files | `materialize_script(...)` for DCC/session-scoped script files; the returned `file_ref` is compatible with FileRef metadata but the executable path stays on the host filesystem for `execute_python(file_path=...)` style tools. |
 | Capture DCC stdout/stderr/script-editor output | `OutputCapture` |
 | Rich skill error with traceback | `skill_error_with_trace()` |
 | Skill warning / exception helpers | `skill_warning()` / `skill_exception()` |
 | Disable accumulated/evolved skills | `ENV_DISABLE_ACCUMULATED_SKILLS` |
 | Make skill discovery hermetic | `DCC_MCP_DISABLE_DEFAULT_SKILL_PATHS=1` omits implicit operator-owned roots (local/platform defaults, marketplace installs, and Admin custom paths) while preserving explicit, bundled, and `DCC_MCP_*_SKILL_PATHS` paths |
-| Typed Python tool handler return | `from dcc_mcp_core.result_envelope import ToolResultEnvelope` → `ToolResultEnvelope.ok("msg", verified=True, postcondition={"method": "readback"}, **ctx).to_dict()` / `ToolResultEnvelope.fail("msg", error="code").to_dict()` (also `success_`/`error_`, plus `not_found(entity_type, name)` / `invalid_input(msg)`). `postcondition.verified` marks readback evidence; absence means unreported verification. `error` is a string code; put structured details in `_meta["dcc.error"]`. Top-level `dcc_mcp_core.ToolResult` is the distinct Rust runtime model (#2183) |
-| Post-condition readback for mutating tools | `from dcc_mcp_core.runtime.postcondition import PostconditionCheck, changed_from, with_postcondition, verify_postcondition, apply_postcondition, PRESENT` → `@with_postcondition(PostconditionCheck("slot_readback", read=..., expected=changed_from(None)), on_unverified="fail")` reads host state back before returning success; `"fail"` turns an unconfirmed effect into a `postcondition_unverified` failure, `"warn"` keeps `success=true` with `postcondition.verified = false`. Readback evidence outranks a self-declared `verified=True` (#2260) |
+| Typed Python tool handler return | `from dcc_mcp_core.result_envelope import ToolResult` → `ToolResult.ok("msg", **ctx).to_dict()` / `ToolResult.fail("msg", error="code").to_dict()` (also `success_`/`error_`, plus `not_found(entity_type, name)` / `invalid_input(msg)` shortcuts). **Note**: `success`/`error` are dataclass fields, not factories; calling `ToolResult.success(...)` raises `AttributeError` (#487) |
 | Centralised metadata key constants | `from dcc_mcp_core import METADATA_RECIPES_KEY, METADATA_LAYER_KEY, LAYER_THIN_HARNESS, CATEGORY_DIAGNOSTICS, ...` — re-exported at top level; also `from dcc_mcp_core.constants import ...`. Every `"dcc-mcp.<feature>"` string lives here. Available constants: `METADATA_DCC_MCP`, `METADATA_RECIPES_KEY`, `METADATA_WORKFLOWS_KEY`, `METADATA_LAYER_KEY`, `METADATA_DCC_KEY`, `METADATA_VERSION_KEY`, `METADATA_TOOLS_KEY`, `METADATA_GROUPS_KEY`, `METADATA_SEARCH_HINT_KEY`, `METADATA_TAGS_KEY`, `METADATA_EXTERNAL_DEPS_KEY`, `LAYER_THIN_HARNESS`, `LAYER_DOMAIN`, `LAYER_INFRASTRUCTURE`, `LAYER_EXAMPLE`, `CATEGORY_DIAGNOSTICS`, `CATEGORY_FEEDBACK`, `CATEGORY_INTROSPECT`, `CATEGORY_RECIPES`, `CATEGORY_WORKFLOWS`, `CATEGORY_DOCS`, `CATEGORY_GENERAL` (#487) |
-| Python runtime environment names | Import `ENV_*` names and dynamic-name templates from `dcc_mcp_core.constants`; parse values with `dcc_mcp_core.env`. Bundled skill scripts keep local names so copied packages remain self-contained (#2196) |
 | Custom JSON-RPC method (Rust) | `dcc_mcp_http::handler::{MethodRouter, MethodHandler, HandlerFuture}` — `router.register("ping", Arc::new(handler))`; capability gating lives in the handler, not the router (#492) |
 | Custom action validation (Rust) | `dcc_mcp_actions::validation_strategy::{ValidationStrategy, ValidationOutcome, NoOpValidator, SchemaValidator, select_strategy}` — adding a flavour does not touch `dispatch()` (#493) |
 | Custom version constraint shape (Rust) | `dcc_mcp_actions::versioned::matcher::{VersionMatcher, AnyMatcher, ExactMatcher, AtLeastMatcher, GreaterThanMatcher, AtMostMatcher, LessThanMatcher, CaretMatcher, TildeMatcher}` — adding a shape = enum variant + matcher impl + `with_matcher` arm; `matches()` / `Display` untouched (#493) |
@@ -193,8 +169,6 @@ replace a running server.
 | Build a JSON-RPC notification (Rust) | `dcc_mcp_jsonrpc::{NotificationBuilder, JsonRpcRequestBuilder}` — single source for the `{"jsonrpc":"2.0","method":..,"params":..}` shape; `.as_sse_event()` for SSE frames (#484) |
 | Typed DCC name (Rust) | `dcc_mcp_models::DccName` — canonical enum + `parse(s)` (case-insensitive aliases) + `as_str()` round-trip; `DccName::Other(String)` preserves unknown values (#491) |
 | Unified workspace error (Rust) | `dcc_mcp_models::DccMcpError` — single error enum with `From<HttpError>` / `From<ProcessError>` impls; per-crate enums are `From`-converted at the boundary (#488) |
-| MCP tool-call error wire envelope (Rust) | `dcc_mcp_protocols::ToolCallErrorEnvelope` — structured `layer` / public `code` / `hint` / `details` / `trace_id` projection. It is distinct from `dcc_mcp_models::DccMcpError`; the old protocols-side `DccMcpError` name is a deprecated alias (#2196) |
-| Tool annotation ownership (Rust) | `dcc_mcp_models::SkillToolAnnotations` parses snake_case `tools.yaml` metadata; `dcc_mcp_protocols::ToolAnnotations` owns the camelCase MCP wire projection. The old models-side `ToolAnnotations` name is a deprecated alias (#2196) |
 | Register lifecycle hooks (typed observer / policy) | `from dcc_mcp_core import LifecycleHooks, HookEvent, HookContext, HookDeny` — `hooks = LifecycleHooks()` + `@hooks.on(HookEvent.BEFORE_TOOL_CALL)` + `server.register_lifecycle_hooks(hooks)` (#1337) |
 | Veto a skill load or tool call | Raise `HookDeny(reason, hint="use typed skill X first")` from a `BEFORE_SKILL_LOAD` / `BEFORE_TOOL_CALL` / `BEFORE_SEARCH` handler (#1337) |
 | Observe lifecycle events (analytics/audit) | `HookEvent.AFTER_SEARCH` / `AFTER_SKILL_LOAD` / `AFTER_TOOL_CALL` / `SESSION_START` / `SESSION_END` — non-policy; exceptions swallowed (#1337) |
@@ -223,7 +197,7 @@ meta = reg.get_action("create_sphere")
 
 # Structured results (always use factories, never raw dicts)
 result = dcc_mcp_core.success_result("Created sphere", prompt="Add materials next", count=1)
-error = dcc_mcp_core.error_result("Failed", "file_not_found")
+error = dcc_mcp_core.error_result("Failed", "File not found")
 
 # Event bus
 bus = dcc_mcp_core.EventBus()
@@ -251,7 +225,7 @@ meta = dcc_mcp_core.parse_skill_md(dirs[0])  # -> SkillMetadata or None
 - Build from source: `maturin develop --features python-bindings,ext-module`
 - Python: >=3.7 (CI tests 3.7–3.13; abi3-py38 wheel for 3.8+)
 - Build: maturin (Rust 1.95+ + PyO3 0.28+)
-- Version: 0.20.55 <!-- x-release-please-version -->
+- Version: 0.21.0 <!-- x-release-please-version -->
 - License: MIT
 
 ## Architecture
@@ -262,14 +236,13 @@ Rust workspace with package membership defined by the root `Cargo.toml`, using P
 
 The historical god-crate `dcc-mcp-http` was decomposed into cohesive crates. New code should import the extracted crates directly:
 
-- **`dcc-mcp-jsonrpc`** — canonical transport-neutral JSON-RPC envelopes, standard error codes, and MCP builders. Zero axum/tokio dependency, so gateway applications and standalone clients/CLIs share one wire shape.
-- **`dcc-mcp-wire`** — canonical MCP/REST call envelopes, validation, and argument/meta normalization shared by JSON-RPC, gateway, REST, and Python `dcc_mcp_core.wire` wrappers.
+- **`dcc-mcp-jsonrpc`** — MCP 2025-03-26 JSON-RPC builders. Zero axum/tokio dependency, so standalone clients/CLIs can use it.
+- **`dcc-mcp-wire`** — canonical MCP/REST call envelopes, validation, and argument/meta normalization shared by JSON-RPC, gateway, REST, and Python host wrappers.
 - **`dcc-mcp-job`** — async job tracker + pluggable persistence. Owns the optional `job-persist-sqlite` feature; `dcc-mcp-http` forwards the flag.
 - **`dcc-mcp-skill-rest`** — per-DCC `/v1/*` REST skill API. Owns the `utoipa` OpenAPI generator.
 - **`dcc-mcp-gateway-core`** — pure gateway domain types and algorithms (`CapabilityRecord`, search query/page/hit types, slug helpers, ranking scorers) with no HTTP or async runtime dependency.
-- **`dcc-mcp-gateway-search`** — canonical Rust `SearchRecord`/`Scorer` contracts used by skill catalogs, per-DCC REST, and gateway search, including shared fuzzy/exact matching, rank policy, and pagination.
-- **`dcc-mcp-gateway-admin`** — admin audit/trace/caller-context/token-telemetry domain, bounded audit/trace logs, compact agent-facing, link, issue-report, statistics, audit-analytics, governance, artifact, activity-timeline, task-outcome, debug-bundle, postmortem, agent-trace packet, memory-summary, experiment, privacy-safe skill-path, and metadata-only traffic projections, plus the optional embedded dashboard asset.
-- **`dcc-mcp-gateway`** — multi-DCC gateway app/infrastructure: registry probing, REST facade, and dynamic-capability MCP wrappers. It depends inward on `dcc-mcp-gateway-core`, `dcc-mcp-gateway-search`, `dcc-mcp-gateway-admin`, and `dcc-mcp-wire`.
+- **`dcc-mcp-gateway-search`** — reusable capability tokenization, fuzzy/exact matching, pagination, and ranking engine.
+- **`dcc-mcp-gateway`** — multi-DCC gateway app/infrastructure: registry probing, REST facade, and dynamic-capability MCP wrappers. It depends inward on `dcc-mcp-gateway-core`, `dcc-mcp-gateway-search`, and `dcc-mcp-wire`.
 - **`dcc-mcp-http-types`** — pure HTTP wire/config/value types (`HttpError`, `JobConfig`, `InstanceConfig`, `TelemetryConfig`, `FeatureFlags`, prompt/resource/output/session values), re-exported by `dcc-mcp-http` for compatibility.
 - **`dcc-mcp-http-server`** — reusable runtime support for the embedded server (core tool builders, executor bridge, session state, in-flight cancellation/progress, notifications, workspace roots) without axum/PyO3.
 
@@ -282,13 +255,12 @@ crates/
 ├── dcc-mcp-actions/        # ToolRegistry, ToolDispatcher, EventBus, validation
 ├── dcc-mcp-skills/         # SkillScanner, SkillCatalog, SkillWatcher, resolver
 ├── dcc-mcp-protocols/      # MCP Tool/Resource/Prompt/DccAdapter models
-├── dcc-mcp-jsonrpc/        # Canonical JSON-RPC envelopes + MCP builders
+├── dcc-mcp-jsonrpc/        # JSON-RPC builders
 ├── dcc-mcp-wire/           # Canonical MCP/REST call envelopes + normalization
 ├── dcc-mcp-job/            # Async job tracker + optional persistence
 ├── dcc-mcp-skill-rest/     # Per-DCC /v1/* REST skill API
 ├── dcc-mcp-gateway-core/   # Pure gateway domain/search/ranking types
 ├── dcc-mcp-gateway-search/ # Reusable capability search/ranking engine
-├── dcc-mcp-gateway-admin/  # Admin audit/trace/caller/projection/report/stats/analytics/governance/artifact/activity/task/debug/agent-trace/memory/experiment/skill-path/traffic domain + embedded dashboard boundary
 ├── dcc-mcp-gateway/        # Multi-DCC gateway app + dynamic wrappers
 ├── dcc-mcp-gateway-ensure/ # Shared gateway health check, launch lock, spawn, process utilities
 ├── dcc-mcp-http-types/     # Pure HTTP wire/config/value types, McpHttpConfig
@@ -317,7 +289,7 @@ crates/
 └── workspace-hack/         # Cargo-hakari feature unification
 ```
 
-Python ownership namespaces: `server` (adapter/server contracts), `runtime` (runtime and lite fallback parity), `deployment` (Rez and sidecar lifecycle), `host` (host transports), `skill_index`, `skills`, and `wire`. Historical flat modules and `_server` imports remain compatibility paths; new APIs must choose an ownership namespace. Root `__all__` contains stable APIs; non-stable compatibility symbols live under `dcc_mcp_core.experimental`.
+Pure-Python modules: `cancellation`, `checkpoint`, `constants` (#487), `result_envelope` (#487), `_server/{observability,skill_query,window_resolver}` (#486), `_tool_registration` (#481), `docs_resources`, `feedback`, `introspect`, `recipes`, `workflow_yaml`, `bridge`, `gateway_election`, `hotreload`, `factory`, `dcc_server`, `server_base`, `adapters`, `auth`, `batch`, `elicitation`, `rich_content`, `plugin_manifest`, `dcc_api_executor`, `install_lifecycle` (#1101), `skill`
 
 ## Core Concepts
 
@@ -337,7 +309,7 @@ Python ownership namespaces: `server` (adapter/server contracts), `runtime` (run
 **Actions:**
 - `ToolRegistry` — Thread-safe registry; `.register(name, ...)`, `.register_batch([{...}, ...])`, `.unregister(name, dcc_name=None)`, `.get_action(name)`, `.list_actions()`, `.list_actions_for_dcc(dcc)`, `.get_all_dccs()`, `.search_actions(category, tags, dcc_name)`, `.count_actions(category, tags, dcc_name)`, `.get_categories()`, `.get_tags()`, `.reset()`
 - `ToolDispatcher` — Validated dispatch; `ToolDispatcher(registry)` (ONE arg); `.dispatch(name, json_str) -> dict`; dict keys: `"action"`, `"output"`, `"validation_skipped"`
-- **Async `tools/call` (#318)** — over the wire, a `tools/call` opts into async dispatch when ANY of: `_meta.dcc.async = true`, `_meta.progressToken` is set, or the tool's `ToolMeta` declares `execution: async`. `timeout_hint_secs` is only a latency/timeout sizing hint and never changes the declared execution mode. Async response returns immediately with `CallToolResult.structuredContent = {"job_id", "status": "pending", "parent_job_id"}`. Poll status via `jobs_get_status` (#319). Parent-job cascade: `_meta.dcc.parentJobId` wires the new job's `CancellationToken` as a child of the parent's — cancelling the parent cancels every descendant
+- **Async `tools/call` (#318)** — over the wire, a `tools/call` opts into async dispatch when ANY of: `_meta.dcc.async = true`, `_meta.progressToken` is set, or the tool's `ToolMeta` declares `execution: async` / `timeout_hint_secs > 0`. Response returns immediately with `CallToolResult.structuredContent = {"job_id", "status": "pending", "parent_job_id"}`. Poll status via `jobs_get_status` (#319). Parent-job cascade: `_meta.dcc.parentJobId` wires the new job's `CancellationToken` as a child of the parent's — cancelling the parent cancels every descendant
 - `ToolValidator` — Input validation before action execution
 - `ToolPipeline(dispatcher)` — Middleware-style processing pipeline; `.add_logging(log_params=False)`, `.add_timing() -> TimingMiddleware`, `.add_audit(record_params=True) -> AuditMiddleware`, `.add_rate_limit(max_calls, window_ms) -> RateLimitMiddleware`, `.add_callable(before_fn=None, after_fn=None)`, `.dispatch(action_name, params_json="null") -> dict`, `.register_handler(name, fn)`, `.middleware_count()`, `.middleware_names()`, `.handler_count()`
 - `LoggingMiddleware(log_params=False)` — emits tracing log lines before/after each action
@@ -353,12 +325,12 @@ Python ownership namespaces: `server` (adapter/server contracts), `runtime` (run
 - `VersionConstraint.parse(">=1.0.0")` — Version constraint expression
 
 **Result Factories:**
-- `success_result(message, prompt=None, *, _meta=None, **context) -> ToolResult`
-- `error_result(message, error, prompt=None, possible_solutions=None, *, _meta=None, **context) -> ToolResult`
-- `from_exception(error_message, message=None, prompt=None, include_traceback=True, possible_solutions=None, *, _meta=None, **context) -> ToolResult`
+- `success_result(message, prompt=None, **context) -> ToolResult`
+- `error_result(message, error, prompt=None, possible_solutions=None, **context) -> ToolResult`
+- `from_exception(error_message, message=None, include_traceback=False, ...) -> ToolResult`
 - `validate_action_result(result) -> ToolResult` — normalize dict/str/None → ToolResult
 
-**ToolResult fields:** `.success`, `.message`, `.prompt`, `.error`, `.context`, `._meta`, `.to_dict()`, `.to_json()`, `.with_error(err)`, `.with_context(**kw)`
+**ToolResult fields:** `.success`, `.message`, `.prompt`, `.error`, `.context`, `.to_dict()`, `.to_json()`, `.with_error(err)`, `.with_context(**kw)`
 
 **Skills:**
 - `SkillScanner` — `.scan(extra_paths=None, dcc_name=None, force_refresh=False) -> List[str]`
@@ -377,11 +349,11 @@ Python ownership namespaces: `server` (adapter/server contracts), `runtime` (run
 - `validate_dependencies(skills) -> List[str]` — returns error messages
 - `get_skill_paths_from_env() -> List[str]` — reads `DCC_MCP_SKILL_PATHS` env var
 - `get_app_skill_paths_from_env(app_name: str) -> List[str]` — reads `DCC_MCP_{APP}_SKILL_PATHS` env var
-- `skill_error(message, error, *, prompt=None, possible_solutions=None, _meta=None, **context) -> dict` — zero-boilerplate result using a stable string error code; structured diagnostics belong in `_meta["dcc.error"]`
-- `skill_error_with_trace(message, error, *, ..., _meta=None, **context) -> dict` — same as `skill_error` with `_meta["dcc.raw_trace"]`
-- `skill_warning(message, *, warning="", prompt=None, _meta=None, **context) -> dict` — warning-level result
-- `skill_exception(exc, *, message=None, prompt=None, include_traceback=True, possible_solutions=None, _meta=None, **context) -> dict` — exception code plus `_meta["dcc.error"]`
-- `run_main(main_fn, argv=None) -> None` — standalone skill entry point; writes JSON and exits from the normalized envelope status
+- `skill_error(message, error, prompt=None, possible_solutions=None, **context) -> dict` — zero-boilerplate error result for skill scripts
+- `skill_error_with_trace(message, error=None, prompt=None, **context) -> dict` — same as `skill_error` but includes traceback
+- `skill_warning(message, prompt=None, **context) -> dict` — warning-level result
+- `skill_exception(message, exc_info=None, prompt=None, **context) -> dict` — exception-style result
+- `run_main(skill_dir, params=None) -> dict` — convenience entry point for standalone skill script execution
 - `SkillFeedback` — feedback data model
 - `get_skill_feedback(skill_name) -> List[SkillFeedback]`
 - `record_skill_feedback(skill_name, feedback)`
@@ -432,7 +404,7 @@ tools:
 
 **AI Agent Tool Priority**: When interacting with DCCs, prefer: (1) Skill Discovery (`search_skills` → `load_skill`), (2) Skill-based tools (validated schemas + `next-tools` + `ToolAnnotations` safety hints), (3) read gateway diagnostics via `gateway://diagnostics/*` resources or per-DCC diagnostics tools (`dcc_diagnostics__screenshot` etc.), (4) Direct registry access (last resort). Skills-first provides safety, discoverability, chainability, progressive exposure, and input validation.
 
-**Adapter skill authoring**: Install [`dcc-mcp-skills-creator`](https://clawhub.ai/loonghao/skills/dcc-mcp-skills-creator) to scaffold and validate skill packages and load agent-facing authoring guidance before building or modernizing DCC adapter skills; it summarizes patterns from dcc-mcp-maya, dcc-mcp-blender, and dcc-mcp-3dsmax, including stage taxonomy, execution/affinity metadata, host matrix, and testing/VRS choices.
+**Adapter skill authoring**: Use `skills/dcc-mcp-skills-creator/` to scaffold and validate skill packages and for agent-facing authoring guidance before building or modernizing DCC adapter skills; it summarizes patterns from dcc-mcp-maya, dcc-mcp-blender, and dcc-mcp-3dsmax, including stage taxonomy, execution/affinity metadata, host matrix, and testing/VRS choices.
 
 ### MCP Protocol Types (`dcc_mcp_core`)
 
@@ -476,7 +448,7 @@ tools:
 
 **Service Discovery** (still available):
 - `TransportAddress`, `TransportScheme` — address types for service discovery
-- `ServiceEntry` — discovered service metadata; `schema_version` is `1` for current rows and `0` for legacy rows with no version. FileRegistry rejects higher versions without quarantining or rewriting `services.json`.
+- `ServiceEntry` — discovered service metadata
 - `ServiceStatus` — service health status
 
 ### MCP HTTP Server (`dcc_mcp_core`)
@@ -489,11 +461,12 @@ tools:
   - `.registry_dir`, `.stale_timeout_secs`, `.heartbeat_secs`, `.dcc_type`, `.dcc_version`, `.scene` — gateway participation config
   - `.bare_tool_names` — default `True`; publish unique action names without `<skill>__` prefix in `tools/list` (#307). Collisions fall back to the client-safe full form (`<skill>__<action>`).
   - `.enable_resources` — default `True`; advertise `resources: { subscribe, listChanged }` and serve `resources/list|read|subscribe|unsubscribe` (#350). Built-ins: `scene://current`, `capture://current_window`, `audit://recent`
+  - `.enable_skills_extension` — default `True` when Resources are enabled; advertise `io.modelcontextprotocol/skills` and serve `skills/list`, `skills/get`, `resources/directory/read`, and `skill://` resources with complete SHA-256 manifests
   - `.enable_artefact_resources` — default `False`; when `True`, `artefact://` URIs are served from the artefact store (#349, not yet implemented); otherwise returns JSON-RPC error `-32002`
   - `.enable_tool_cache` — default `True`; per-session `tools/list` snapshot cache (#438). Cache hit avoids registry scan + bare-name resolution + `McpTool` construction. Invalidated on skill load/unload, group activation/deactivation, session TTL eviction, or `_meta.dcc.refresh=true` on the `tools/list` request
-- `McpHttpServer(registry, config=None)` — MCP Streamable HTTP server (**2025-03-26 spec**), axum/Tokio backend
+- `McpHttpServer(registry, config=None)` — MCP Streamable HTTP server with modern `2026-07-28` discovery and legacy initialize/session support for `2025-11-25`, `2025-06-18`, and `2025-03-26`, using the axum/Tokio backend
   - `.start() -> McpServerHandle` — starts background thread, returns immediately
-  - **Note**: MCP 2025-03-26 implements Streamable HTTP, Tool Annotations, OAuth 2.1. MCP 2025-06-18 adds Structured Tool Output, Elicitation, Resource Links, and removes JSON-RPC batching. MCP 2025-11-25 adds icon metadata, Tasks, Sampling with tools. The 2026 roadmap focuses on: (1) transport scalability — `.well-known` capability discovery, stateless sessions; (2) agent communication — Tasks lifecycle, retry/expiration; (3) governance — delegated workgroups; (4) enterprise readiness — audit, SSO (mostly extensions). No new transport types in 2026. Do NOT implement manually — wait for library support.
+  - **Modern capabilities**: `server/discover`, per-request protocol metadata, cache hints, SEP-2243 routing headers, and the official `io.modelcontextprotocol/skills` extension. The CLI continues to use the `2025-11-25` initialize/session compatibility path.
 - `McpServerHandle` (alias for `McpServerHandle`) — handle to running server
   - `.mcp_url() -> str` — full MCP endpoint URL (e.g. `"http://127.0.0.1:8765/mcp"`)
   - `.port -> int`, `.bind_addr -> str`
@@ -540,17 +513,17 @@ tools:
 - `Capturer.backend_name() -> str`, `.backend_kind() -> CaptureBackendKind`, `.stats() -> tuple[int, int, int]`
 - `CaptureFrame` — `.width`, `.height`, `.data`, `.format`, `.mime_type`, `.timestamp_ms`, `.dpi_scale`, `.window_rect` (tuple or None), `.window_title` (str or None), `.byte_len()`
 - `CaptureTarget` — factories: `.primary_display()`, `.monitor_index(i)`, `.process_id(pid)`, `.window_title(title)`, `.window_handle(handle)`
-- `CaptureBackendKind` — enum: `DxgiDesktopDuplication`, `WindowsGraphicsCapture`, `ScreenCaptureKit`, `X11Xshm`, `PipeWire`, `Mock`; native UI Control screenshots are owned by `dcc-cua`
+- `CaptureBackendKind` — enum: `DxgiDesktopDuplication`, `WindowsGraphicsCapture`, `ScreenCaptureKit`, `X11Xshm`, `PipeWire`, `HwndPrintWindow`, `Mock`; window capture reports the backend that actually produced the latest frame when WGC falls back to GDI
 - `WindowFinder()` — `.find(target) -> Optional[WindowInfo]`, `.enumerate() -> List[WindowInfo]`
 - `WindowInfo` — `.handle`, `.pid`, `.title`, `.rect`
 
 ### Scoped Computer Use (`dcc_mcp_core`, Windows)
 
-- `ComputerUseSession(process_id=None, window_handle=None, window_title=None, app_name=None)` — persistent exact-window native input session with visible border/banner, pointer effects, and a Esc stop latch shared across DCC adapter processes in the Windows logon session
+- `ComputerUseSession(process_id=None, window_handle=None, window_title=None, app_name=None)` — persistent exact-window native input session with visible border/banner, pointer effects, and a Windows-logon-session-wide Ctrl+Alt+Esc stop latch shared across DCC adapter processes; ordinary Esc remains available to the target app
 - `.start() -> str`, `.screenshot() -> tuple[str, bytes|None]`, `.act(request_json) -> str`, `.status() -> str`, `.stop() -> str`
-- `.resume_after_user_approval() -> str` clears the Esc latch only after an explicit user instruction and only when the named input owner is idle; the historically named `ComputerUseSession.process_user_interrupted() -> bool` inspects the shared Windows logon-session latch
+- `.resume_after_user_approval() -> str` clears the Ctrl+Alt+Esc latch only after an explicit user instruction and only when the named input owner is idle; the historically named `ComputerUseSession.process_user_interrupted() -> bool` inspects the shared Windows logon-session latch
 - `UiPoint(x, y)` and `UiActionRequest(..., path=[UiPoint(...)])` use coordinates relative to the latest (possibly scaled) screenshot
-- Prefer bundled `ui-control`: structured DCC tool first, then semantic UIA, then one screenshot-coordinate action. `ui-control` requires a persistent in-process executor and must end with `ui_control__stop_computer_use`.
+- Prefer bundled `app-ui`: structured DCC tool first, then semantic UIA, then one screenshot-coordinate action. `app-ui` requires a persistent in-process executor and must end with `app_ui__stop_computer_use`.
 - Windows lock, disconnect, or secure desktop returns `desktop_unavailable` before UIA/raw input. Keep the logical session; structured DCC/MCP work may continue subject to host readiness. Never automate LockApp. After unlock, discard old ids and take a fresh snapshot so the banner returns.
 - A normal process cannot show the banner on the Windows lock screen. Use a dedicated always-unlocked VM for uninterrupted GUI control. Public `openai/codex` `codex-rs` exposes policy/plugin wiring, not its desktop helper implementation.
 - Computer Use runs on the adapter host in the interactive Windows logon session that owns the DCC; the gateway only routes calls. Never reuse coordinates across hosts or sessions. RDP disconnect/session switch retains the logical session but requires reconnect plus a fresh snapshot.
@@ -559,10 +532,7 @@ tools:
 ### Instance-Bound Diagnostics (`dcc_mcp_core`)
 
 - `DccServerOptions.from_env(..., dcc_pid=..., dcc_window_title=..., dcc_window_handle=...)` + `DccServerBase(opts)` — bind an adapter to a specific DCC instance; the `dcc_diagnostics__*` tools target this DCC only
-- `DiagnosticRuntimeState(dcc_name)` owns one adapter's recorder, sandbox, screenshot capturers, dispatcher/server references, and instance context. `DccServerBase` creates one automatically and exposes it as `.diagnostic_state`. Standalone callers may pass the same `diagnostic_state=` to `register_diagnostic_mcp_tools(...)` and `register_diagnostic_handlers(...)`; omitted state uses an explicit compatibility singleton with `reset_default_diagnostic_state_for_tests()` instead of loose module globals.
-- Python auxiliary runtime state is instance-owned: `DccServerBase.feedback_store`, `.script_execution_context`, and `.checkpoint_store`. Inject them with `register_feedback_tool(..., store=...)`, `execute_with_context(..., context=...)`, and checkpoint helpers' `store=` parameter. `FeedbackStore` and `ScriptExecutionContext` are public; compatibility defaults expose `get_default_*` plus `reset_default_*_for_tests()` instead of loose module globals.
-- Scene-digest evidence for adapter `execute_python` tools is capability-gated per `ScriptExecutionContext`: register a `SceneStats`-shaped callback with `register_state_digest_provider(...)`, execute through `execute_with_state_digest(...)`, and attach its public `SceneDigestSnapshot` values through `ScriptExecutionResult.from_value(...)`. The native transaction pins the exact registered provider for both before and after observations, restores the context after hostile script replacement, and captures after-state before propagating either `Exception` or `BaseException` through `SceneDigestExecutionError`; pure-Python runtimes return `scene_digest_custody_unavailable`. Core redacts, bounds, deterministically fingerprints, and fails closed on missing/error/malformed/mismatched/one-sided evidence. Fingerprints and truncation markers are corruption checks, not authentication, authorization, or host-identity proof: core exposes no Python signing key/oracle, signed wire tag, or native factory that promotes caller-supplied bytes into authenticated evidence. Adapter provider selection does not establish cryptographic authenticity. Over-budget mappings collapse to a fixed sentinel so equivalent provider mappings stay deterministic without unbounded reads. Digest change alone is not semantic verification; set `verified=True` only after adapter-owned readback proves the claimed effect. Core does not auto-register or advertise `execute_python`; adapters should gate route discovery on successful provider registration and surface `unavailable/provider_missing` when `capture_state_digest(...)` reports no provider. Maya/Houdini/Blender/3ds Max acceptance requires adapter-owned providers and MCP/REST tests; this generic core contract does not claim licensed-host integration.
-- `register_diagnostic_mcp_tools(server, *, dcc_name, dcc_pid=None, dcc_window_handle=None, dcc_window_title=None, resolver=None, gateway_failover_resolver=None, diagnostic_state=None)` — register `dcc_diagnostics__screenshot`, `dcc_diagnostics__audit_log`, `dcc_diagnostics__tool_metrics`, `dcc_diagnostics__process_status`, `dcc_diagnostics__gateway_failover` on an `McpHttpServer` before `.start()`. `DccServerBase` auto-wires `gateway_failover_resolver=self.get_gateway_election_status` so the failover tool returns `{enabled, running, consecutive_failures, gateway_host, gateway_port, is_gateway, reason}` with `reason` in `{failover_disabled_by_adapter, gateway_port_not_configured, election_thread_not_started, election_active, active_gateway, failover_resolver_not_registered}` (#1355)
+- `register_diagnostic_mcp_tools(server, *, dcc_name, dcc_pid=None, dcc_window_handle=None, dcc_window_title=None, resolver=None, gateway_failover_resolver=None)` — register `dcc_diagnostics__screenshot`, `dcc_diagnostics__audit_log`, `dcc_diagnostics__tool_metrics`, `dcc_diagnostics__process_status`, `dcc_diagnostics__gateway_failover` on an `McpHttpServer` before `.start()`. `DccServerBase` auto-wires `gateway_failover_resolver=self.get_gateway_election_status` so the failover tool returns `{enabled, running, consecutive_failures, gateway_host, gateway_port, is_gateway, reason}` with `reason` in `{failover_disabled_by_adapter, gateway_port_not_configured, election_thread_not_started, election_active, active_gateway, failover_resolver_not_registered}` (#1355)
 - IPC handlers (renamed in 0.14.0, no compat aliases): `get_audit_log`, `get_tool_metrics` (was `get_action_metrics`), `dispatch_tool` (was `dispatch_action`), `take_screenshot`
 - `register_diagnostic_handlers(...)` — the IPC-path equivalent (used by `DccServerBase.start()`)
 - Bundled `dcc-diagnostics` skill's `screenshot.py` tries `DCC_MCP_OWNER_IPC` → `channel.call("take_screenshot")` first and falls back to `Capturer.new_auto()` when no owner IPC is set
@@ -590,7 +560,6 @@ tools:
 - `BridgeContext` — bridge context with name, description, metadata
 - `register_bridge(name, ctx)` — register a named bridge
 - `get_bridge_context(name) -> Optional[BridgeContext]` — retrieve bridge by name
-- `BridgeCapacityContract` — v1 root alias for the shared capacity contract; canonical implementation is `dcc_mcp_core.wire.capacity` and the original `dcc_mcp_core.bridge_capacity` import remains a thin shim (issue #2821)
 
 ### Artefacts (`dcc_mcp_core`)
 
@@ -602,7 +571,6 @@ tools:
 
 ### DccBridge — WebSocket Bridge (`dcc_mcp_core.bridge`)
 
-- Install transport support with `pip install 'dcc-mcp-core[bridge]'`.
 - `DccBridge(host="localhost", port=9001, timeout=30.0)` — WebSocket bridge server for non-Python DCCs
   - `.connect(wait_for_dcc=False)` — start the WebSocket server; optionally block until DCC plugin connects
   - `.call(method, **params) -> Any` — synchronous RPC to the DCC plugin (thread-safe)
@@ -616,25 +584,17 @@ tools:
 
 ### Cancellation (`dcc_mcp_core.cancellation`)
 
-All public Python exceptions derive from the import-light
-`dcc_mcp_core.DccMcpError` root. Specialized exceptions also retain their
-existing built-in base (`ValueError`, `RuntimeError`, or `TypeError`) so
-existing handlers remain compatible. This Python root is distinct from the
-Rust `dcc_mcp_models::DccMcpError` enum.
-
-- `CancellationProbe` (`Protocol`, runtime-checkable) — read-only contract exposed to skill code: `.cancelled -> bool`, `.job_id -> str | None`
-- `CancelToken(job_id=None)` — mutable pure-Python implementation for dispatchers; `.cancel()`, `.cancelled -> bool`, `.job_id -> str | None`
-- `DccMcpCancelledError(DccMcpError)` — raised by `check_cancelled()` / `check_dcc_cancelled()` when cancellation was signalled; remains an `Exception` subtype; `CancelledError` is a deprecated compatibility alias
-- `check_cancelled() -> None` — raise `DccMcpCancelledError` if the active MCP request was cancelled (no-op outside request context)
+- `CancelToken()` — thread-safe cancellation flag; `.cancel()`, `.cancelled -> bool`
+- `CancelledError(Exception)` — raised by `check_cancelled()` / `check_dcc_cancelled()` when cancellation was signalled
+- `check_cancelled() -> None` — raise `CancelledError` if the active MCP request was cancelled (no-op outside request context)
 - `check_dcc_cancelled() -> None` (#522) — combines `check_cancelled()` with a per-job check; raises if either the MCP token OR the per-job `JobHandle` reports cancellation; use this in skills launched from a DCC dispatcher rather than an MCP request
 - `JobHandle` (`Protocol`, runtime-checkable) — contract for the per-job handle a host dispatcher publishes; only `cancelled: bool` is contractual
 - `current_job: ContextVar[JobHandle | None]` — read-only contextvar (default `None`) holding the active per-job handle
 - `set_current_job(job) -> contextvars.Token` — install a `JobHandle` (dispatcher use only)
 - `reset_current_job(reset) -> None` — restore previous job handle (pair with `set_current_job`)
-- `set_cancel_token(token) -> contextvars.Token` — install a `CancellationProbe` (dispatcher use only)
+- `set_cancel_token(token) -> contextvars.Token` — install a CancelToken (dispatcher use only)
 - `reset_cancel_token(reset) -> None` — restore previous token (pair with set_cancel_token)
-- `current_cancel_token() -> CancellationProbe | None` — return the active read-only probe
-- `current_job_id() -> str | None` — return the authoritative server-owned async job id; synchronous/out-of-context calls return `None`
+- `current_cancel_token() -> CancelToken | None` — return the active token
 
 ### Checkpoint / Resume (`dcc_mcp_core.checkpoint`)
 
@@ -657,10 +617,9 @@ Rust `dcc_mcp_models::DccMcpError` enum.
 - `register_docs_server(server)` — register all built-in `docs://` resources; call **before** `server.start()`
 - Built-in URIs: `docs://output-format/call-action`, `docs://output-format/list-actions`, `docs://skill-authoring/tools-yaml`, `docs://skill-authoring/annotations`, `docs://skill-authoring/sibling-files`, `docs://skill-authoring/thin-harness`
 
-### Agent Feedback, Findings & Rationale (`dcc_mcp_core.feedback`, `dcc_mcp_core.schemas.finding`)
+### Agent Feedback & Rationale (`dcc_mcp_core.feedback`)
 
-- `FINDING_V1_SCHEMA_VERSION`, `FindingRuntimeContext`, `FindingValidationError`, `finding_v1_json_schema()`, `finding_fingerprint(...)`, `build_finding_v1(args, context)` — shared bounded Finding v1 contract and runtime auto-fill helpers
-- `register_feedback_tool(server, *, dcc_name="dcc", gateway_endpoint=None, gateway_host=None, gateway_port=None, instance_id_provider=None, finding_context_provider=None)` — register `dcc_feedback__report` as a fail-closed Finding v1 forwarder to gateway `/v1/feedback`; the original tool-name/blocker form is normalized to v1; call **before** `server.start()`
+- `register_feedback_tool(server, *, dcc_name="dcc")` — register `dcc_feedback__report` MCP tool; call **before** `server.start()`
 - `extract_rationale(params) -> str | None` — extract `_meta.dcc.rationale` from a `tools/call` params dict
 - `make_rationale_meta(rationale) -> dict` — build the `_meta` fragment for a `tools/call` request with a rationale
 - `get_feedback_entries(*, tool_name=None, severity=None, limit=50) -> list[dict]` — return recent feedback entries (newest first)
@@ -682,7 +641,7 @@ Rust `dcc_mcp_models::DccMcpError` enum.
 - `get_recipe_content(recipes_path, anchor) -> str | None` — fetch content of a specific anchor section
 - `load_recipe_pack(path) -> list[RecipeDefinition]` — load YAML `recipes:` packs with inputs schema, steps, output contract, and provenance (#616)
 - `list_recipe_entries(skill_metadata) -> list[dict]` / `find_recipe_entry(skill_metadata, name)` — merge Markdown anchors and structured recipe pack entries
-- `validate_recipe_inputs(recipe, inputs) -> list[str]` — Core-owned, zero-runtime-dependency Draft 2020-12 validation for recipe input schemas with same-resource local `$ref`; `$id`/dynamic references and malformed schemas fail closed, and errors are path-oriented/redacted
+- `validate_recipe_inputs(recipe, inputs) -> list[str]` — zero-dep required/type validation for recipe input schemas
 - `register_recipes_tools(server, *, skills, dcc_name="dcc")` — register `recipes__list/search/get/validate/apply` tools
 - `register_metadata_driven_tools(server, *, skills=None, extra_paths=None, registrations=None, dcc_name="dcc")` — one helper for optional metadata-driven tools; defaults to recipes + skill reference docs and returns `MetadataRegistrationReport`
 
@@ -770,7 +729,7 @@ Rust `dcc_mcp_models::DccMcpError` enum.
 - `copy_skill_to_team_dir(skill_dir) -> str` — copy a skill to the team directory
 - `copy_skill_to_user_dir(skill_dir) -> str` — copy a skill to the user directory
 
-### Adapter Install Lifecycle (`dcc_mcp_core.deployment`)
+### Adapter Install Lifecycle (`dcc_mcp_core.install_lifecycle`)
 
 - Import-light helpers for adapter installers/uninstallers that must not load `dcc_mcp_core._core` from an install root they may remove.
 - Runtime vocabulary: a DCC startup hook runs inside the host and must only launch/prepare; a per-DCC service is one registered runtime row per concrete DCC instance; a sidecar is the Rust `dcc-mcp-sidecar` child launched via `dcc-mcp-server sidecar`; the gateway daemon is the one machine-wide routing/Admin process; a guardian is the live service loop that probes gateway `/health` and re-ensures the daemon; service heartbeat only keeps registry rows fresh and is not the gateway restart trigger.
@@ -782,7 +741,7 @@ Rust `dcc_mcp_models::DccMcpError` enum.
 - `launch_sidecar(...)` starts that sidecar with detached stdio by default so the DCC main process is not blocked. Without `wait_ready_timeout_secs`, the result intentionally carries `ready=false`, `readiness_checked=false`, and `readiness.status="not_checked"` (or `"dispatch_not_capable"` for diagnostics-only host RPC schemes). Pass `wait_ready_timeout_secs` only from an installer, supervisor, or background startup task to replace that with a bounded `readiness` verdict, and pass `extra_args` only for deliberate sidecar flags not modeled by the helper. Treat the registry row as dispatch-ready only after `metadata.dispatch_status=ready` and `metadata.mcp_url` appear. Host RPC failures stay visible with `metadata.dispatch_status=unavailable` plus `failure_stage` / `failure_reason`; they may still publish `metadata.mcp_url` for diagnostics, but `/v1/readyz` reports `dispatcher=false` and `tools/call` returns a structured transport error until dispatch becomes ready. For supported real host RPC schemes (`commandport://`, `qtserver://`, `ws://` / `wss://`), the sidecar keeps retrying while the parent DCC process is alive and promotes the same row to `dispatch_status=ready` once the bridge accepts a connection. `stub://` is test-only and remains unavailable by default even when it connects, so adapter startup checks must use a real host RPC scheme.
 - `inspect_install_root(path)` reports loaded native artifacts under the install root as `status="requires_restart"` with `locked_path`.
 - `safe_remove_tree(path)` / `safe_replace_tree(source, destination)` attempt immediate cleanup and classify Windows native-file lock failures into a deferred operation.
-- CLI: `dcc-mcp-install-lifecycle {query|stop|layout|sidecar-command|launch-sidecar|sidecar-ready|plan-update|inspect|remove|replace}`; `dcc_mcp_core.install_lifecycle` and `python -m dcc_mcp_core.install_lifecycle` remain compatible.
+- CLI: `python -m dcc_mcp_core.install_lifecycle {query|stop|layout|sidecar-command|launch-sidecar|sidecar-ready|plan-update|inspect|remove|replace}`.
 
 ### Scheduler (`dcc_mcp_core`)
 
@@ -807,11 +766,10 @@ Rust `dcc_mcp_models::DccMcpError` enum.
 - `TOOL_NAME_RE` / `ACTION_ID_RE` — regex patterns for client-safe tool names and internal action IDs
 - `MAX_TOOL_NAME_LEN = 64` — maximum tool name length
 
-### Serialization — Native-First (`dcc_mcp_core.skills_helper`)
+### Serialization — Rust-Powered (`dcc_mcp_core.skills_helper`)
 
-- `json_dumps(obj) -> str` — serialize to JSON with the native Rust backend when present, or stdlib in py37-lite
-- `json_loads(s) -> obj` — deserialize JSON with the native Rust backend when present, or stdlib in py37-lite
-- The JSON helpers expose a narrow compatibility surface, not full `json.dumps` / `json.loads` parity; formatting, numeric limits, non-finite values, accepted object types, arbitrary kwargs, and file APIs can differ.
+- `json_dumps(obj) -> str` — serialize to JSON string (zero-dependency, Rust-powered)
+- `json_loads(s) -> obj` — deserialize from JSON string (zero-dependency, Rust-powered)
 - `yaml_dumps(obj) -> str` — serialize to YAML string (zero-dependency, Rust-powered)
 - `yaml_loads(s) -> obj` — deserialize from YAML string (zero-dependency, Rust-powered)
 - `load_text(path, max_bytes=None) -> str` / `dump_text(path, text) -> Path` — explicit UTF-8 file helpers
@@ -942,8 +900,6 @@ Opt-in via the `workflow` Cargo feature. Full spec-driven pipeline engine with s
   - `workflows_get_status` — poll terminal status + progress
   - `workflows_cancel` — cancel by `workflow_id` (cascade)
   - `workflows_lookup` — catalog search
-  - `workflows_resume` — resume a persisted run (`workflow_id`, optional `force_steps` / `expected_spec_hash` / `strict`); needs `WorkflowStorage` + the `job-persist-sqlite` feature (#565)
-- **Iteration Playbook** (script reuse → params-only reruns → `workflows_run` → `workflows_resume`): `docs/guide/agents-reference.md#iteration-playbook`
 - **Step policies** (per-step): `timeout_secs`, `retry { max_attempts, backoff: fixed|linear|exponential, initial_delay_ms, max_delay_ms, jitter, retry_on }`, `idempotency_key`, `idempotency_scope: workflow|global`
 - **Artefact hand-off**: step outputs with `file_refs` are captured to `ArtefactStore`; downstream steps reference via `{{steps.<id>.file_refs[<i>].uri}}`
 - **Persistence**: `workflows` + `workflow_steps` tables under `job-persist-sqlite`; non-terminal rows flip to `Interrupted` on restart
@@ -1112,8 +1068,10 @@ Full guide: `docs/guide/remote-server.md`. Per-module API: `docs/api/{auth,batch
 
 - [README (English)](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/README.md)
 - [README (中文)](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/README_zh.md)
-- [AI Agent Guide (AGENTS.md)](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/AGENTS.md)
-- [AI Agent Tutorial (docs/guide/ai-agent-guide.md)](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/docs/guide/ai-agent-guide.md)
+- [Agent rules (AGENTS.md)](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/AGENTS.md)
+- [Claude Guide (CLAUDE.md)](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/CLAUDE.md)
+- [Gemini Guide (GEMINI.md)](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/GEMINI.md)
+- [CodeBuddy Guide (CODEBUDDY.md)](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/CODEBUDDY.md)
 - [Contributing Guide](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/CONTRIBUTING.md)
 - [Changelog](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/CHANGELOG.md)
 - [Full API Reference](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/llms-full.txt)
@@ -1131,8 +1089,6 @@ Full guide: `docs/guide/remote-server.md`. Per-module API: `docs/api/{auth,batch
 ## Related Projects
 
 - [dcc-mcp-maya](https://github.com/dcc-mcp/dcc-mcp-maya) — Maya MCP server implementation
-- [dcc-mcp-office](https://github.com/dcc-mcp/dcc-mcp-office) — Office shared core: office-rpc/1 protocol, C# COM sidecar, Open XML worker, Graph connector
-- [dcc-mcp-PowerPoint](https://github.com/dcc-mcp/dcc-mcp-PowerPoint) — PowerPoint adapter: deck generation (Deck IR → Open XML → COM render), review decks
 
 ---
 
@@ -1148,8 +1104,6 @@ Full guide: `docs/guide/remote-server.md`. Per-module API: `docs/api/{auth,batch
 | Add audit/quota/redact to gateway calls | `GatewayConfig::middleware_chain` with built-in middleware |
 | Gateway admin dashboard | Default ON for the elected gateway: `GET /admin`; disable with `--no-admin`, `DCC_MCP_NO_ADMIN=true`, or `cfg.admin_enabled = False`; agent panel map: `docs/guide/admin-ui.md#agent-facing-panel-map` |
 | Enforce payload size + SSE chunking | `McpHttpConfig.queue.max_request_body_bytes` (default 4 MiB) |
-| Configure the embedded HTTP gateway | `McpHttpConfig.gateway: dcc_mcp_http_types::config::GatewaySettings`; `dcc-mcp-http` projects these serializable settings into the complete runtime `dcc_mcp_gateway::GatewayConfig` |
-| Encode gateway capability names | `dcc_mcp_gateway_core::capability_naming`; use `dcc-mcp-naming` only for ecosystem-wide tool/action name validation |
 | Wire OTLP distributed tracing | Set `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317` at startup |
 | Watch gateway contention events | MCP resource `resources://gateway/events` (JSONL ring buffer) |
 
@@ -1221,7 +1175,6 @@ dcc-mcp-server catalog describe --name dcc-mcp-maya-skills
 MCP resources (#813 phase 2): `resources/read uri=gateway://catalog?query=...`, `resources/read uri=gateway://catalog/{name}`.
 Gateway-native agent guide: `resources/read uri=gateway://docs/agent-workflows` (MCP + resources + prompts + describe_tool hints + efficiency; JSON envelope with markdown `document` field).
 Override catalog path: `DCC_MCP_CATALOG_PATH=/path/to/dcc-mcp-catalog.yml`.
-Rust API: `dcc_mcp_catalog::search_hits` returns lightweight `CatalogSearchHit` index/score references; the former catalog-local `SearchHit` name is a deprecated compatibility alias and is unrelated to `dcc_mcp_gateway_search::SearchHit<R>`.
 
 ### Gateway Observability (#766)
 

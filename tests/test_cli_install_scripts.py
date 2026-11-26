@@ -13,11 +13,11 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 SH_INSTALLER = ROOT / "scripts" / "install-cli.sh"
 PS_INSTALLER = ROOT / "scripts" / "install-cli.ps1"
-OFFICIAL_RELEASE = "https://github.com/dcc-mcp/dcc-mcp-core/releases/download"
+OFFICIAL_RELEASE = "https://github.com/dcc-mcp/dcc-mcp-cli/releases/download"
 INSTALL_DOCS = (
     ROOT / "README.md",
     ROOT / "README_zh.md",
-    ROOT / "docs" / "guide" / "ai-agent-guide.md",
+    ROOT / "docs" / "guide" / "agents-reference.md",
     ROOT / "docs" / "guide" / "getting-started.md",
     ROOT / "docs" / "zh" / "guide" / "getting-started.md",
     ROOT / "docs" / "guide" / "cli-reference.md",
@@ -60,7 +60,7 @@ done
 printf '%s\n' "$url" >> "$REQUEST_LOG"
 case "$url" in
     *dcc-mcp-update-manifest-*) cp "$FIXTURE_MANIFEST" "$out" ;;
-    *dcc-mcp-cli-*) cp "$FIXTURE_BINARY" "$out" ;;
+    *dccmcp-*|*dcc-mcp-cli-*) cp "$FIXTURE_BINARY" "$out" ;;
     *) exit 22 ;;
 esac
 """
@@ -139,7 +139,7 @@ function Invoke-WebRequest {
     Add-Content -LiteralPath $env:REQUEST_LOG -Value $Uri
     if ($Uri -like "*dcc-mcp-update-manifest-*") {
         Copy-Item -LiteralPath $env:FIXTURE_MANIFEST -Destination $OutFile
-    } elseif ($Uri -like "*dcc-mcp-cli-*") {
+    } elseif ($Uri -like "*dccmcp-*" -or $Uri -like "*dcc-mcp-cli-*") {
         Copy-Item -LiteralPath $env:FIXTURE_BINARY -Destination $OutFile
     } else {
         throw "Unexpected URL: $Uri"
@@ -181,12 +181,19 @@ try {
 
 
 def _manifest(*, asset: str, binary: bytes, url=None, sha256=None) -> dict:
+    dccmcp_asset = asset.replace("dcc-mcp-cli", "dccmcp")
+    dccmcp_url = url or f"{OFFICIAL_RELEASE}/v0.19.63/{dccmcp_asset}"
     return {
+        "dccmcp": {
+            "version": "0.19.63",
+            "url": dccmcp_url,
+            "sha256": sha256 or hashlib.sha256(binary).hexdigest(),
+        },
         "dcc-mcp-cli": {
             "version": "0.19.63",
-            "url": url or f"{OFFICIAL_RELEASE}/v0.19.63/{asset}",
+            "url": f"{OFFICIAL_RELEASE}/v0.19.63/{asset}",
             "sha256": sha256 or hashlib.sha256(binary).hexdigest(),
-        }
+        },
     }
 
 
@@ -214,7 +221,7 @@ def test_installers_use_fixed_official_update_manifests() -> None:
     for source in (sh_source, ps_source):
         assert "DCC_MCP_REPO" not in source
         assert "api.github.com" not in source
-        assert "dcc-mcp/dcc-mcp-core/releases" in source
+        assert "dcc-mcp/dcc-mcp-cli/releases" in source
         assert "dcc-mcp-update-manifest-" in source
         assert "sha256" in source.lower()
     assert "DCC_MCP_RELEASE_FALLBACK" not in sh_source
@@ -222,19 +229,20 @@ def test_installers_use_fixed_official_update_manifests() -> None:
 
 
 def test_sh_latest_uses_manifest_pinned_url_and_installs_verified_binary(tmp_path: Path) -> None:
-    binary = b'#!/bin/sh\n[ "$1 $2 $3" = "components ensure dcc-cua" ]\n'
+    binary = b"verified linux cli"
     result = _run_sh_installer(
         tmp_path,
-        _manifest(asset="dcc-mcp-cli-linux-x86_64", binary=binary),
+        _manifest(asset="dccmcp-linux-x86_64", binary=binary),
         binary,
     )
 
     assert result.returncode == 0, result.stderr
+    assert (tmp_path / "install" / "dccmcp").read_bytes() == binary
     assert (tmp_path / "install" / "dcc-mcp-cli").read_bytes() == binary
     requests = (tmp_path / "requests.log").read_text(encoding="utf-8").splitlines()
     assert requests == [
-        "https://github.com/dcc-mcp/dcc-mcp-core/releases/latest/download/dcc-mcp-update-manifest-linux-x86_64.json",
-        f"{OFFICIAL_RELEASE}/v0.19.63/dcc-mcp-cli-linux-x86_64",
+        "https://github.com/dcc-mcp/dcc-mcp-cli/releases/latest/download/dcc-mcp-update-manifest-linux-x86_64.json",
+        f"{OFFICIAL_RELEASE}/v0.19.63/dccmcp-linux-x86_64",
     ]
 
 
@@ -246,7 +254,7 @@ def test_sh_checksum_mismatch_preserves_existing_binary(tmp_path: Path) -> None:
     binary = b"tampered"
     result = _run_sh_installer(
         tmp_path,
-        _manifest(asset="dcc-mcp-cli-linux-x86_64", binary=binary, sha256="0" * 64),
+        _manifest(asset="dccmcp-linux-x86_64", binary=binary, sha256="0" * 64),
         binary,
     )
 
@@ -260,7 +268,7 @@ def test_sh_rejects_non_official_asset_before_download(tmp_path: Path) -> None:
     result = _run_sh_installer(
         tmp_path,
         _manifest(
-            asset="dcc-mcp-cli-linux-x86_64",
+            asset="dccmcp-linux-x86_64",
             binary=binary,
             url="https://example.invalid/dcc-mcp-cli-linux-x86_64",
         ),
@@ -271,7 +279,7 @@ def test_sh_rejects_non_official_asset_before_download(tmp_path: Path) -> None:
     assert "official" in result.stderr.lower()
     requests = (tmp_path / "requests.log").read_text(encoding="utf-8").splitlines()
     assert requests == [
-        "https://github.com/dcc-mcp/dcc-mcp-core/releases/latest/download/dcc-mcp-update-manifest-linux-x86_64.json"
+        "https://github.com/dcc-mcp/dcc-mcp-cli/releases/latest/download/dcc-mcp-update-manifest-linux-x86_64.json"
     ]
     assert not (tmp_path / "install" / "dcc-mcp-cli").exists()
 
@@ -282,16 +290,17 @@ def test_powershell_latest_uses_manifest_pinned_url_and_installs_verified_binary
     binary = b"verified windows cli"
     result = _run_ps_installer(
         tmp_path,
-        _manifest(asset="dcc-mcp-cli-windows-x86_64.exe", binary=binary),
+        _manifest(asset="dccmcp-windows-x86_64.exe", binary=binary),
         binary,
     )
 
     assert result.returncode == 0, result.stderr
+    assert (tmp_path / "install" / "dccmcp.exe").read_bytes() == binary
     assert (tmp_path / "install" / "dcc-mcp-cli.exe").read_bytes() == binary
     requests = (tmp_path / "requests.log").read_text(encoding="utf-8").splitlines()
     assert requests == [
-        "https://github.com/dcc-mcp/dcc-mcp-core/releases/latest/download/dcc-mcp-update-manifest-windows-x86_64.json",
-        f"{OFFICIAL_RELEASE}/v0.19.63/dcc-mcp-cli-windows-x86_64.exe",
+        "https://github.com/dcc-mcp/dcc-mcp-cli/releases/latest/download/dcc-mcp-update-manifest-windows-x86_64.json",
+        f"{OFFICIAL_RELEASE}/v0.19.63/dccmcp-windows-x86_64.exe",
     ]
 
 
@@ -303,7 +312,7 @@ def test_powershell_checksum_mismatch_preserves_existing_binary(tmp_path: Path) 
     binary = b"tampered"
     result = _run_ps_installer(
         tmp_path,
-        _manifest(asset="dcc-mcp-cli-windows-x86_64.exe", binary=binary, sha256="0" * 64),
+        _manifest(asset="dccmcp-windows-x86_64.exe", binary=binary, sha256="0" * 64),
         binary,
     )
 
@@ -317,7 +326,7 @@ def test_powershell_rejects_non_official_asset_before_download(tmp_path: Path) -
     result = _run_ps_installer(
         tmp_path,
         _manifest(
-            asset="dcc-mcp-cli-windows-x86_64.exe",
+            asset="dccmcp-windows-x86_64.exe",
             binary=binary,
             url="https://example.invalid/dcc-mcp-cli-windows-x86_64.exe",
         ),
@@ -328,6 +337,6 @@ def test_powershell_rejects_non_official_asset_before_download(tmp_path: Path) -
     assert "official release" in result.stderr.lower()
     requests = (tmp_path / "requests.log").read_text(encoding="utf-8").splitlines()
     assert requests == [
-        "https://github.com/dcc-mcp/dcc-mcp-core/releases/latest/download/dcc-mcp-update-manifest-windows-x86_64.json"
+        "https://github.com/dcc-mcp/dcc-mcp-cli/releases/latest/download/dcc-mcp-update-manifest-windows-x86_64.json"
     ]
     assert not (tmp_path / "install" / "dcc-mcp-cli.exe").exists()

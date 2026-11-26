@@ -1352,6 +1352,7 @@ export type MarketplaceInstallResult = {
   path: string;
   skill_search_path: string;
   install_type: string;
+  superseded?: string[];
   reload_required: boolean;
 };
 

@@ -98,7 +98,10 @@ pub use tools::{
 // ── Protocol-version negotiation + session/header/method constants ─────────
 
 /// Default MCP protocol version for the legacy `initialize` lifecycle.
-pub const MCP_PROTOCOL_VERSION: &str = "2025-06-18";
+pub const MCP_PROTOCOL_VERSION: &str = "2025-11-25";
+
+/// Explicit name for the legacy initialize/session protocol used by clients.
+pub const MCP_LEGACY_PROTOCOL_VERSION: &str = MCP_PROTOCOL_VERSION;
 
 /// The MCP 2026-07-28 protocol version string.
 pub const MCP_PROTOCOL_VERSION_2026: &str = "2026-07-28";
@@ -111,10 +114,11 @@ pub const MCP_PROTOCOL_VERSION_2026_07_28: &str = MCP_PROTOCOL_VERSION_2026;
 /// This includes both lifecycles. The HTTP protocol header selects the
 /// stateless lifecycle; `initialize` negotiates only legacy versions.
 #[cfg(feature = "mcp-2026-07-28")]
-pub const SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &["2026-07-28", "2025-06-18", "2025-03-26"];
+pub const SUPPORTED_PROTOCOL_VERSIONS: &[&str] =
+    &["2026-07-28", "2025-11-25", "2025-06-18", "2025-03-26"];
 
 #[cfg(not(feature = "mcp-2026-07-28"))]
-pub const SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &["2025-06-18", "2025-03-26"];
+pub const SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &["2025-11-25", "2025-06-18", "2025-03-26"];
 
 /// Modern protocol versions advertised by `server/discover`, newest first.
 ///
@@ -130,7 +134,7 @@ pub const SUPPORTED_MODERN_PROTOCOL_VERSIONS: &[&str] = &[];
 ///
 /// Used by [`select_protocol_mode`] for routing and by
 /// [`negotiate_protocol_version`] for `initialize` negotiation.
-pub const LEGACY_PROTOCOL_VERSIONS: &[&str] = &["2025-06-18", "2025-03-26"];
+pub const LEGACY_PROTOCOL_VERSIONS: &[&str] = &["2025-11-25", "2025-06-18", "2025-03-26"];
 
 /// Negotiate the protocol version for the legacy `initialize` lifecycle.
 ///
@@ -275,7 +279,7 @@ mod tests {
 
     #[test]
     fn initialize_negotiation_does_not_select_the_stateless_lifecycle() {
-        assert_eq!(negotiate_protocol_version(Some("2026-07-28")), "2025-06-18");
+        assert_eq!(negotiate_protocol_version(Some("2026-07-28")), "2025-11-25");
     }
 
     #[test]
@@ -290,7 +294,7 @@ mod tests {
 
     #[test]
     fn negotiate_falls_back_to_default_for_unknown_version() {
-        // Unknown version → Phase 1 default (2025-06-18, not 2026-07-28).
+        // Unknown version falls back to the latest legacy revision.
         let result = negotiate_protocol_version(Some("2024-01-01"));
         assert_eq!(result, MCP_PROTOCOL_VERSION);
     }

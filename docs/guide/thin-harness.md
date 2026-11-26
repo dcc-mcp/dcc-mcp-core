@@ -252,7 +252,7 @@ template rejects undeclared or extra parameters. The runner reads the host-local
 file, verifies any supplied `sha256` assertion, and passes `params` to
 `main(**params)`.
 There is no dedicated reuse flag or params-file option: pass `file_path` and an
-inline `params` object to the execution tool. The general `dcc-mcp-cli call
+inline `params` object to the execution tool. The general `dccmcp call
 --json-file` command can supply a large argument object, but it does not create
 a reusable script identity.
 

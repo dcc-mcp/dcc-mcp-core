@@ -14,7 +14,7 @@
  * ```
  *
  * The `enabled` param gates both the initial fetch and the polling interval,
- * so only the visible panel's data refreshes every 5s.
+ * so only the visible panel's data refreshes on its panel-specific cadence.
  */
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -100,8 +100,11 @@ export const adminKeys = {
 
 // ── polling config ─────────────────────────────────────────────────────────
 
-/** Interval for active-panel polling (matches the old 5s setInterval). */
-const POLL_INTERVAL_MS = 5_000;
+/** Fast cadence for instance liveness and worker state. */
+const LIVE_POLL_INTERVAL_MS = 5_000;
+
+/** Slower cadence for retained activity and aggregate analytics payloads. */
+const PANEL_POLL_INTERVAL_MS = 15_000;
 
 function isInstanceUpdatePayload(value: unknown): value is InstanceUpdatePayload {
   if (!value || typeof value !== 'object') {
@@ -130,7 +133,7 @@ export function useActivityQuery(enabled: boolean) {
     queryFn: () => apiJson<{ events: ActivityEvent[] }>('/activity?limit=300'),
     select: (payload) => (Array.isArray(payload.events) ? payload.events : []),
     enabled,
-    refetchInterval: enabled ? POLL_INTERVAL_MS : false,
+    refetchInterval: enabled ? PANEL_POLL_INTERVAL_MS : false,
   });
 }
 
@@ -139,7 +142,7 @@ export function useHealthQuery(enabled: boolean) {
     queryKey: adminKeys.health(),
     queryFn: () => apiJson<HealthPayload>('/health'),
     enabled,
-    refetchInterval: enabled ? POLL_INTERVAL_MS : false,
+    refetchInterval: enabled ? LIVE_POLL_INTERVAL_MS : false,
   });
 }
 
@@ -148,7 +151,7 @@ export function useWorkersQuery(enabled: boolean) {
     queryKey: adminKeys.workers(),
     queryFn: () => apiJson<{ workers: InstanceRow[]; summary: InstanceSummary }>('/workers'),
     enabled,
-    refetchInterval: enabled ? POLL_INTERVAL_MS : false,
+    refetchInterval: enabled ? LIVE_POLL_INTERVAL_MS : false,
   });
 }
 
@@ -158,7 +161,7 @@ export function useToolsQuery(enabled: boolean) {
     queryFn: () => apiJson<{ tools: ToolRow[] }>('/tools'),
     select: (payload) => payload.tools,
     enabled,
-    refetchInterval: enabled ? POLL_INTERVAL_MS : false,
+    refetchInterval: enabled ? PANEL_POLL_INTERVAL_MS : false,
   });
 }
 
@@ -168,7 +171,7 @@ export function useCallsQuery(enabled: boolean) {
     queryFn: () => apiJson<{ calls: CallRow[] }>('/calls'),
     select: (payload) => (Array.isArray(payload.calls) ? payload.calls : []),
     enabled,
-    refetchInterval: enabled ? POLL_INTERVAL_MS : false,
+    refetchInterval: enabled ? PANEL_POLL_INTERVAL_MS : false,
   });
 }
 
@@ -178,7 +181,7 @@ export function useTracesQuery(enabled: boolean, limit = 200) {
     queryFn: () => apiJson<{ traces: TraceRow[] }>(`/traces?limit=${limit}`),
     select: (payload) => (Array.isArray(payload.traces) ? payload.traces : []),
     enabled,
-    refetchInterval: enabled ? POLL_INTERVAL_MS : false,
+    refetchInterval: enabled ? PANEL_POLL_INTERVAL_MS : false,
   });
 }
 
@@ -187,7 +190,7 @@ export function useTrafficQuery(enabled: boolean, limit = 300) {
     queryKey: adminKeys.traffic(limit),
     queryFn: () => apiJson<TrafficPayload>(`/traffic?limit=${limit}`),
     enabled,
-    refetchInterval: enabled ? POLL_INTERVAL_MS : false,
+    refetchInterval: enabled ? PANEL_POLL_INTERVAL_MS : false,
   });
 }
 
@@ -197,7 +200,7 @@ export function useTasksQuery(enabled: boolean, limit = 300) {
     queryFn: () => apiJson<{ tasks: TaskRow[] }>(`/tasks?limit=${limit}`),
     select: (payload) => (Array.isArray(payload.tasks) ? payload.tasks : []),
     enabled,
-    refetchInterval: enabled ? POLL_INTERVAL_MS : false,
+    refetchInterval: enabled ? PANEL_POLL_INTERVAL_MS : false,
   });
 }
 
@@ -207,7 +210,7 @@ export function useWorkflowsQuery(enabled: boolean, limit = 200) {
     queryFn: () => apiJson<{ workflows: WorkflowRow[] }>(`/workflows?limit=${limit}`),
     select: (payload) => (Array.isArray(payload.workflows) ? payload.workflows : []),
     enabled,
-    refetchInterval: enabled ? POLL_INTERVAL_MS : false,
+    refetchInterval: enabled ? PANEL_POLL_INTERVAL_MS : false,
   });
 }
 
@@ -216,7 +219,7 @@ export function useStatsQuery(enabled: boolean, range: string) {
     queryKey: adminKeys.stats(range),
     queryFn: () => apiJson<StatsPayload>(`/stats?range=${encodeURIComponent(range)}`),
     enabled,
-    refetchInterval: enabled ? POLL_INTERVAL_MS : false,
+    refetchInterval: enabled ? PANEL_POLL_INTERVAL_MS : false,
   });
 }
 
@@ -225,7 +228,7 @@ export function useAnalyticsOverviewQuery(enabled: boolean, range: string) {
     queryKey: adminKeys.analyticsOverview(range),
     queryFn: () => apiJson<AnalyticsOverview>(`/analytics/overview?range=${encodeURIComponent(range)}`),
     enabled,
-    refetchInterval: enabled ? POLL_INTERVAL_MS : false,
+    refetchInterval: enabled ? PANEL_POLL_INTERVAL_MS : false,
   });
 }
 
@@ -235,7 +238,7 @@ export function useAnalyticsTimeseriesQuery(enabled: boolean, range: string, gra
     queryFn: () => apiJson<{ series: AnalyticsTimeseriesPoint[] }>(`/analytics/timeseries?range=${encodeURIComponent(range)}&granularity=${encodeURIComponent(granularity)}`),
     select: (payload) => (Array.isArray(payload.series) ? payload.series : []),
     enabled,
-    refetchInterval: enabled ? POLL_INTERVAL_MS : false,
+    refetchInterval: enabled ? PANEL_POLL_INTERVAL_MS : false,
   });
 }
 
@@ -245,7 +248,7 @@ export function useAnalyticsHeatmapQuery(enabled: boolean, range: string) {
     queryFn: () => apiJson<{ heatmap: AnalyticsHeatmapCell[] }>(`/analytics/heatmap?range=${encodeURIComponent(range)}`),
     select: (payload) => (Array.isArray(payload.heatmap) ? payload.heatmap : []),
     enabled,
-    refetchInterval: enabled ? POLL_INTERVAL_MS : false,
+    refetchInterval: enabled ? PANEL_POLL_INTERVAL_MS : false,
   });
 }
 
@@ -254,7 +257,7 @@ export function useGovernanceQuery(enabled: boolean, limit = 300) {
     queryKey: adminKeys.governance(limit),
     queryFn: () => apiJson<GovernancePayload>(`/governance?limit=${limit}`),
     enabled,
-    refetchInterval: enabled ? POLL_INTERVAL_MS : false,
+    refetchInterval: enabled ? PANEL_POLL_INTERVAL_MS : false,
   });
 }
 
@@ -267,7 +270,7 @@ export function useLogsQuery(enabled: boolean) {
       serverVersion: payload.server_version == null ? null : String(payload.server_version),
     }),
     enabled,
-    refetchInterval: enabled ? POLL_INTERVAL_MS : false,
+    refetchInterval: enabled ? LIVE_POLL_INTERVAL_MS : false,
   });
 }
 
@@ -276,7 +279,7 @@ export function useReliabilityQuery(enabled: boolean) {
     queryKey: adminKeys.reliability(),
     queryFn: () => apiJson<ReliabilityPayload>('/reliability'),
     enabled,
-    refetchInterval: enabled ? POLL_INTERVAL_MS : false,
+    refetchInterval: enabled ? PANEL_POLL_INTERVAL_MS : false,
   });
 }
 
@@ -292,7 +295,7 @@ export function useMemoryQuery(enabled: boolean, filters: MemoryFilters = {}) {
     queryKey: adminKeys.memory(filters),
     queryFn: () => apiJson<MemoryPayload>(`/memory${query ? `?${query}` : ''}`),
     enabled,
-    refetchInterval: enabled ? POLL_INTERVAL_MS : false,
+    refetchInterval: enabled ? PANEL_POLL_INTERVAL_MS : false,
   });
 }
 
@@ -606,7 +609,7 @@ export function useIntegrationsQuery(enabled: boolean) {
     queryFn: () => apiJson<IntegrationsPayload>('/integrations'),
     select: (payload) => (Array.isArray(payload.integrations) ? payload.integrations : []),
     enabled,
-    refetchInterval: enabled ? POLL_INTERVAL_MS : false,
+    refetchInterval: enabled ? PANEL_POLL_INTERVAL_MS : false,
   });
 }
 

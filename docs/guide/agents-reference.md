@@ -229,7 +229,7 @@ tools with `execution: async` and poll `jobs_get_status`.
 3. If the same instance returns, call its indexed `jobs_get_status`. The
    server-local status tool remains routable while DCC readiness is temporarily
    red during a host reload; keep polling the original job instead of resubmitting.
-   `dcc-mcp-cli call --wait` performs this bounded gateway-reconnect loop and
+   `dccmcp call --wait` performs this bounded gateway-reconnect loop and
    reports `control_plane_reconnecting` / `wait_recovery`.
 4. If owner death removes the row, wait for an explicitly restarted DCC,
    rediscover by DCC type plus scene/project metadata, and use the new slug.
@@ -1959,7 +1959,7 @@ and no source crosses the boundary again.
 
 There is **no dedicated CLI flag or params-file option** for this channel. Do not
 invent one, and do not re-materialize the script just to change an argument. The
-general `dcc-mcp-cli call --json-file` command can supply a large argument object,
+general `dccmcp call --json-file` command can supply a large argument object,
 but it does not create a reusable script identity.
 
 ```json
@@ -2173,7 +2173,7 @@ them only at a boundary that knows that protocol context. The former
 
 ## Record and Replay Safety Contract
 
-Use `dcc-mcp-cli record-replay` only for operator-reviewed demonstration-to-Skill
+Use `dccmcp record-replay` only for operator-reviewed demonstration-to-Skill
 workflows. Recording is caller-session scoped and captures post-redaction gateway
 traffic; it never records prompts, secrets, approvals, or reusable authority.
 Calls are persisted incrementally in the existing Admin `session_events` timeline.

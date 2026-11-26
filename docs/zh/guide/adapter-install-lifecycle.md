@@ -50,7 +50,7 @@ os.environ.update(layout["environment"]["set"])
   个进程记录一次 warning。该检查只针对回退路径：来自 `PATH` 的二进制没有可
   导入的版本信息，拿包版本去比对只会指向一个不会被执行的副本。可用
   `DCC_MCP_SERVER_BIN` 显式覆盖查找结果。
-- `dcc-mcp-cli` 是发布包里附带的独立 Rust 二进制，不是 Python 包。不存在
+- `dccmcp` 是发布包里附带的独立 Rust 二进制，不是 Python 包。不存在
   `dcc_mcp_cli` 模块，宿主内 `import dcc_mcp_cli` 必然失败，这是预期行为；
   请改为调用解析环境中 `PATH` 上的该二进制。
 
@@ -278,7 +278,7 @@ plan = plan_runtime_updates(
 }
 ```
 
-启动自己的 DCC 进程的发布冒烟测试应发布稳定的公共生命周期元数据（`owner`、`session`），并在支持时发布 `safe_stop_url` 回调。网关和 `dcc-mcp-cli stop-instance` 仅将安全停止请求转发到该显式回调，从不直接终止进程。
+启动自己的 DCC 进程的发布冒烟测试应发布稳定的公共生命周期元数据（`owner`、`session`），并在支持时发布 `safe_stop_url` 回调。网关和 `dccmcp stop-instance` 仅将安全停止请求转发到该显式回调，从不直接终止进程。
 
 ## 安全删除或替换
 

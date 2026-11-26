@@ -19,7 +19,7 @@ metadata:
       workflow_stage: automation
       task_category: mutate
     layer: infrastructure
-    compatibility: Cross-platform routing contract. The current DCC-CUA host is installed and verified through the official dcc-mcp-cli component manifest; exact platform capabilities remain runtime-discovered.
+    compatibility: Cross-platform routing contract. The current DCC-CUA host is a separately released runtime forwarded by dccmcp; exact platform capabilities remain runtime-discovered.
     version: "0.1.0"
     search-hint: "dcc-cua DCC CUA dcc cua our dcc-cua our dcc cua 我们的 dcc-cua 我们的 dcc cua project-owned UI control browser DOM exact PID HWND computer use automation"
     tags: "dcc-cua, dcc-ui-control, ui-control, browser-dom, exact-window, computer-use, infrastructure"
@@ -85,38 +85,26 @@ coefficient: the route is explicit, not a ranking effect.
 
 ## Runtime preflight
 
-Use the official component contract; do not download an arbitrary executable:
+Use the standalone DCC-CUA contract; do not download an arbitrary executable:
 
 ```bash
-dcc-mcp-cli components status dcc-cua
-dcc-mcp-cli components ensure dcc-cua --yes
-dcc-cua manifest
-dcc-cua ping
+dccmcp cua -- manifest
+dccmcp cua -- ping
+dccmcp cua -- host-ensure
 ```
 
-Run `components ensure` only when installation or repair is authorized. It
-consumes the official versionless manifest, verifies the declared SHA-256, and
-reconciles the independently released companion executable.
+Run `dccmcp cua -- host-ensure` only after the standalone `dcc-cua` runtime has
+been installed and the operation is authorized. The command forwards to the
+independent runtime and does not embed its SDK or own the Host lifecycle.
 
-The two binaries come from different releases: `dcc-mcp-cli` ships with
-`dcc-mcp-core` (`https://github.com/dcc-mcp/dcc-mcp-core/releases`), while the
-`dcc-cua` runtime is an independent companion released from
-`https://github.com/dcc-mcp/dcc-cua/releases`. `components ensure dcc-cua`
-fetches the runtime from that dcc-cua release, never from a Core release.
+The two runtimes come from different releases. `dccmcp` is released from
+`https://github.com/dcc-mcp/dcc-mcp-cli`, while `dcc-cua` is released from
+`https://github.com/dcc-mcp/dcc-cua`. `dccmcp cua -- ...` forwards to the
+installed `dcc-cua` runtime and does not download it as part of a CLI update.
 
-For an exact, already qualified offline package, use
-`dcc-mcp-cli components install-verified dcc-cua --help`. Supply the canonical
-`--target-core-cli` and its `--expected-core-cli-sha256`, `--source-root`, exact
-`--version`, new and `--previous-manifest` paths and their pinned SHA-256 values,
-plus `--expected-current-sha256`, `--expected-new-sha256`, and `--yes`.
-Obtain manifest digests from independently verified official publications.
-The command disables automatic update maintenance and gateway startup, copies
-only declared files into a private verified staging tree, and checks the Core
-anchor and old foreground under the installation lock. It preserves historical
-backup files and rejects a pending package journal with `recovery required`;
-recovery is a separate operation. An error after commit can require cleanup;
-read back installed hashes and the journal before reporting an unchanged
-installation or retrying. Installing files does not reconnect loaded callers.
+If the runtime is missing, install the official `dcc-cua` release separately
+from `https://github.com/dcc-mcp/dcc-cua/releases`, then run
+`dccmcp cua -- manifest` and `dccmcp cua -- ping` before using UI Control.
 
 Retryable rename/delete failures retain prepared ownership only when a live
 OS file identity still matches. Windows requires the OS and filesystem to
@@ -164,11 +152,11 @@ For a registered DCC instance, use the DCC-MCP UI Control tools or their CLI
 projection:
 
 ```bash
-dcc-mcp-cli load-skill ui-control --instance-id <instance-id> --output toon
-dcc-mcp-cli ui-control snapshot --instance-id <instance-id> --json '{"session_id":"ui","process_id":1234,"window_handle":5678}'
-dcc-mcp-cli ui-control act --instance-id <instance-id> --json '{"session_id":"ui","control_id":"ok","action":"click","snapshot_id":"<snapshot-id>"}'
-dcc-mcp-cli ui-control act --instance-id <instance-id> --json '{"session_id":"ui","action":"invoke_menu","menu_path":["Window","Arrange","Left"]}'
-dcc-mcp-cli ui-control stop --instance-id <instance-id> --json '{"session_id":"ui"}'
+dccmcp load-skill ui-control --instance-id <instance-id> --output toon
+dccmcp ui-control snapshot --instance-id <instance-id> --json '{"session_id":"ui","process_id":1234,"window_handle":5678}'
+dccmcp ui-control act --instance-id <instance-id> --json '{"session_id":"ui","control_id":"ok","action":"click","snapshot_id":"<snapshot-id>"}'
+dccmcp ui-control act --instance-id <instance-id> --json '{"session_id":"ui","action":"invoke_menu","menu_path":["Window","Arrange","Left"]}'
+dccmcp ui-control stop --instance-id <instance-id> --json '{"session_id":"ui"}'
 ```
 
 Use the same exact instance and session throughout the action chain. Do not

@@ -135,6 +135,7 @@ fn is_pending_job(value: Option<&Value>) -> bool {
 fn ready_context() -> RegistryContext {
     RegistryContext {
         resource_provider: None,
+        skill_provider: None,
         prompt_provider: None,
         readiness: Arc::new(StaticReadiness::fully_ready()),
         on_skill_catalog_mutated: Arc::new(|| {}),

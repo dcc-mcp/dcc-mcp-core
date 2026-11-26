@@ -1,7 +1,7 @@
 # Verified install catalog
 
 The installation catalog updates independently of the CLI binary. An online
-`dcc-mcp-cli install --dcc-type godot` resolves the latest verified catalog before
+`dccmcp install --dcc-type godot` resolves the latest verified catalog before
 building its plan; one execution keeps the selected version, artifact URL, and
 digest together. It does not resolve a newer package halfway through installation.
 

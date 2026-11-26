@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import importlib
+import logging
 import threading
 import time
 from typing import Any
@@ -19,6 +20,8 @@ from dcc_mcp_core._server.callable_dispatcher import AdaptivePumpPolicy
 from dcc_mcp_core._server.callable_dispatcher import DrainStats
 from dcc_mcp_core._typing import Protocol
 from dcc_mcp_core._typing import runtime_checkable
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "HostPumpController",
@@ -86,13 +89,17 @@ class HostPumpController:
         deferred_pending_provider: Callable[[], bool] | None = None,
         clock: Callable[[], float] = time.monotonic,
         shutdown_pump_on_stop: bool = False,
+        error_retry_secs: float = 0.05,
     ) -> None:
         if budget_ms <= 0:
             raise ValueError("budget_ms must be > 0")
+        if error_retry_secs < 0:
+            raise ValueError("error_retry_secs must be >= 0")
         self.pump = pump
         self.timer_adapter = timer_adapter
         self.policy = policy or AdaptivePumpPolicy(clock=clock)
         self.budget_ms = int(budget_ms)
+        self.error_retry_secs = float(error_retry_secs)
         self.deferred_pending_provider = deferred_pending_provider
         self.clock = clock
         self.shutdown_pump_on_stop = shutdown_pump_on_stop
@@ -142,35 +149,55 @@ class HostPumpController:
         return True
 
     def tick(self) -> float | None:
-        """Drain the pump once and return the next timer interval."""
+        """Drain the pump once and return the next timer interval.
+
+        A top-level ``try/except`` isolates the pump from unhandled
+        Python exceptions escaping from ``drain_queue`` or policy
+        helpers.  The host timer callback (Maya scriptJob, Houdini
+        event-loop callback, Blender timer, ...) must never propagate
+        an exception into the DCC event loop, which can cause
+        modal-dialog freezes, Qt signal-chain breakage, or, in the
+        worst case, native SIGSEGV from stale HOM object references.
+        """
         if self._shutdown or _is_shutdown(self.pump):
             self._shutdown = True
             self._refresh_snapshot(interval_secs=0.0, elapsed_ms=0.0)
             return None
 
-        start = self.clock()
-        raw = self.pump.drain_queue(self.budget_ms)
-        elapsed_ms = max((self.clock() - start) * 1000.0, 0.0)
-        outcome = _normalize_drain_outcome(raw, elapsed_ms=elapsed_ms, budget_ms=self.budget_ms)
-        queue_size = outcome.queue_size if outcome.queue_size is not None else _queue_size(self.pump)
-        overrun = outcome.overrun or outcome.elapsed_ms > self.budget_ms
+        try:
+            start = self.clock()
+            raw = self.pump.drain_queue(self.budget_ms)
+            elapsed_ms = max((self.clock() - start) * 1000.0, 0.0)
+            outcome = _normalize_drain_outcome(raw, elapsed_ms=elapsed_ms, budget_ms=self.budget_ms)
+            queue_size = outcome.queue_size if outcome.queue_size is not None else _queue_size(self.pump)
+            overrun = outcome.overrun or outcome.elapsed_ms > self.budget_ms
 
-        self.policy.record_tick(
-            drained=outcome.drained,
-            elapsed_ms=outcome.elapsed_ms,
-            overrun=overrun,
-        )
-        interval = self.policy.next_interval(
-            has_pending=queue_size > 0,
-            deferred_pending=self._deferred_pending(),
-        )
-        self._refresh_snapshot(
-            interval_secs=interval,
-            elapsed_ms=outcome.elapsed_ms,
-            queue_size=queue_size,
-            active_jobs=_active_jobs(self.pump),
-        )
-        return None if self._shutdown else interval
+            self.policy.record_tick(
+                drained=outcome.drained,
+                elapsed_ms=outcome.elapsed_ms,
+                overrun=overrun,
+            )
+            interval = self.policy.next_interval(
+                has_pending=queue_size > 0,
+                deferred_pending=self._deferred_pending(),
+            )
+            self._refresh_snapshot(
+                interval_secs=interval,
+                elapsed_ms=outcome.elapsed_ms,
+                queue_size=queue_size,
+                active_jobs=_active_jobs(self.pump),
+            )
+            return None if self._shutdown else interval
+        except Exception:
+            logger.exception(
+                "Host pump tick failed — drain_queue raised; retrying in %.3fs",
+                self.error_retry_secs,
+            )
+            self._refresh_snapshot(
+                interval_secs=self.error_retry_secs,
+                elapsed_ms=0.0,
+            )
+            return self.error_retry_secs
 
     def _deferred_pending(self) -> bool:
         provider = self.deferred_pending_provider
@@ -307,8 +334,11 @@ class QtHostTimerAdapter:
         self.installed = True
 
     def uninstall(self) -> None:
-        if self.timer is not None and callable(getattr(self.timer, "stop", None)):
-            self.timer.stop()
+        if self.timer is not None:
+            if callable(getattr(self.timer, "stop", None)):
+                self.timer.stop()
+            if callable(getattr(self.timer, "deleteLater", None)):
+                self.timer.deleteLater()
         self.installed = False
         self.tick = None
         self.timer = None

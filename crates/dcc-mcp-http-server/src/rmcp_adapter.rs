@@ -13,21 +13,94 @@ use std::sync::Arc;
 
 use rmcp::ErrorData as McpError;
 use rmcp::model::{
-    Annotated, CallToolResult as RmcpCallToolResult, Content, ErrorCode,
-    GetPromptResult as RmcpGetPromptResult, Meta, Prompt as RmcpPrompt,
-    PromptArgument as RmcpPromptArgument, PromptMessage as RmcpPromptMessage, PromptMessageContent,
-    PromptMessageRole, RawContent, RawResource, ReadResourceResult as RmcpReadResourceResult,
-    Resource as RmcpResource, ResourceContents, Tool as RmcpTool,
-    ToolAnnotations as RmcpToolAnnotations,
+    CallToolResult as RmcpCallToolResult, ContentBlock, ErrorCode,
+    GetPromptResult as RmcpGetPromptResult, GetSkillResult as RmcpGetSkillResult,
+    ListResourcesResult as RmcpListResourcesResult, ListSkillsResult as RmcpListSkillsResult,
+    MetaObject, Prompt as RmcpPrompt, PromptArgument as RmcpPromptArgument,
+    PromptMessage as RmcpPromptMessage, ReadResourceResult as RmcpReadResourceResult,
+    Resource as RmcpResource, ResourceContents, Role, Skill as RmcpSkill,
+    SkillFrontmatter as RmcpSkillFrontmatter, SkillResource as RmcpSkillResource,
+    SkillResources as RmcpSkillResources, Tool as RmcpTool, ToolAnnotations as RmcpToolAnnotations,
 };
 use serde_json::Value;
 
 use dcc_mcp_jsonrpc::{
-    CallToolResult as DccCallToolResult, GetPromptResult as DccGetPromptResult, McpPrompt,
+    CallToolResult as DccCallToolResult, GetPromptResult as DccGetPromptResult,
+    GetSkillResult as DccGetSkillResult, ListSkillsResult as DccListSkillsResult, McpPrompt,
     McpPromptContent, McpResource, McpTool, McpToolAnnotations,
-    ReadResourceResult as DccReadResourceResult, ToolContent,
+    ReadResourceDirectoryResult as DccReadResourceDirectoryResult,
+    ReadResourceResult as DccReadResourceResult, Skill as DccSkill,
+    SkillResources as DccSkillResources, ToolContent,
     error_codes::{BACKEND_NOT_READY, CAPABILITY_MISSING},
 };
+
+// ── Skills extension results ────────────────────────────────────────────────
+
+/// Convert an internal Skills extension entry to rmcp's validated wire type.
+pub fn skill_to_rmcp(skill: &DccSkill) -> Result<RmcpSkill, String> {
+    let name = skill
+        .frontmatter
+        .get("name")
+        .and_then(Value::as_str)
+        .ok_or_else(|| format!("skill {} is missing frontmatter.name", skill.uri))?;
+    let description = skill
+        .frontmatter
+        .get("description")
+        .and_then(Value::as_str)
+        .ok_or_else(|| format!("skill {} is missing frontmatter.description", skill.uri))?;
+
+    let mut frontmatter = RmcpSkillFrontmatter::new(name, description);
+    for (key, value) in &skill.frontmatter {
+        if key != "name" && key != "description" {
+            frontmatter = frontmatter.with_field(key.clone(), value.clone());
+        }
+    }
+
+    let resources = match &skill.resources {
+        DccSkillResources::Entries(entries) => RmcpSkillResources::Files(
+            entries
+                .iter()
+                .map(|entry| RmcpSkillResource::new(&entry.uri, &entry.digest, entry.size))
+                .collect(),
+        ),
+        DccSkillResources::Dynamic => RmcpSkillResources::Dynamic,
+    };
+
+    Ok(RmcpSkill::new(&skill.uri, frontmatter, resources))
+}
+
+/// Convert an internal `skills/list` result to rmcp's result type.
+pub fn list_skills_result_to_rmcp(
+    result: &DccListSkillsResult,
+) -> Result<RmcpListSkillsResult, String> {
+    let skills = result
+        .skills
+        .iter()
+        .map(skill_to_rmcp)
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut converted = RmcpListSkillsResult::with_all_items(skills);
+    converted.next_cursor = result.next_cursor.clone();
+    Ok(converted)
+}
+
+/// Convert an internal `skills/get` result to rmcp's result type.
+pub fn get_skill_result_to_rmcp(result: &DccGetSkillResult) -> Result<RmcpGetSkillResult, String> {
+    let skill = result
+        .skill
+        .as_ref()
+        .ok_or_else(|| "skills/get returned no skill".to_string())?;
+    Ok(RmcpGetSkillResult::new(skill_to_rmcp(skill)?))
+}
+
+/// Convert an internal directory listing to rmcp's resource-list result type.
+pub fn read_resource_directory_result_to_rmcp(
+    result: &DccReadResourceDirectoryResult,
+) -> RmcpListResourcesResult {
+    let resources = result.resources.iter().map(resource_to_rmcp).collect();
+    let mut converted = RmcpListResourcesResult::with_all_items(resources);
+    converted.next_cursor = result.next_cursor.clone();
+    converted
+}
 
 // ── McpTool → rmcp::Tool ─────────────────────────────────────────────────────
 
@@ -51,7 +124,7 @@ pub fn tool_to_rmcp(tool: &McpTool) -> RmcpTool {
 
     let annotations = tool.annotations.as_ref().map(annotations_to_rmcp);
 
-    let meta = tool.meta.as_ref().map(|m| Meta(m.clone()));
+    let meta = tool.meta.as_ref().map(|m| MetaObject(m.clone()));
 
     RmcpTool::new(tool.name.clone(), tool.description.clone(), input_schema)
         .with_raw_output_schema_opt(output_schema)
@@ -84,7 +157,7 @@ fn annotations_to_rmcp(ann: &McpToolAnnotations) -> RmcpToolAnnotations {
 
 /// Convert our [`CallToolResult`](DccCallToolResult) to rmcp's [`CallToolResult`](RmcpCallToolResult).
 pub fn call_result_to_rmcp(result: &DccCallToolResult) -> RmcpCallToolResult {
-    let content: Vec<Content> = result.content.iter().map(tool_content_to_rmcp).collect();
+    let content: Vec<ContentBlock> = result.content.iter().map(tool_content_to_rmcp).collect();
 
     let mut out = RmcpCallToolResult::default();
     out.content = content;
@@ -92,7 +165,7 @@ pub fn call_result_to_rmcp(result: &DccCallToolResult) -> RmcpCallToolResult {
     // Always set is_error so rmcp serialization includes isError=false on success
     // (clients that use result["isError"] otherwise get KeyError).
     out.is_error = Some(result.is_error);
-    out.meta = result.meta.as_ref().map(|m| Meta(m.clone()));
+    out.meta = result.meta.as_ref().map(|m| MetaObject(m.clone()));
     out
 }
 
@@ -118,11 +191,13 @@ pub fn protocol_error_from_call_result(result: &DccCallToolResult) -> Option<Mcp
     }
 }
 
-/// Convert a single [`ToolContent`] variant to rmcp's [`Content`].
-fn tool_content_to_rmcp(tc: &ToolContent) -> Content {
+/// Convert a single [`ToolContent`] variant to rmcp's [`ContentBlock`].
+fn tool_content_to_rmcp(tc: &ToolContent) -> ContentBlock {
     match tc {
-        ToolContent::Text { text } => Content::text(text.clone()),
-        ToolContent::Image { data, mime_type } => Content::image(data.clone(), mime_type.clone()),
+        ToolContent::Text { text } => ContentBlock::text(text.clone()),
+        ToolContent::Image { data, mime_type } => {
+            ContentBlock::image(data.clone(), mime_type.clone())
+        }
         ToolContent::Resource { resource } => {
             // Best-effort: try to interpret as TextResourceContents
             let uri = resource
@@ -139,7 +214,7 @@ fn tool_content_to_rmcp(tc: &ToolContent) -> Content {
                 .get("mimeType")
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string());
-            Content::resource(ResourceContents::TextResourceContents {
+            ContentBlock::resource(ResourceContents::TextResourceContents {
                 uri,
                 mime_type,
                 text,
@@ -153,16 +228,14 @@ fn tool_content_to_rmcp(tc: &ToolContent) -> Content {
             description,
         } => {
             // Use resource_link content type
-            Content::resource_link(RawResource {
-                uri: uri.clone(),
-                name: name.clone().unwrap_or_default(),
-                title: None,
-                description: description.clone(),
-                mime_type: mime_type.clone(),
-                size: None,
-                icons: None,
-                meta: None,
-            })
+            let mut resource = RmcpResource::new(uri.clone(), name.clone().unwrap_or_default());
+            if let Some(description) = description {
+                resource = resource.with_description(description.clone());
+            }
+            if let Some(mime_type) = mime_type {
+                resource = resource.with_mime_type(mime_type.clone());
+            }
+            ContentBlock::resource_link(resource)
         }
     }
 }
@@ -186,31 +259,34 @@ pub fn rmcp_result_to_dcc(result: &RmcpCallToolResult) -> DccCallToolResult {
     }
 }
 
-/// Convert rmcp [`Content`] back to our [`ToolContent`].
-fn rmcp_content_to_tool_content(content: &Content) -> ToolContent {
-    match &content.raw {
-        RawContent::Text(t) => ToolContent::Text {
+/// Convert rmcp [`ContentBlock`] back to our [`ToolContent`].
+fn rmcp_content_to_tool_content(content: &ContentBlock) -> ToolContent {
+    match content {
+        ContentBlock::Text(t) => ToolContent::Text {
             text: t.text.clone(),
         },
-        RawContent::Image(i) => ToolContent::Image {
+        ContentBlock::Image(i) => ToolContent::Image {
             data: i.data.clone(),
             mime_type: i.mime_type.clone(),
         },
-        RawContent::Resource(r) => {
+        ContentBlock::Resource(r) => {
             let resource = serde_json::to_value(&r.resource).unwrap_or_default();
             ToolContent::Resource { resource }
         }
-        RawContent::Audio(a) => {
+        ContentBlock::Audio(a) => {
             // Audio has no direct equivalent in our type; represent as text
             ToolContent::Text {
                 text: format!("[audio: {}, {} bytes]", a.mime_type, a.data.len()),
             }
         }
-        RawContent::ResourceLink(link) => ToolContent::ResourceLink {
+        ContentBlock::ResourceLink(link) => ToolContent::ResourceLink {
             uri: link.uri.clone(),
             name: Some(link.name.clone()),
             mime_type: link.mime_type.clone(),
             description: link.description.clone(),
+        },
+        _ => ToolContent::Text {
+            text: "[unsupported MCP content block]".to_string(),
         },
     }
 }
@@ -223,7 +299,7 @@ trait ToolBuilderExt {
         output_schema: Option<Arc<rmcp::model::JsonObject>>,
     ) -> Self;
     fn with_annotations_opt(self, annotations: Option<RmcpToolAnnotations>) -> Self;
-    fn with_meta_opt(self, meta: Option<Meta>) -> Self;
+    fn with_meta_opt(self, meta: Option<MetaObject>) -> Self;
 }
 
 impl ToolBuilderExt for RmcpTool {
@@ -244,7 +320,7 @@ impl ToolBuilderExt for RmcpTool {
         self
     }
 
-    fn with_meta_opt(mut self, meta: Option<Meta>) -> Self {
+    fn with_meta_opt(mut self, meta: Option<MetaObject>) -> Self {
         if let Some(m) = meta {
             self.meta = Some(m);
         }
@@ -257,14 +333,14 @@ impl ToolBuilderExt for RmcpTool {
 /// Convert our internal [`McpResource`] to rmcp's [`Resource`](RmcpResource).
 #[must_use]
 pub fn resource_to_rmcp(r: &McpResource) -> RmcpResource {
-    let mut raw = RawResource::new(&r.uri, &r.name);
+    let mut resource = RmcpResource::new(&r.uri, &r.name);
     if let Some(d) = &r.description {
-        raw = raw.with_description(d.clone());
+        resource = resource.with_description(d.clone());
     }
     if let Some(m) = &r.mime_type {
-        raw = raw.with_mime_type(m.clone());
+        resource = resource.with_mime_type(m.clone());
     }
-    Annotated::new(raw, None)
+    resource
 }
 
 // ── ReadResourceResult → rmcp::ReadResourceResult ───────────────────────────
@@ -325,7 +401,7 @@ pub fn prompt_to_rmcp(p: &McpPrompt) -> RmcpPrompt {
     };
     let mut prompt = RmcpPrompt::new(&p.name, p.description.as_deref(), arguments);
     if let Some(Value::Object(obj)) = &p.meta {
-        prompt.meta = Some(Meta(obj.clone()));
+        prompt.meta = Some(MetaObject(obj.clone()));
     }
     prompt
 }
@@ -341,11 +417,11 @@ pub fn get_prompt_result_to_rmcp(r: &DccGetPromptResult) -> RmcpGetPromptResult 
         .iter()
         .map(|m| {
             let role = match m.role.as_str() {
-                "assistant" => PromptMessageRole::Assistant,
-                _ => PromptMessageRole::User,
+                "assistant" => Role::Assistant,
+                _ => Role::User,
             };
             let content = match &m.content {
-                McpPromptContent::Text { text } => PromptMessageContent::text(text.clone()),
+                McpPromptContent::Text { text } => ContentBlock::text(text.clone()),
             };
             RmcpPromptMessage::new(role, content)
         })
@@ -408,13 +484,10 @@ mod tests {
         };
 
         let rmcp = resource_to_rmcp(&resource);
-        assert_eq!(rmcp.raw.uri, "scene://current");
-        assert_eq!(rmcp.raw.name, "Current Scene");
-        assert_eq!(
-            rmcp.raw.description.as_deref(),
-            Some("Current DCC scene state")
-        );
-        assert_eq!(rmcp.raw.mime_type.as_deref(), Some("application/json"));
+        assert_eq!(rmcp.uri, "scene://current");
+        assert_eq!(rmcp.name, "Current Scene");
+        assert_eq!(rmcp.description.as_deref(), Some("Current DCC scene state"));
+        assert_eq!(rmcp.mime_type.as_deref(), Some("application/json"));
         assert!(rmcp.annotations.is_none());
     }
 
@@ -480,7 +553,7 @@ mod tests {
         let rmcp = get_prompt_result_to_rmcp(&result);
         assert_eq!(rmcp.description.as_deref(), Some("Rendered prompt"));
         assert_eq!(rmcp.messages.len(), 1);
-        assert_eq!(rmcp.messages[0].role, PromptMessageRole::User);
+        assert_eq!(rmcp.messages[0].role, Role::User);
     }
 
     #[test]

@@ -76,11 +76,11 @@ def test_release_workflow_preserves_existing_github_release_assets() -> None:
     safety-net upload would delete and re-upload every asset the per-platform
     jobs just attached.
     """
-    # One upload step per asset-producing job: build-binaries,
-    # build-semantic-wheels and build-cli-wheels attach their own artefacts,
-    # and publish-github-release-assets is the safety net.
+    # One upload step per asset-producing job: build-binaries and
+    # build-semantic-wheels attach their own artefacts, and
+    # publish-github-release-assets is the safety net.
     steps = _github_release_steps(_release_jobs())
-    assert len(steps) == 4
+    assert len(steps) == 3
     for step in steps:
         assert step["with"]["overwrite_files"] == OVERWRITE_FILES_EXPRESSION
         assert step["with"]["fail_on_unmatched_files"] is True
@@ -95,7 +95,7 @@ def test_release_workflow_uploads_assets_with_the_release_token() -> None:
     reports success: v0.20.34 shipped with 0 assets.
     """
     steps = _github_release_steps(_release_jobs())
-    assert len(steps) == 4
+    assert len(steps) == 3
     for step in steps:
         assert step["with"]["token"] == GITHUB_RELEASE_TOKEN
 
@@ -108,7 +108,7 @@ def test_release_workflow_manual_backfill_reuses_core_release_assets() -> None:
 
 def test_manual_backfill_is_explicitly_core_only() -> None:
     jobs = _release_jobs()
-    for job_id in ("build-admin-ui", "build-binaries", "build-semantic-wheels", "build-cli-wheels"):
+    for job_id in ("build-admin-ui", "build-binaries", "build-semantic-wheels"):
         condition = jobs[job_id]["if"]
         assert f"!({CORE_BACKFILL_EXPRESSION}{ASSETS_BACKFILL_GUARD})" in condition
 
@@ -178,15 +178,6 @@ def test_release_workflow_publishes_each_pypi_project_in_its_own_job() -> None:
             "artifact_path": "dist-semantic",
             "packages_dir": "dist-semantic",
         },
-        # The dcc-mcp-cli wrapper wheels are built once for all platforms and
-        # published from a single artefact, hence the non-glob pattern.
-        "publish-cli-pypi": {
-            "needs": ["release-please", "validate-release-version", "build-cli-wheels", "validate-release-notices"],
-            "url": "https://pypi.org/p/dcc-mcp-cli",
-            "artifact_pattern": "cli-wheel-all",
-            "artifact_path": "dist-cli",
-            "packages_dir": "dist-cli",
-        },
     }
 
     for job_id, config in expected.items():
@@ -217,7 +208,7 @@ def test_release_workflow_publishes_each_pypi_project_in_its_own_job() -> None:
             "skip-existing": True,
         }
 
-    assert sum(len(_pypi_steps(job)) for job in jobs.values()) == 4
+    assert sum(len(_pypi_steps(job)) for job in jobs.values()) == 3
 
 
 def test_core_pypi_publish_validates_complete_distribution_set_before_upload() -> None:
@@ -241,7 +232,6 @@ def test_release_workflow_keeps_github_release_safety_net_after_pypi_jobs() -> N
         "build-wheels",
         "build-binaries",
         "build-semantic-wheels",
-        "build-cli-wheels",
         "validate-release-notices",
         "publish-core-pypi",
         "publish-server-pypi",
@@ -276,90 +266,22 @@ def test_release_workflow_keeps_github_release_safety_net_after_pypi_jobs() -> N
         "publish-core-pypi",
         "publish-server-pypi",
         "publish-semantic-pypi",
-        "publish-cli-pypi",
         "publish-github-release-assets",
         "validate-release-notices",
         "verify-release-assets",
-        "publish-winget",
     ]
     assert "always()" in summary["if"]
     summary_step = summary["steps"][0]
-    run = summary_step["run"]
     # Each route's result reaches the script through `env:`; interpolating these
     # job results into the shell body would let GitHub substitute text before
     # bash runs, which is the injection shape this workflow forbids.
     assert summary_step["env"]["RESULT_CORE_PYPI"] == "${{ needs.publish-core-pypi.result }}"
     assert summary_step["env"]["RESULT_SERVER_PYPI"] == "${{ needs.publish-server-pypi.result }}"
     assert summary_step["env"]["RESULT_SEMANTIC_PYPI"] == "${{ needs.publish-semantic-pypi.result }}"
-    assert summary_step["env"]["RESULT_CLI_PYPI"] == "${{ needs.publish-cli-pypi.result }}"
     assert summary_step["env"]["RESULT_RELEASE_ASSETS"] == "${{ needs.publish-github-release-assets.result }}"
     assert summary_step["env"]["RESULT_RELEASE_NOTICES"] == "${{ needs.validate-release-notices.result }}"
     # A new blocking route must also be gated, or it can fail silently.
-    assert 'cli" != "success"' in run
-    assert 'cli" != "skipped"' in run
-
-    # WinGet is the one deliberate exception to that rule: it is best-effort,
-    # not gated. winget-pkgs moderation is asynchronous and publish-winget also
-    # self-skips when WINGET_TOKEN is unset, so a WinGet failure must never hold
-    # back PyPI or the GitHub Release. Encode the intent so nobody "fixes" this
-    # into a hard gate by mistake.
-    assert summary_step["env"]["RESULT_WINGET"] == "${{ needs.publish-winget.result }}"
-    winget_branch = _branch_body(run, '$winget" = "failure')
-    assert "::warning::" in winget_branch
-    assert "::error::" not in winget_branch
-    assert "failed=1" not in winget_branch
-
-
-def test_release_workflow_builds_cli_wrapper_wheels_from_the_release_archives() -> None:
-    """The PyPI wrapper wheels are derived from the archives build-binaries uploads.
-
-    Nothing in that job compiles, so it runs once on a single runner and loops
-    over the three platforms. It must depend on ``build-binaries`` (the source
-    of the archives) and stamp each wheel with a platform tag before upload,
-    or pip would resolve a Linux binary onto Windows.
-    """
-    jobs = _release_jobs()
-    build = jobs["build-cli-wheels"]
-
-    assert build["runs-on"] == "ubuntu-latest"
-    assert build["needs"] == ["release-please", "build-binaries"]
-
-    runs = "\n".join(step.get("run", "") for step in build["steps"])
-    assert "scripts/release/build_cli_wrapper_wheel.py" in runs
-    assert "scripts/release/cli_wheel_tags.py retag" in runs
-    assert "scripts/release/cli_wheel_tags.py validate" in runs
-    assert '--platform "$platform"' in runs
-    for platform in ("linux-x86_64", "macos-universal2", "windows-x86_64"):
-        assert platform in runs
-
-    upload = next(step for step in build["steps"] if step.get("uses") == "actions/upload-artifact@v4")
-    assert upload["with"]["name"] == "cli-wheel-all"
-    assert upload["with"]["path"] == "dist-cli/*.whl"
-
-
-def test_release_workflow_gives_every_platform_its_own_wheel_output_directory() -> None:
-    """Each platform must build into a directory no other platform writes to.
-
-    hatchling names every build ``dcc_mcp_cli-<version>-py3-none-any.whl``
-    because the wrapper carries no compiled extension. Looping the three
-    platforms over one output directory therefore overwrites the first wheel
-    with the second, and the build script finds no *new* file and exits 1 with
-    "expected exactly one wrapper wheel, got []" - which in turn skips
-    ``publish-cli-pypi`` and fails every release. The wheel has to be retagged
-    before it joins the shared directory, or the next build overwrites it by
-    name.
-    """
-    build = _release_jobs()["build-cli-wheels"]
-    build_step = next(step for step in build["steps"] if step.get("name") == "Build wrapper wheels")
-    run = build_step["run"]
-
-    assert 'out="$PWD/dist-cli-build/$platform"' in run
-    assert '--out-dir "$out"' in run
-    # Shared-directory builds would silently collide on the second platform.
-    assert '--out-dir "$PWD/dist-cli"' not in run
-    # Retag inside the loop, then move: the tag is what makes the names unique.
-    assert 'cli_wheel_tags.py retag --wheel-dir "$out"' in run
-    assert 'mv "$out"/*.whl "$PWD/dist-cli/"' in run
+    assert "publish-winget" not in jobs
 
 
 def test_release_workflow_builds_deployable_zips_per_platform() -> None:
@@ -378,28 +300,13 @@ def test_release_workflow_builds_deployable_zips_per_platform() -> None:
     assert '--version "$RELEASE_VERSION"' in run
     assert '--platform "$MATRIX_PLATFORM"' in run
     assert '--server-bin "$MATRIX_ARTIFACT_NAME"' in run
-    assert '--cli-bin "$MATRIX_CLI_ARTIFACT_NAME"' in run
-    # The bundle inputs must arrive through `env:`, never as literal `${{ }}`
-    # text in the script body, where GitHub would substitute before bash runs.
-    assert bundle["env"] == {
-        "RELEASE_VERSION": "${{ needs.release-please.outputs.version }}",
-        "MATRIX_PLATFORM": "${{ matrix.platform }}",
-        "MATRIX_ARTIFACT_NAME": "${{ matrix.artifact_name }}",
-        "MATRIX_CLI_ARTIFACT_NAME": "${{ matrix.cli_artifact_name }}",
-    }
-
-    cli_bundle = next(step for step in build["steps"] if step.get("id") == "cli-bundle")
-    cli_run = cli_bundle["run"]
-    assert "scripts/release/build_standalone_bundle.py" in cli_run
-    assert '--version "$RELEASE_VERSION"' in cli_run
-    assert '--platform "$MATRIX_PLATFORM"' in cli_run
-    assert "--binary-name dcc-mcp-cli" in cli_run
-    assert '--binary-path "$MATRIX_CLI_ARTIFACT_NAME"' in cli_run
-    assert cli_bundle["env"] == {
-        "RELEASE_VERSION": "${{ needs.release-please.outputs.version }}",
-        "MATRIX_PLATFORM": "${{ matrix.platform }}",
-        "MATRIX_CLI_ARTIFACT_NAME": "${{ matrix.cli_artifact_name }}",
-    }
+    assert bundle["env"]["RELEASE_VERSION"] == "${{ needs.release-please.outputs.version }}"
+    assert bundle["env"]["MATRIX_PLATFORM"] == "${{ matrix.platform }}"
+    assert bundle["env"]["MATRIX_ARTIFACT_NAME"] == "${{ matrix.artifact_name }}"
+    assert "--cli-bin" not in run
+    assert "--dccmcp-bin" not in run
+    assert "--capture-helper target/x86_64-pc-windows-msvc/release/dcc-mcp-capture-helper.exe" in run
+    assert "--ui-control-host target/x86_64-pc-windows-msvc/release/dcc-mcp-ui-control-host.exe" in run
 
     raw_upload = next(
         step
@@ -407,47 +314,24 @@ def test_release_workflow_builds_deployable_zips_per_platform() -> None:
         if step.get("uses") == "actions/upload-artifact@v4" and step["with"]["name"] == "server-binary-${{ matrix.os }}"
     )
     assert "${{ steps.server-bundle.outputs.bundle_path }}" in raw_upload["with"]["path"]
-    assert "${{ steps.cli-bundle.outputs.bundle_path }}" in raw_upload["with"]["path"]
+    assert "${{ steps.cli-bundle.outputs.bundle_path }}" not in raw_upload["with"]["path"]
 
     release_upload = next(step for step in build["steps"] if step.get("uses") == "softprops/action-gh-release@v3")
     assert "${{ steps.server-bundle.outputs.bundle_path }}" in release_upload["with"]["files"]
-    assert "${{ steps.cli-bundle.outputs.bundle_path }}" in release_upload["with"]["files"]
+    assert "${{ steps.cli-bundle.outputs.bundle_path }}" not in release_upload["with"]["files"]
 
     notify = next(step for step in jobs["publish"]["steps"] if step["name"] == "Notify Multica release-ready autopilot")
     assert r"^dcc-mcp-server-[0-9A-Za-z.+-]+-(linux-x86_64|windows-x86_64|macos-universal2)\.zip$" in notify["run"]
-    assert r"^dcc-mcp-cli-[0-9A-Za-z.+-]+-(linux-x86_64|windows-x86_64|macos-universal2)\.zip$" in notify["run"]
 
 
-def _run_scripts(node, trail="root"):
-    """Yield ``(trail, step)`` for every ``run:`` script in the workflow tree."""
-    if isinstance(node, dict):
-        if isinstance(node.get("run"), str):
-            yield trail, node
-        for key, value in node.items():
-            yield from _run_scripts(value, f"{trail}.{key}")
-    elif isinstance(node, list):
-        for index, value in enumerate(node):
-            yield from _run_scripts(value, f"{trail}[{index}]")
+def test_release_workflow_publishes_server_manifests_without_cli_assets() -> None:
+    jobs = _release_jobs()
+    build = jobs["build-binaries"]
+    manifest = next(step for step in build["steps"] if step.get("id") == "update-manifest")
+    assert "scripts/release/generate_update_manifest.py" in manifest["run"]
+    assert '"$MATRIX_ARTIFACT_NAME"' in manifest["run"]
+    assert "cli_artifact" not in manifest["run"]
 
-
-def test_release_workflow_never_interpolates_expressions_into_run_bodies() -> None:
-    """No `run:` body may contain `${{ }}`.
-
-    GitHub substitutes `${{ }}` as plain text before the shell starts, so an
-    expression written inside a script body is not data the script reads — it is
-    source the shell parses and runs. A tag name or job output carrying
-    `$(...)` therefore executes as a command. Reaching the same value through
-    `env:` keeps it an environment variable, which bash expands without
-    re-parsing the result.
-
-    This walks the parsed workflow rather than grepping the file, so a value
-    that only *looks* interpolated inside a YAML comment or a `with:` block
-    does not trip it, and a real one cannot hide behind formatting.
-    """
-    workflow = yaml_loads(RELEASE_WORKFLOW.read_text(encoding="utf-8"))
-    offenders = [trail for trail, step in _run_scripts(workflow) if "${{" in step["run"] or "}}" in step["run"]]
-    assert not offenders, (
-        "these run: bodies interpolate ${{ }} into the script, which GitHub expands "
-        "before bash runs; move the expression into an `env:` block and read the "
-        f"variable instead: {offenders}"
-    )
+    upload = next(step for step in build["steps"] if step.get("uses") == "softprops/action-gh-release@v3")
+    assert "${{ steps.update-manifest.outputs.manifest_path }}" in upload["with"]["files"]
+    assert "dcc-mcp-cli" not in upload["with"]["files"]

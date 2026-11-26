@@ -60,6 +60,7 @@ class DispatcherErrorCode:
     TIMEOUT = "Timeout"
     HOST_BUSY = "host-busy"
     UNSUPPORTED_AFFINITY = "unsupported-affinity"
+    PRE_FLIGHT_FAILED = "pre-flight-failed"
 
 
 def normalize_affinity(affinity: str) -> str:
@@ -250,6 +251,7 @@ class HostUiDispatcherBase:
         self._shutdown = False
         self._fail_fast_on_main_queue_busy = fail_fast_on_main_queue_busy
         self._label = label or type(self).__name__
+        self._pre_flight_check: Optional[Callable[[], bool]] = None
 
     # ── Host hook ─────────────────────────────────────────────────────────
 
@@ -282,6 +284,25 @@ class HostUiDispatcherBase:
     def on_job_finished(self, job: HostUiJobEntry) -> None:
         """Observe a job immediately after execution or cancellation."""
         _ = job
+
+    def set_pre_flight_check(self, check: Optional[Callable[[], bool]]) -> None:
+        """Register a fast validity probe run before each main-thread job.
+
+        The *check* callable must be cheap, re-entrant, and return ``True``
+        when the DCC scene / host state is safe for job execution.  A
+        ``False`` or unhandled exception causes the current job to be
+        skipped with ``DispatcherErrorCode.PRE_FLIGHT_FAILED`` and the
+        waiting caller unblocked.
+
+        Set to ``None`` to disable pre-flight checks (the default).
+
+        Adapter examples:
+
+        * Houdini: ``lambda: hou.node("/obj") is not None``
+        * Maya: ``lambda: cmds.ls() is not None``
+        * Blender: ``lambda: bpy.context.scene is not None``
+        """
+        self._pre_flight_check = check
 
     # ── Public API (shared across DCC adapters) ─────────────────────────────
 
@@ -582,6 +603,33 @@ class HostUiDispatcherBase:
                         job.event.set()
                     continue
                 self._active[job.request_id] = job
+
+            # --- pre-flight validity check ---
+            check = self._pre_flight_check
+            if check is not None:
+                try:
+                    valid = check()
+                except Exception:
+                    logger.warning(
+                        "%s pre-flight check raised; skipping job %s",
+                        self.dispatcher_label,
+                        job.request_id,
+                        exc_info=True,
+                    )
+                    valid = False
+                if not valid:
+                    job.outcome = host_ui_outcome(
+                        job.request_id,
+                        job.affinity,
+                        success=False,
+                        error=DispatcherErrorCode.PRE_FLIGHT_FAILED,
+                        job_id=job.job_id,
+                    )
+                    job.event.set()
+                    with self._lock:
+                        self._active.pop(job.request_id, None)
+                    self._notify_job_finished(job)
+                    continue
 
             try:
                 self._notify_job_started(job)

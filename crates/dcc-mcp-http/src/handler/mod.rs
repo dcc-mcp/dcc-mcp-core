@@ -10,6 +10,7 @@
 //! - [`rmcp_mount`] — wires `StreamableHttpService` into the axum router
 //! - [`rmcp_providers_impl`] — concrete `ResourceProvider` / `PromptProvider` implementations
 
+pub(crate) mod skill_provider;
 mod state;
 
 pub mod rmcp_mount;

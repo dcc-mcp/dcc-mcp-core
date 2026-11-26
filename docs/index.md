@@ -25,7 +25,7 @@ hero:
 features:
   - icon: 🤖
     title: Agent-Ready Entry
-    details: Install the public dcc-mcp Skill, then use dcc-mcp-cli to inventory, search, inspect, and call typed DCC capabilities.
+    details: Install the public dcc-mcp Skill, then use dccmcp to inventory, search, inspect, and call typed DCC capabilities.
   - icon: 🎯
     title: Dynamic Capability Routing
     details: Agents search, describe, load skills, and call tools through one gateway instead of carrying every backend tool in context.

@@ -1,20 +1,16 @@
 #!/usr/bin/env sh
 set -eu
 
-OFFICIAL_RELEASES="https://github.com/dcc-mcp/dcc-mcp-core/releases"
 VERSION="${DCC_MCP_VERSION:-latest}"
 INSTALL_DIR="${DCC_MCP_INSTALL_DIR:-$HOME/.local/bin}"
+OFFICIAL_RELEASES="https://github.com/dcc-mcp/dcc-mcp-cli/releases"
 
 usage() {
     cat <<'EOF'
-Install dcc-mcp-cli from its official GitHub release manifest.
+Install DCCMCP from the official GitHub release manifest.
 
 Usage:
-  install-cli.sh [--version v0.19.63] [--install-dir ~/.local/bin]
-
-Download this script first, inspect it, then run the local file.
-The installer verifies the release-manifest URL and SHA-256 before replacing
-an existing dcc-mcp-cli binary.
+  install-cli.sh [--version v0.21.2] [--install-dir ~/.local/bin]
 
 Environment:
   DCC_MCP_VERSION      Release version, default latest
@@ -55,15 +51,13 @@ OS="$(uname -s)"
 ARCH="$(uname -m)"
 case "$OS" in
     Linux)
-        if [ "$ARCH" != "x86_64" ] && [ "$ARCH" != "amd64" ]; then
-            fail "unsupported Linux architecture: $ARCH"
-        fi
+        [ "$ARCH" = "x86_64" ] || [ "$ARCH" = "amd64" ] || fail "unsupported Linux architecture: $ARCH"
         PLATFORM="linux-x86_64"
-        ASSET="dcc-mcp-cli-linux-x86_64"
+        ASSET="dccmcp-linux-x86_64"
         ;;
     Darwin)
         PLATFORM="macos-universal2"
-        ASSET="dcc-mcp-cli-macos-universal2"
+        ASSET="dccmcp-macos-universal2"
         ;;
     *)
         fail "unsupported OS: $OS"
@@ -71,107 +65,101 @@ case "$OS" in
 esac
 
 REQUESTED_VERSION="${VERSION#v}"
-if [ "$VERSION" = "latest" ]; then
-    MANIFEST_URL="$OFFICIAL_RELEASES/latest/download/dcc-mcp-update-manifest-$PLATFORM.json"
-else
-    printf '%s' "$REQUESTED_VERSION" \
-        | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([.+-][0-9A-Za-z.-]+)?$' \
-        || fail "invalid release version: $VERSION"
-    MANIFEST_URL="$OFFICIAL_RELEASES/download/v$REQUESTED_VERSION/dcc-mcp-update-manifest-$PLATFORM.json"
-fi
+case "$VERSION" in
+    latest)
+        MANIFEST_URL="$OFFICIAL_RELEASES/latest/download/dcc-mcp-update-manifest-$PLATFORM.json"
+        ;;
+    *)
+        printf '%s' "$REQUESTED_VERSION" \
+            | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([.+-][0-9A-Za-z.-]+)?$' \
+            || fail "invalid release version: $VERSION"
+        MANIFEST_URL="$OFFICIAL_RELEASES/download/v$REQUESTED_VERSION/dcc-mcp-update-manifest-$PLATFORM.json"
+        ;;
+esac
 
-mkdir -p "$INSTALL_DIR"
-MANIFEST_TMP="$(mktemp "$INSTALL_DIR/.dcc-mcp-manifest.XXXXXX")"
-BINARY_TMP="$(mktemp "$INSTALL_DIR/.dcc-mcp-cli.XXXXXX")"
+TMP_DIR="$(mktemp -d)"
 cleanup() {
-    rm -f "$MANIFEST_TMP" "$BINARY_TMP"
+    rm -rf "$TMP_DIR"
 }
-trap cleanup EXIT
-trap 'exit 1' HUP INT TERM
+trap cleanup EXIT INT TERM
 
 download_to() {
     url="$1"
-    output="$2"
-    echo "Downloading $url"
+    destination="$2"
     if command -v curl >/dev/null 2>&1; then
-        curl -fsSL "$url" -o "$output"
+        curl --fail --location --proto '=https' --tlsv1.2 --proto-redir '=https' "$url" -o "$destination"
     elif command -v wget >/dev/null 2>&1; then
-        wget -q -O "$output" "$url"
+        wget --https-only --secure-protocol=TLSv1_2 -O "$destination" "$url"
     else
-        fail "curl or wget is required to download release assets"
+        fail "curl or wget is required to download the release"
     fi
 }
 
 manifest_field() {
-    field="$1"
-    awk -v field="$field" '
-        /^[[:space:]]*"dcc-mcp-cli"[[:space:]]*:[[:space:]]*\{[[:space:]]*$/ {
-            in_cli = 1
+    entry="$1"
+    field="$2"
+    awk -v entry="$entry" -v field="$field" '
+        $0 ~ "^[[:space:]]*\"" entry "\"[[:space:]]*:[[:space:]]*\\{" {
+            in_entry = 1
             next
         }
-        in_cli && /^[[:space:]]*\}[,]?[[:space:]]*$/ { exit }
-        in_cli && $0 ~ "^[[:space:]]*\"" field "\"[[:space:]]*:" {
+        in_entry && /^[[:space:]]*}[,]?[[:space:]]*$/ { exit }
+        in_entry && $0 ~ "^[[:space:]]*\"" field "\"[[:space:]]*:" {
             value = $0
             sub("^[^:]*:[[:space:]]*\"", "", value)
             sub("\"[[:space:]]*,?[[:space:]]*$", "", value)
             print value
+            exit
         }
-    ' "$MANIFEST_TMP"
+    ' "$MANIFEST_FILE"
 }
 
 calculate_sha256() {
     path="$1"
     if command -v sha256sum >/dev/null 2>&1; then
-        sha256sum "$path" | awk '{print $1}'
+        sha256sum "$path" | awk '{print tolower($1)}'
     elif command -v shasum >/dev/null 2>&1; then
-        shasum -a 256 "$path" | awk '{print $1}'
+        shasum -a 256 "$path" | awk '{print tolower($1)}'
     elif command -v openssl >/dev/null 2>&1; then
-        openssl dgst -sha256 "$path" | awk '{print $NF}'
+        openssl dgst -sha256 "$path" | awk '{print tolower($NF)}'
     else
-        fail "sha256sum, shasum, or openssl is required to verify dcc-mcp-cli"
+        fail "sha256sum, shasum, or openssl is required to verify the release"
     fi
 }
 
-download_to "$MANIFEST_URL" "$MANIFEST_TMP" \
-    || fail "official release manifest download failed"
+MANIFEST_FILE="$TMP_DIR/manifest.json"
+download_to "$MANIFEST_URL" "$MANIFEST_FILE" || fail "official release manifest download failed"
 
-ENTRY_COUNT="$(grep -Ec '^[[:space:]]*"dcc-mcp-cli"[[:space:]]*:[[:space:]]*\{' "$MANIFEST_TMP" || true)"
-[ "$ENTRY_COUNT" = "1" ] || fail "official release manifest must contain one dcc-mcp-cli entry"
-
-MANIFEST_VERSION="$(manifest_field version)"
-ASSET_URL="$(manifest_field url)"
-EXPECTED_SHA256="$(manifest_field sha256)"
-printf '%s' "$MANIFEST_VERSION" \
-    | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([.+-][0-9A-Za-z.-]+)?$' \
-    || fail "official release manifest contains an invalid dcc-mcp-cli version"
-if [ "$VERSION" != "latest" ] && [ "$MANIFEST_VERSION" != "$REQUESTED_VERSION" ]; then
-    fail "official release manifest version does not match requested version $REQUESTED_VERSION"
+ENTRY="dccmcp"
+ASSET_URL="$(manifest_field "$ENTRY" url)"
+if [ -z "$ASSET_URL" ]; then
+    ENTRY="dcc-mcp-cli"
+    ASSET_URL="$(manifest_field "$ENTRY" url)"
 fi
-
-EXPECTED_URL="$OFFICIAL_RELEASES/download/v$MANIFEST_VERSION/$ASSET"
-[ "$ASSET_URL" = "$EXPECTED_URL" ] \
-    || fail "official release manifest contains a non-official dcc-mcp-cli URL"
-[ "${#EXPECTED_SHA256}" -eq 64 ] \
-    && ! printf '%s' "$EXPECTED_SHA256" | grep -Eq '[^0-9A-Fa-f]' \
+EXPECTED_SHA256="$(manifest_field "$ENTRY" sha256)"
+[ -n "$ASSET_URL" ] || fail "official release manifest has no CLI asset"
+[ -n "$EXPECTED_SHA256" ] || fail "official release manifest has no CLI SHA-256"
+printf '%s' "$EXPECTED_SHA256" | grep -Eq '^[0-9a-fA-F]{64}$' \
     || fail "official release manifest contains an invalid SHA-256"
+case "$ASSET_URL" in
+    "https://github.com/dcc-mcp/dcc-mcp-cli/releases/download/"*"/$ASSET") ;;
+    *) fail "official release manifest contains a non-official asset URL" ;;
+esac
 
-download_to "$ASSET_URL" "$BINARY_TMP" || fail "dcc-mcp-cli download failed"
-ACTUAL_SHA256="$(calculate_sha256 "$BINARY_TMP")"
-[ "$(printf '%s' "$ACTUAL_SHA256" | tr 'A-F' 'a-f')" = "$(printf '%s' "$EXPECTED_SHA256" | tr 'A-F' 'a-f')" ] \
-    || fail "dcc-mcp-cli SHA-256 does not match the official release manifest"
+DOWNLOAD_FILE="$TMP_DIR/dccmcp"
+download_to "$ASSET_URL" "$DOWNLOAD_FILE" || fail "CLI asset download failed"
+ACTUAL_SHA256="$(calculate_sha256 "$DOWNLOAD_FILE")"
+NORMALIZED_SHA256="$(printf '%s' "$EXPECTED_SHA256" | tr '[:upper:]' '[:lower:]')"
+[ "$ACTUAL_SHA256" = "$NORMALIZED_SHA256" ] || fail "SHA-256 mismatch for the DCCMCP release"
 
-chmod 0755 "$BINARY_TMP"
-TARGET="$INSTALL_DIR/dcc-mcp-cli"
-mv -f "$BINARY_TMP" "$TARGET"
+mkdir -p "$INSTALL_DIR"
+chmod 0755 "$DOWNLOAD_FILE"
+mv -f "$DOWNLOAD_FILE" "$INSTALL_DIR/dccmcp"
+cp -f "$INSTALL_DIR/dccmcp" "$INSTALL_DIR/dcc-mcp-cli"
 
-# The CLI and dcc-cua are independently released. Reconcile the verified
-# companion only after the CLI replacement succeeds. This is convergent, but
-# not crash-atomic across the two independently owned executables.
-"$TARGET" components ensure dcc-cua --yes --output json \
-    || fail "dcc-mcp-cli installed, but verified dcc-cua component installation failed"
-
-echo "Installed verified dcc-mcp-cli $MANIFEST_VERSION to $TARGET"
+echo "Installed dccmcp to $INSTALL_DIR/dccmcp"
+echo "Installed compatibility alias to $INSTALL_DIR/dcc-mcp-cli"
 case ":$PATH:" in
     *":$INSTALL_DIR:"*) ;;
-    *) echo "Add $INSTALL_DIR to PATH to run dcc-mcp-cli from any shell." ;;
+    *) echo "Add $INSTALL_DIR to PATH to run dccmcp from any shell." ;;
 esac

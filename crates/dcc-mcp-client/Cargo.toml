@@ -1,0 +1,19 @@
+[package]
+name = "dcc-mcp-client"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Reusable MCP Streamable HTTP client for DCCMCP and desktop integrations"
+
+[dependencies]
+dcc-mcp-jsonrpc.workspace = true
+reqwest.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+axum = { workspace = true, features = ["http1", "tokio"] }
+tokio.workspace = true

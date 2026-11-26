@@ -285,8 +285,8 @@ source, never the number:
 |---|---:|---|
 | `GatewayConfig::default()` / embedded auto-gateway | `30` | Started next to a live DCC; short grace is expected |
 | `dcc-mcp-server gateway` (standalone daemon CLI) | `30` | Same as above — running the server directly |
-| `dcc-mcp-cli gateway daemon start` | `0` | An operator-managed daemon is expected to survive with zero backends |
-| Auto-ensure (Rust sidecar, `dcc-mcp-cli` ensure, Python guardian) | `300` | Shared machine-wide resource; restarting it costs a full re-election |
+| `dccmcp gateway daemon start` | `0` | An operator-managed daemon is expected to survive with zero backends |
+| Auto-ensure (Rust sidecar, `dccmcp` ensure, Python guardian) | `300` | Shared machine-wide resource; restarting it costs a full re-election |
 
 The constants live in `crates/dcc-mcp-gateway/src/gateway/idle_timeout.rs`.
 Python's guardian mirrors `AUTO_ENSURE_DEFAULT` in
@@ -797,7 +797,7 @@ readiness. An instance can be callable while its loaded skill set is empty, and
 the capability counts reflect the most recent index snapshot rather than a
 live query to the backend.
 
-`dcc-mcp-cli doctor` reads this projection from `GET /v1/instances` when a
+`dccmcp doctor` reads this projection from `GET /v1/instances` when a
 gateway is reachable, and reports `gateway.capability_inventory_source = "gateway_v1_instances"` only when the response contains a valid instances array.
 Otherwise it reports `"local_registry_unknown"` and uses local inventory.
 Local registry rows may carry the same projection in
@@ -985,7 +985,7 @@ single-instance behavior: entries default to `capacity: 1`, no lease owner, and
 `status: "available"`.
 
 An active lease is enforced on both gateway-routed calls and the local
-`dcc-mcp-cli` direct-MCP path. The lease holder must include the same owner
+`dccmcp` direct-MCP path. The lease holder must include the same owner
 label on every call:
 
 ```json
@@ -1357,7 +1357,7 @@ persisted job store rehydrates.
 
 If the **gateway process** restarts while the backend still owns the job,
 reconnect and poll the same instance-scoped `jobs_get_status` slug with the
-same `job_id`. `dcc-mcp-cli call --wait` does this automatically for transient
+same `job_id`. `dccmcp call --wait` does this automatically for transient
 connection, 404, 429, 502, 503, and 504 responses until its total wait timeout;
 it emits `control_plane_reconnecting` and never resubmits the original tool.
 After recovery the final payload includes `wait_recovery`. A 410 response means

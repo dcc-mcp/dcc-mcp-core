@@ -2,7 +2,7 @@
 
 **DCC-MCP-Core** 是一套 Rust 基础库（含 Python 绑定），把 DCC（数字内容创作）软件中的"能力"—— Maya、Blender、Houdini、Photoshop、ZBrush、Unreal、Unity、Figma 等 ——分层暴露给两类消费者：
 
-- **具备 shell 能力的 Agent** → 安装公开 `dcc-mcp` Skill，通过 `dcc-mcp-cli` 执行 `search → describe → call`。
+- **具备 shell 能力的 Agent** → 安装公开 `dcc-mcp` Skill，通过 `dccmcp` 执行 `search → describe → call`。
 - **MCP-only IDE 客户端** → 使用 gateway 的少量固定 MCP 工作流（`search`、`describe`、`load_skill`、`call`）。
 - **传统调用方** →（cURL / CI / 任意 HTTP 客户端）通过**完整的 `/v1/*` REST 服务**。
 
@@ -34,7 +34,7 @@ flowchart LR
     IDE([MCP-only IDE 客户端]):::client
     TRAD([cURL / CI / 传统后端]):::client
 
-    AGENT -->|dcc-mcp-cli: search<br/>describe / call| GW
+    AGENT -->|dccmcp: search<br/>describe / call| GW
     IDE -->|MCP: search<br/>describe / load_skill / call| GW
     TRAD -->|REST: POST /v1/search<br/>/describe /call| GW
     TRAD -.->|直连 per-DCC REST| PERDCC
@@ -191,7 +191,7 @@ from dcc_mcp_core import (
 
 ## 版本 / 语言支持
 
-- **当前版本**：0.20.55 <!-- x-release-please-version -->
+- **当前版本**：0.21.0 <!-- x-release-please-version -->
 - **Python**：3.7–3.14。Python 3.7 提供原生 `cp37-cp37m` wheel 和 lite 回退；Python 3.8+ 使用 `abi3-py38` wheel。
 - **Rust**：Edition 2024；MSRV 见仓库根 `rust-toolchain.toml`
 - **构建**：maturin + PyO3
@@ -204,7 +204,7 @@ from dcc_mcp_core import (
 - [CLI 参考](/zh/guide/cli-reference) —— `dcc-mcp-server`、`dcc-mcp-tunnel-relay`、`dcc-mcp-tunnel-agent` 的完整旗标 + 典型部署场景
 - [网关争用与调试](/zh/guide/gateway-diagnostics) —— 多实例竞争、选举、心跳、ghost 清除、故障排查手册
 - [`AGENTS.md`](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/AGENTS.md) —— AI Agent 接入核心规则
-- [`docs/guide/ai-agent-guide.md`](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/docs/guide/ai-agent-guide.md) —— AI Agent 使用 dcc-mcp-core 的最佳实践
+- [`AGENTS.md`](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/AGENTS.md) —— 仓库规则与 Agent 工作流
 
 ## 相关项目
 

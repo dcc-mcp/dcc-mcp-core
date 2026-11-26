@@ -1,0 +1,10 @@
+[project]
+name = "dcc-mcp-roblox-studio-example"
+version = "0.1.0"
+description = "Experimental Roblox Studio bridge example for dcc-mcp-core"
+license = {text = "MIT"}
+requires-python = ">=3.9"
+dependencies = [
+    "dcc-mcp-core>=0.19.60,<1.0.0",
+    "websockets>=12,<16",
+]

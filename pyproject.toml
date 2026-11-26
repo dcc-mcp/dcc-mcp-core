@@ -4,14 +4,13 @@ build-backend = "maturin"
 
 [project]
 name = "dcc-mcp-core"
-version = "0.20.55" # x-release-please-version
+version = "0.21.0" # x-release-please-version
 description = "Foundational library for the DCC Model Context Protocol (MCP) ecosystem"
 authors = [
     {name = "Hal Long", email = "hal.long@outlook.com"}
 ]
 readme = "README.md"
 license = {text = "MIT"}
-license-files = ["LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.txt", "THIRD_PARTY_LICENSES.txt"]
 requires-python = ">=3.7"
 keywords = ["dcc", "mcp", "maya", "blender", "houdini", "rust", "pyo3"]
 classifiers = [
@@ -38,23 +37,11 @@ dependencies = [
     # Maya 2022 / Blender 2.83 embed Python 3.7; the py37-lite wheel ships
     # pure-Python code only and users install dcc-mcp-server separately when
     # their platform provides a compatible binary wheel.
-    #
-    # Same-batch contract: dcc-mcp-core and dcc-mcp-server ship from one
-    # release, so a deployment must pair them at the same major.minor. The
-    # floor is deliberately older than the current release because the matching
-    # wheel only exists on PyPI after release-please publishes it. The runtime
-    # enforces the pairing: the gateway bootstrap prefers the binary on PATH
-    # (the resolved environment) over the importable dcc_mcp_server package and
-    # logs a WARNING when their major.minor differs. Keep this declaration in
-    # place — a rez/venv resolve that omits dcc-mcp-server makes hosts import a
-    # workstation-local copy instead.
     "dcc-mcp-server>=0.18.17,<1.0.0",
 ]
 
 [project.scripts]
-# `dcc-mcp-core` is the package-level launcher: Rez and other resolvers expose
-# a package through `tools`, and there was previously nothing for them to
-# declare. `dcc-mcp-core info` prints the rest of the launch contract.
+# Keep the package-level launchers available to Rez, pip, and Python 3.7 hosts.
 dcc-mcp-core = "dcc_mcp_core.__main__:main"
 dcc-mcp-install-lifecycle = "dcc_mcp_core.install_lifecycle_cli:main"
 dcc-mcp-ui-control-server = "dcc_mcp_core.ui_control_server:cli"
@@ -62,21 +49,15 @@ dcc-mcp-ui-control-server = "dcc_mcp_core.ui_control_server:cli"
 [project.optional-dependencies]
 test = [
     "jsonschema>=4.18; python_version>='3.8'",
-    "jsonschema==4.17.3; python_version<'3.8'",  # Last jsonschema line supporting the Python 3.7 LTS gate
+    "jsonschema==4.17.3; python_version<'3.8'",
     "pytest>=8.3.0; python_version>='3.8'",  # CVE-2025-71176: fixed line for maintained Python runtimes
     "pytest==7.4.4,<8.0; python_version<'3.8'",  # Last pytest line supporting the Python 3.7 LTS gate
     "pytest-cov>=4.0; python_version>='3.8'",
     "pytest-cov>=4.0,<5.0; python_version<'3.8'",
     "pytest-xdist>=3.0; python_version>='3.8'",
     "pytest-xdist==3.5.0; python_version<'3.8'",
-    # scripts/generate_adapter_pointer.py reads dcc-mcp-catalog.yml. It uses
-    # PyYAML rather than the Rust-backed dcc_mcp_core.yaml_loads because it also
-    # runs on CI lanes that do a bare checkout with no wheel build, where
-    # dcc_mcp_core._core does not exist. Mirrors test_toolchain.pyyaml_py37 in
-    # compatibility/python.json -- keep the two in step.
     "PyYAML>=6.0,<7; python_version>='3.8'",
-    "PyYAML==6.0.1; python_version<'3.8'",  # 6.0.2 raised its floor to Python 3.8
-    # Test-only conformance fixture. Production code must never import this backport.
+    "PyYAML==6.0.1; python_version<'3.8'",
     "typing-extensions==4.7.1; python_version<'3.8'",
     "rez",
     "zipp>=3.19.1; python_version>='3.8'",  # CVE-2024-5569; fixed releases require Python 3.8+
@@ -90,8 +71,6 @@ dev = [
     "mypy>=1.0; python_version>='3.8'",
     "maturin>=1.0",
 ]
-# WebSocket JSON-RPC bridge for non-Python DCC hosts. Pip selects the newest
-# release compatible with the active Python interpreter from this range.
 bridge = ["websockets>=11,<18"]
 # Optional ONNX-backed semantic embeddings for VectorSkillIndex
 # (issues #1393, #1395). Default install stays zero-dep; install this extra
@@ -121,19 +100,10 @@ semantic = [
 ]
 
 [project.urls]
-Homepage = "https://dcc-mcp.github.io/dcc-mcp-core/"
-Documentation = "https://dcc-mcp.github.io/dcc-mcp-core/"
+Homepage = "https://github.com/dcc-mcp/dcc-mcp-core"
 Repository = "https://github.com/dcc-mcp/dcc-mcp-core"
 Issues = "https://github.com/dcc-mcp/dcc-mcp-core/issues"
-Changelog = "https://github.com/dcc-mcp/dcc-mcp-core/blob/main/CHANGELOG.md"
-"Release Notes" = "https://github.com/dcc-mcp/dcc-mcp-core/releases"
 
-# VFX Reference Platform alignment. `core` is imported inside Python 3.7 hosts
-# (Maya 2022 and friends) and inside CY2026 hosts, so it is checked against both
-# tiers: every runtime dependency has to resolve to a release that installs on
-# Python 3.7 and to a release inside the CY2026 baseline. Dependencies that only
-# hold on newer interpreters must carry an environment marker instead. See
-# config/vfx-platform-baseline.json and scripts/ci/check_vfx_baseline.py.
 [tool.dcc-mcp.vfx-platform]
 year = ["CY2026", "py37"]
 host = "core"
@@ -141,14 +111,23 @@ host = "core"
 [tool.maturin]
 python-source = "python"
 module-name = "dcc_mcp_core._core"
-# Source builds default to the CPython 3.8+ stable ABI. Native CPython 3.7
-# wheels are separate CI/release artifacts built without ``abi3-py38``;
-# ``requires-python >=3.7`` covers both explicitly validated profiles.
 # Feature list MUST stay in sync with `WHEEL_FEATURES` in the root justfile.
 # The justfile is the single source of truth for CI; this list only matters
 # for downstream `pip install .` / sdist rebuilds that bypass our CI.
 features = ["python-bindings", "ext-module", "abi3-py38", "workflow", "scheduler", "prometheus", "job-persist-sqlite", "admin", "mcp-2026-07-28"]
 bindings = "pyo3"
+# The Windows build pipeline stages the version-matched capture helper here.
+# It is a wheel runtime artefact, never an sdist input: rebuilding an sdist on
+# another platform must not redistribute a stale Windows executable.
+include = [
+    { path = "dcc_mcp_core/bin/dcc-mcp-capture-helper.exe", format = "wheel" },
+    { path = "dcc_mcp_core/bin/dcc-mcp-ui-control-host.exe", format = "wheel" },
+]
+exclude = [
+    { path = "dcc_mcp_core/bin/dcc-mcp-capture-helper.exe", format = "sdist" },
+    { path = "dcc_mcp_core/bin/dcc-mcp-ui-control-host.exe", format = "sdist" },
+]
+
 [tool.mypy]
 python_version = "3.7"
 strict = true
@@ -202,6 +181,7 @@ known-first-party = ["dcc_mcp_core"]
 "python/dcc_mcp_core/metadata_registration.py" = ["UP006", "UP045"]
 "python/dcc_mcp_core/_registration.py" = ["UP006", "UP045"]
 "python/dcc_mcp_core/usd_resources.py" = ["UP006", "UP007", "UP045"]
+"python/dcc_mcp_core/skills/app-ui/scripts/*.py" = ["UP006", "UP045"]
 "python/dcc_mcp_core/skills/ui-control/scripts/*.py" = ["UP006", "UP045"]
 "python/dcc_mcp_core/skills/media/scripts/*.py" = ["UP006", "UP045"]
 "python/dcc_mcp_core/skills/verification/scripts/*.py" = ["UP006", "UP045"]
@@ -217,13 +197,11 @@ known-first-party = ["dcc_mcp_core"]
 "python/dcc_mcp_core/_version_check.py" = ["UP006", "UP007", "UP045"]
 "python/dcc_mcp_core/__main__.py" = ["UP045"]
 "scripts/check_py37_syntax.py" = ["UP032"]  # intentional: f-strings are syntax errors on 3.7; verified by py37-syntax-check CI job. Enforced in CI via check-py37-syntax job.
-"scripts/release/generate_third_party_licenses.py" = ["UP006"]  # Python 3.7 release runners require typing.List/Dict/tuple annotations.
-"scripts/release/extract_third_party_licenses.py" = ["UP006"]  # Python 3.7 release runners require typing.List annotations.
-# Python 3.7 (Maya 2022) compat: the release workflow digest kit is shared
-# byte-for-byte with adapter repositories and keeps typing.Dict in annotations.
+"scripts/release/generate_third_party_licenses.py" = ["UP006"]
+"scripts/release/extract_third_party_licenses.py" = ["UP006"]
+"scripts/release/build_standalone_bundle.py" = ["UP045"]
 "scripts/ci/check_release_workflow_digest.py" = ["UP006"]
 "scripts/ci/release_workflow_integrity/check_release_workflow_digest.py" = ["UP006"]
-# Mirrors the tests/*.py exemption: this is the template copy of a test module.
 "scripts/ci/release_workflow_integrity/test_release_workflow_integrity.py" = ["D103", "D202"]
 "__init__.py" = ["F401"]
 "tests/test_metadata_registration.py" = ["UP006", "UP007", "UP045"]
@@ -249,10 +227,3 @@ markers = [
     "anyio: async test that needs an anyio backend (mcp Python SDK e2e suite)",
     "qt: live-Qt tests via pytest-qt (skipped when PySide6/pytest-qt not installed)",
 ]
-# Dump every thread's traceback when one test blocks for 5 minutes, without
-# killing it. `just test-suite` runs `-q -n 4 --dist loadfile`, so a deadlocked
-# worker prints no test name and the lane goes silent until something cancels
-# it. This names the test in the log while it is still hanging. Generous on
-# purpose: the slowest whole-file runtime is well under a minute, so 300s never
-# fires on a healthy lane.
-faulthandler_timeout = 300

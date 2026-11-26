@@ -2,7 +2,7 @@
 
 **DCC-MCP-Core** is a Rust-first library (with Python bindings) that exposes capabilities inside DCC (Digital Content Creation) tools — Maya, Blender, Houdini, Photoshop, ZBrush, Unreal, Unity, Figma, and custom studio hosts — through a **layered surface**:
 
-- **Shell-capable AI agents** → the published `dcc-mcp` Skill plus `dcc-mcp-cli` for `search → describe → call`.
+- **Shell-capable AI agents** → the published `dcc-mcp` Skill plus `dccmcp` for `search → describe → call`.
 - **MCP-only IDE clients** → the gateway's small, static MCP workflow (`search`, `describe`, `load_skill`, `call`).
 - **Traditional callers** (cURL, CI, any HTTP client) → a full **`/v1/*` REST API** on every per-DCC server and on the gateway facade.
 
@@ -34,7 +34,7 @@ flowchart LR
     IDE([MCP-only IDE client]):::client
     TRAD([cURL / CI / traditional backends]):::client
 
-    AGENT -->|dcc-mcp-cli: search<br/>describe / call| GW
+    AGENT -->|dccmcp: search<br/>describe / call| GW
     IDE -->|MCP: search<br/>describe / load_skill / call| GW
     TRAD -->|REST: POST /v1/search<br/>/describe /call| GW
     TRAD -.->|direct REST to per-DCC| PERDCC
@@ -101,7 +101,7 @@ dcc-mcp-core/
 │   ├── dcc-mcp-gateway-core/        # pure gateway domain/search/ranking types (#845)
 │   ├── dcc-mcp-gateway-search/      # reusable capability search/ranking engine
 │   ├── dcc-mcp-gateway/             # multi-instance gateway + minimal MCP surface
-│   ├── dcc-mcp-cli/                 # `dcc-mcp-cli` client/control-plane CLI
+│   ├── dcc-mcp-cli/                 # `dccmcp` client/control-plane CLI
 │   ├── dcc-mcp-server/              # `dcc-mcp-server` CLI
 │   ├── dcc-mcp-sidecar/             # per-DCC sidecar + gateway-daemon runtime
 │   ├── dcc-mcp-tunnel-protocol/     # tunnel frame format + JWT
@@ -192,7 +192,7 @@ Full symbol listing lives in the [API reference](/api/actions).
 
 ## Version / language support
 
-- **Current version**: 0.20.55 <!-- x-release-please-version -->
+- **Current version**: 0.21.0 <!-- x-release-please-version -->
 - **Python**: 3.7–3.14. Native cp37 wheels cover Linux/Windows, `py37-lite` is the sidecar fallback, and Python 3.8+ uses `abi3-py38`.
 - **Rust**: Edition 2024; MSRV pinned in `rust-toolchain.toml` at the repo root
 - **Build**: maturin + PyO3
@@ -205,7 +205,7 @@ Full symbol listing lives in the [API reference](/api/actions).
 - [CLI reference](/guide/cli-reference) — full flag tables for `dcc-mcp-server`, `dcc-mcp-tunnel-relay`, `dcc-mcp-tunnel-agent`, plus deployment scenarios
 - [Gateway diagnostics](/guide/gateway-diagnostics) — multi-instance contention, election, heartbeat, ghost eviction, troubleshooting matrix
 - [`AGENTS.md`](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/AGENTS.md) — rules for integrating AI agents
-- [`docs/guide/ai-agent-guide.md`](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/docs/guide/ai-agent-guide.md) — best practices for agents using dcc-mcp-core
+- [`AGENTS.md`](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/AGENTS.md) — repository rules and agent workflow
 
 ## Related projects
 

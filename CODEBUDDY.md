@@ -1,0 +1,31 @@
+# CODEBUDDY.md — dcc-mcp-core
+
+> Entry point for Tencent CodeBuddy agents.
+> This file is an agent-specific entry point. It intentionally delegates to
+> `AGENTS.md` so project rules stay single-sourced and progressively disclosed.
+>
+> Do not copy detailed project guidance here. Update `AGENTS.md`, `llms.txt`,
+> `llms-full.txt`, or `docs/guide/*` instead.
+
+## Read Order
+
+1. `AGENTS.md` — navigation map, response rules, PR/merge rules, and top traps.
+2. `llms.txt` — compact API index when you need to use APIs.
+3. `llms-full.txt` — complete API index when `llms.txt` lacks detail.
+4. `docs/guide/agents-reference.md` — detailed rules, examples, and rationale before coding.
+
+## Mandatory DCC Workflow
+
+When interacting with Maya, Blender, Houdini, Photoshop, ZBrush, Unreal, Unity,
+Figma, or any custom DCC host, use the Skills-First workflow from `AGENTS.md`.
+Prefer `search_skills` → `load_skill` → tool call on a per-DCC server, or
+`search_tools` → `describe_tool` → `call_tool` on the gateway's bounded
+dynamic-capability surface. Non-MCP clients use the equivalent `/v1/search` →
+`/v1/describe` → `/v1/call` REST flow.
+Do not jump straight to raw subprocesses or host scripting unless the docs say a
+low-level fallback is required.
+
+## Build & Test
+
+Use `vx just dev`, `vx just test`, and `vx just preflight`. For docs-only changes,
+still run the fastest available docs validation before opening a PR.

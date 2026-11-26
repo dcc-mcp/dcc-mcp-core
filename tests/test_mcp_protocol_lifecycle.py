@@ -54,9 +54,9 @@ def _request(url, method, params, protocol_header=None, expected_status=200):
     [
         ("2025-03-26", "2025-03-26"),
         ("2025-06-18", "2025-06-18"),
-        ("2026-07-28", "2025-06-18"),
-        ("2099-01-01", "2025-06-18"),
-        (None, "2025-06-18"),
+        ("2026-07-28", "2025-11-25"),
+        ("2099-01-01", "2025-11-25"),
+        (None, "2025-11-25"),
     ],
 )
 def test_headerless_initialize_stays_on_legacy_lifecycle(protocol_server, requested, expected):

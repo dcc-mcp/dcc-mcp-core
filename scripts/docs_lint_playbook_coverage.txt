@@ -16,7 +16,6 @@
 # --playbook-only`) to check this list.
 
 AGENTS.md
-docs/guide/ai-agent-guide.md
 llms.txt
 llms-full.txt
 .agents/skills/dcc-mcp-core/SKILL.md

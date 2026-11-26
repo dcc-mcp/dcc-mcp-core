@@ -126,7 +126,7 @@ Two consequences worth checking when a host reports an unexpected version:
   is only raised for the fallback: a binary taken from `PATH` carries no
   importable version, so comparing the package version against it would name a
   copy that never runs. Set `DCC_MCP_SERVER_BIN` to override the lookup.
-- `dcc-mcp-cli` is a standalone Rust binary shipped in the release bundles, not
+- `dccmcp` is a standalone Rust binary shipped in the release bundles, not
   a Python package. There is no `dcc_mcp_cli` module: `import dcc_mcp_cli`
   always fails inside a host, and this is expected. Invoke the binary from the
   resolved environment's `PATH` instead.
@@ -468,7 +468,7 @@ The gateway Admin JSON already exposes these operator hints on each instance:
 
 Release smoke tests that launch their own DCC process should publish stable,
 public lifecycle metadata (`owner`, `session`) and, when supported, a
-`safe_stop_url` callback. The gateway and `dcc-mcp-cli stop-instance` only
+`safe_stop_url` callback. The gateway and `dccmcp stop-instance` only
 forward safe-stop requests to that explicit callback and never terminate a
 process directly.
 

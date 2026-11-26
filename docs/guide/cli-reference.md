@@ -1,60 +1,43 @@
 # CLI Reference
 
-This repository ships four operator-facing binaries. This page is the
-single source of truth for every flag, every environment variable, and the
-five deployment scenarios they cover. Flags on each binary map 1:1 onto an
-`DCC_MCP_*` environment variable, so any deployment manifest can drive the
-same configuration surface.
+The DCCMCP CLI is maintained and released from the dedicated
+[`dcc-mcp/dcc-mcp-cli`](https://github.com/dcc-mcp/dcc-mcp-cli) repository. This
+page documents its operator-facing contract alongside the core server
+binaries. Flags on each binary map 1:1 onto an `DCC_MCP_*` environment
+variable, so any deployment manifest can drive the same configuration surface.
 
-`dcc-mcp-cli` and `dcc-mcp-server` are published as raw GitHub Release
-assets on every release. It is the preferred control path for shell-capable
-agents. Install the published
-[`dcc-mcp` Skill](https://clawhub.ai/loonghao/skills/dcc-mcp) for the routing,
-safety, and recovery workflow; use
-[`dcc-mcp-creator`](https://clawhub.ai/loonghao/skills/dcc-mcp-creator) only for
-a complete adapter and
-[`dcc-mcp-skills-creator`](https://clawhub.ai/loonghao/skills/dcc-mcp-skills-creator)
-only for a DCC-specific Skill package. If the CLI is missing, obtain the user's
-consent before installing it from the official release. From the installed
-`dcc-mcp` Skill directory, run:
+The standalone CLI repository publishes `dccmcp` and its `dcc-mcp-cli`
+compatibility alias as raw GitHub Release assets. Core publishes
+`dcc-mcp-server` and its runtime assets separately. DCCMCP is the preferred
+control path for shell-capable agents.
+If it is missing, obtain the user's consent before installing it from
+the official URL:
 
 ```bash
-python scripts/check_cli.py --ensure-cli --pretty
-```
-
-The bundled helper is fixed to `dcc-mcp/dcc-mcp-core`, validates the platform
-update manifest and CLI SHA-256, and leaves the existing binary untouched if
-the URL, manifest, digest, or download is invalid. SHA-256 is an integrity
-check, not a digital signature. Without the Skill, download the official
-installer as a local file, inspect it, and only then execute it:
-
-```bash
-curl -fL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.sh -o install-cli.sh
+curl -fL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-cli/main/scripts/install-cli.sh -o install-cli.sh
 cat install-cli.sh
-# After reviewing the file:
 sh ./install-cli.sh
-```
 
-```powershell
-Invoke-WebRequest https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.ps1 -OutFile .\install-cli.ps1
+# Windows PowerShell
+Invoke-WebRequest https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-cli/main/scripts/install-cli.ps1 -OutFile .\install-cli.ps1
 Get-Content -Raw .\install-cli.ps1
-# After reviewing the file and subject to the current execution policy:
 & .\install-cli.ps1
 ```
 
-The local installer uses the same fixed source and verification contract.
-Never pipe it directly into a shell or bypass the machine's script execution
-policy.
+Pin a release by setting `DCC_MCP_VERSION=v0.21.2` or passing
+`--version v0.21.2` to the install script.
+The installers download the matching `.sha256` sidecar and verify the binary
+before replacing the destination. Set `DCC_MCP_ALLOW_UNSIGNED_DOWNLOADS=1`
+only for a trusted legacy mirror that does not publish sidecars.
 
-Pin a release with `sh ./install-cli.sh --version v0.19.63` or
-`& .\install-cli.ps1 -Version v0.19.63`.
-
-A standalone CLI-only ZIP (`dcc-mcp-cli-<version>-<platform>.zip`) is
-also published as a GitHub Release asset alongside the server bundle.
+A standalone DCCMCP ZIP (`dccmcp-<version>-<platform>.zip`) and a compatibility
+CLI ZIP (`dcc-mcp-cli-<version>-<platform>.zip`) are published as GitHub
+Release assets in the dedicated CLI repository. On macOS, the supported package
+manager route is `brew tap dcc-mcp/tap && brew install dccmcp`.
 
 | Binary | Role | Source |
 |---|---|---|
-| [`dcc-mcp-cli`](#dcc-mcp-cli) | User/CI control plane for local or remote DCC-MCP REST endpoints. | `crates/dcc-mcp-cli/` |
+| [`dccmcp`](#dccmcp) | User/CI control plane for local or remote DCC-MCP REST endpoints. | `dcc-mcp/dcc-mcp-cli` |
 | [`dcc-mcp-server`](#dcc-mcp-server) | Per-DCC MCP + REST server and machine-wide gateway daemon. | `crates/dcc-mcp-server/` |
 | [`dcc-mcp-tunnel-relay`](#dcc-mcp-tunnel-relay) | Public-facing WebSocket relay for the zero-config remote tunnel (#504). | `crates/dcc-mcp-tunnel-relay/` |
 | [`dcc-mcp-tunnel-agent`](#dcc-mcp-tunnel-agent) | Local sidecar that registers with the relay and forwards MCP traffic. | `crates/dcc-mcp-tunnel-agent/` |
@@ -64,13 +47,14 @@ Development helper binaries (`stub_gen`) are documented in
 
 ---
 
-## `dcc-mcp-cli`
+## `dccmcp`
 
 Client-side control plane for DCC-MCP. It is the primary operator and agent UX;
 it does not host skills and does not replace the runtime binary
-`dcc-mcp-server`.
+`dcc-mcp-server`. Existing installations may invoke the same binary as
+`dccmcp`.
 
-`dcc-mcp-cli` has two gateway modes:
+`dccmcp` has two gateway modes:
 
 - `local` (default): read the core default FileRegistry directly and use the
   selected DCC instance's MCP HTTP endpoint for `search`, `describe`,
@@ -97,7 +81,7 @@ Use repeatable RFC 6901 pointers to query that view without parsing embedded
 JSON text, for example:
 
 ```bash
-dcc-mcp-cli call <tool-slug> --output json \
+dccmcp call <tool-slug> --output json \
   --select /result/structuredContent/context/output_summary/artifacts \
   --select /result/structuredContent/context/result
 ```
@@ -118,10 +102,10 @@ errors use stderr; stdout contains only the requested result representation.
 Register and select remote profiles with:
 
 ```bash
-dcc-mcp-cli gateway register https://workstation.example:19293 --name pcA
-dcc-mcp-cli gateway list
-dcc-mcp-cli gateway set pcA
-dcc-mcp-cli gateway set local
+dccmcp gateway register https://workstation.example:19293 --name pcA
+dccmcp gateway list
+dccmcp gateway set pcA
+dccmcp gateway set local
 ```
 
 `--gateway <name>` overrides the current profile for one command. `--base-url`
@@ -186,7 +170,7 @@ that need a local gateway (`health`, `stats`, `update`, and `smoke` without an e
 `dcc-types`, `start-instance`, marketplace commands without `--reload`, `lint`), explicit lifecycle commands
 (`gateway ...`), and smoke checks against an explicit `--url` do not
 auto-start the gateway.
-Use `dcc-mcp-cli doctor` when startup state is ambiguous: it reports the
+Use `dccmcp doctor` when startup state is ambiguous: it reports the
 current profile config, selected mode, registry directory and inventory, local
 direct-control readiness counts, gateway daemon status, and server binary
 path/source/version without starting services or downloading binaries. Existing
@@ -237,7 +221,7 @@ binaries retain their discovery policy; this does not requalify their origin.
 ### MCP inventory smoke checks
 
 ```bash
-dcc-mcp-cli --no-auto-gateway --output json smoke --url http://127.0.0.1:19293/mcp --timeout-secs 30 --max-pages 16
+dccmcp --no-auto-gateway --output json smoke --url http://127.0.0.1:19293/mcp --timeout-secs 30 --max-pages 16
 ```
 
 `smoke` initializes one MCP session and follows `tools/list` cursors until a
@@ -305,66 +289,84 @@ guesses an ambient `python`, because that reports false `missing` rows for
 adapters installed into a DCC's own interpreter. Set one of:
 
 ```bash
-dcc-mcp-cli doctor --adapter-python maya=/usr/autodesk/maya2026/bin/mayapy
-DCC_MCP_PYTHON_EXECUTABLE=/usr/autodesk/maya2026/bin/mayapy dcc-mcp-cli doctor
+dccmcp doctor --adapter-python maya=/usr/autodesk/maya2026/bin/mayapy
+DCC_MCP_PYTHON_EXECUTABLE=/usr/autodesk/maya2026/bin/mayapy dccmcp doctor
 ```
 
 With neither configured, probes report `unavailable` with
 `reason: "no_interpreter"` and the overall `status` stays `ok`.
 
 ```bash
-dcc-mcp-cli dcc-types
-dcc-mcp-cli --output json dcc-types --dcc-type unreal
-dcc-mcp-cli dcc-types --catalog ./studio-catalog.yml
-dcc-mcp-cli list
-dcc-mcp-cli list --gateway pcA
-dcc-mcp-cli doctor
-dcc-mcp-cli health
-dcc-mcp-cli stats --range 7d --dcc-type houdini --skill houdini-render
-dcc-mcp-cli stats --tool render_rop --status failure --session-id solar-session
-dcc-mcp-cli --no-auto-gateway health
-dcc-mcp-cli gateway register https://workstation.example:19293 --name pcA
-dcc-mcp-cli gateway list
-dcc-mcp-cli gateway set pcA
-dcc-mcp-cli gateway set local
-dcc-mcp-cli search --query "create sphere" --dcc-type maya --instance-id abc12345
-dcc-mcp-cli describe maya.abc12345.create_sphere
-dcc-mcp-cli load-skill workflow --dcc-type 3dsmax --instance-id 80321760
-dcc-mcp-cli call maya.abc12345.create_sphere --require-gateway --agent-session-id task-42 --json '{"radius":2}'
-dcc-mcp-cli --transport mcp call jobs_get_status --json '{"job_id":"job-42"}'
-dcc-mcp-cli call unity.abc12345.run_tests --require-gateway --wait --wait-timeout-secs 600 --json '{}'
-dcc-mcp-cli call maya_scene__get_session_info --dcc-type maya --instance-id abc12345 --json '{}'
-dcc-mcp-cli wait-ready --dcc-type maya --instance-id abc12345 --require skill_catalog,host_execution_bridge
-dcc-mcp-cli stop-instance --dcc-type maya --instance-id abc12345 --expected-owner release-smoke-test --expected-session smoke-2026-08-30
-dcc-mcp-cli stop-instance --operation-id 6f1f2c0e-5f2b-4a5e-9a63-2f0f6a1d7c11
-dcc-mcp-cli start-instance --dcc-type unity --project /abs/path/MyProject --dry-run
-dcc-mcp-cli start-instance --dcc-type unity --project /abs/path/MyProject --wait-ready --yes
-dcc-mcp-cli dcc-types --dcc-type unity --project /abs/path/MyProject
-dcc-mcp-cli install --dcc-type maya
-dcc-mcp-cli install --dcc-type maya --python "C:/Program Files/Autodesk/Maya2026/bin/mayapy.exe"
-dcc-mcp-cli install --dcc-type maya --python "C:/Program Files/Autodesk/Maya2026/bin/mayapy.exe" --execute
-dcc-mcp-cli marketplace add dcc-mcp/marketplace
-dcc-mcp-cli marketplace search --query "maya rigging" --limit 20
-dcc-mcp-cli marketplace inspect dcc-asset-hunyuan-download
-dcc-mcp-cli marketplace install dcc-asset-hunyuan-download --dcc maya --reload
-dcc-mcp-cli marketplace list-installed --dcc maya
-dcc-mcp-cli marketplace outdated --dcc maya
-dcc-mcp-cli marketplace update dcc-mcp-maya-skills --dcc maya
-dcc-mcp-cli reload-skills --dcc-type maya
-dcc-mcp-cli marketplace update --all
-dcc-mcp-cli marketplace pack path/to/skill --out dist/
-dcc-mcp-cli marketplace publish path/to/skill --catalog marketplace.json --install-url https://example.com/skill.zip --sha256 sha256:<digest>
-dcc-mcp-cli update check
-dcc-mcp-cli update check --binary dcc-mcp-server --current-version 0.18.16
-dcc-mcp-cli update          # check, download, and stage in one step
-dcc-mcp-cli components status dcc-cua
-dcc-mcp-cli components ensure dcc-cua --yes
-dcc-mcp-cli components ensure dcc-cua --version 0.6.0 --yes
-dcc-mcp-cli gateway daemon start
-dcc-mcp-cli gateway daemon restart
-dcc-mcp-cli gateway daemon stop
-dcc-mcp-cli gateway daemon status
-dcc-mcp-cli lint path/to/skills
+dccmcp dcc-types
+dccmcp dcc-types --catalog ./studio-catalog.yml
+dccmcp list
+dccmcp list --gateway pcA
+dccmcp doctor
+dccmcp health
+dccmcp stats --range 7d --dcc-type houdini --skill houdini-render
+dccmcp stats --tool render_rop --status failure --session-id solar-session
+dccmcp --no-auto-gateway health
+dccmcp gateway register https://workstation.example:19293 --name pcA
+dccmcp gateway list
+dccmcp gateway set pcA
+dccmcp gateway set local
+dccmcp search --query sphere --dcc-type maya --instance-id abc12345
+dccmcp describe maya.abc12345.create_sphere
+dccmcp load-skill workflow --dcc-type 3dsmax --instance-id 80321760
+dccmcp call maya.abc12345.create_sphere --json '{"radius":2}'
+dccmcp call maya_scene__get_session_info --dcc-type maya --instance-id abc12345 --json '{}'
+dccmcp discover
+dccmcp discover --dcc-type maya --path "D:/Autodesk"
+dccmcp wait-ready --dcc-type maya --instance-id abc12345 --require skill_catalog,host_execution_bridge
+dccmcp stop-instance --dcc-type maya --instance-id abc12345 --expected-owner release-smoke-test
+dccmcp install --dcc-type maya --version 2026
+dccmcp install --dcc-type maya --version 2026 --python "C:/Program Files/Autodesk/Maya2026/bin/mayapy.exe"
+dccmcp install --dcc-type maya --version 2026 --python "C:/Program Files/Autodesk/Maya2026/bin/mayapy.exe" --execute
+dccmcp marketplace add dcc-mcp/marketplace
+dccmcp marketplace search --query hunyuan --dcc maya
+dccmcp marketplace inspect dcc-asset-hunyuan-download
+dccmcp marketplace install dcc-asset-hunyuan-download --dcc maya
+dccmcp reload-skills --dcc-type maya
+dccmcp marketplace list-installed --dcc maya
+dccmcp marketplace outdated --dcc maya
+dccmcp marketplace update dcc-mcp-maya-skills --dcc maya
+dccmcp reload-skills --dcc-type maya
+dccmcp marketplace update --all
+dccmcp marketplace pack path/to/skill --out dist/
+dccmcp marketplace publish path/to/skill --catalog marketplace.json --install-url https://example.com/skill.zip --sha256 sha256:<digest>
+dccmcp update
+dccmcp update check
+dccmcp update check --binary dcc-mcp-server --current-version 0.18.16
+dccmcp update apply
+dccmcp --auto-update list
+dccmcp gateway daemon start
+dccmcp gateway daemon restart
+dccmcp gateway daemon stop
+dccmcp gateway daemon status
+dccmcp lint path/to/skills
+```
+
+The compatibility command accepts the same subcommands and flags.
+
+```bash
+dccmcp list
+dccmcp call <tool-slug> --json '{}'
+```
+
+### Generic MCP commands
+
+The shared Streamable HTTP client is available for any compatible MCP endpoint.
+It performs initialization, session handling, protocol negotiation, pagination,
+and JSON or SSE response decoding.
+
+```bash
+dccmcp mcp initialize --url http://127.0.0.1:9765/mcp
+dccmcp mcp tools list --url http://127.0.0.1:9765/mcp
+dccmcp mcp tools call --url http://127.0.0.1:9765/mcp --name create_sphere --json '{"radius":2}'
+dccmcp mcp resources list --url http://127.0.0.1:9765/mcp
+dccmcp mcp resources read --url http://127.0.0.1:9765/mcp --uri dcc://scene/current
+dccmcp mcp prompts list --url http://127.0.0.1:9765/mcp
+dccmcp mcp prompts get --url http://127.0.0.1:9765/mcp --name review_scene --arguments-json '{}'
 ```
 
 `call --wait` polls the routed `jobs_get_status` tool to terminal state. If a
@@ -391,7 +393,8 @@ launching operation.
 
 | Command | REST/API contract | Meaning |
 |---|---|---|
-| `dcc-types [--dcc-type <dcc>] [--catalog <path>] [--project <path>]` | bundled or supplied adapter catalog + local FileRegistry for the targeted form | Without `--dcc-type`, list canonical adapter-backed identifiers without starting a gateway. With one target, emit the versioned discovery decision that separates catalog, registration, readiness, capability, and real-host evidence. |
+| `dcc-types [--catalog <path>]` | bundled or supplied adapter catalog | List canonical adapter-backed DCC identifiers without starting a gateway. Each row includes matching adapters, version/source metadata when present, and whether the catalog can produce an install plan. |
+| `discover [--dcc-type <dcc>] [--path <path>]` | local filesystem and PATH scan | Detect installed DCC executables and host Python interpreters across configured roots and mounted Windows volumes. This is read-only and does not launch or install a DCC. |
 | `health` | `GET /v1/healthz` | Check the configured endpoint. |
 | `stats [--range 1h\|24h\|7d\|all] [--dcc-type <dcc>] [--skill <name>] [--tool <name>] [--status success\|failure] [--instance-id <id>] [--session-id <id>]` | `GET /v1/debug/stats` | Query persisted gateway tool-call counts and return `stats_coverage`, including direct routes excluded from the aggregate. JSON is the default output for agent use. |
 | `feedback --tool-name <name> --intent <text> --blocker <text> [--attempt <text>] [--severity <level>] [--dcc-type <dcc>] [--instance-id <id>] [--request-id <id>] [--job-id <id>]` | `POST /v1/feedback` | File bounded gateway-level feedback even after the referenced DCC exits. The receipt points to `resources://gateway/events`. |
@@ -419,18 +422,18 @@ launching operation.
 | `marketplace list` | local source registry | List the built-in, configured, and environment-provided marketplace sources. |
 | `marketplace search [-q\|--query <q>] [--dcc <dcc>] [--source <source>]` | marketplace catalog JSON/YAML | Fuzzy-rank Skill packages across configured or explicit sources using the shared search engine; the query flag works with released builds, while current builds also accept positional words as an alternative. Deduplicate by package name before applying `--limit`; `--dcc-type` is an alias for `--dcc`. |
 | `marketplace inspect <name> [--source <source>]` | marketplace catalog JSON/YAML | Print exact entry metadata including version and install fields. |
-| `marketplace install <name> [--dcc <dcc>] [--source <source>] [--force] [--reload]` | marketplace catalog + local filesystem/git; optional running DCC control | Install a Skill, multi-Skill bundle, or Agent Plugin; `--reload` asks matching running adapters to re-scan skill paths and includes the reload result in the install JSON. `--dcc` is optional: an entry that declares one host installs into it, and an entry that declares several hosts installs once into the shared directory every host searches (`--dcc all` requests that explicitly). |
-| `marketplace list-installed [--dcc <dcc>]` | local installed-state file | List locally installed marketplace packages and their versions/paths. `--dcc <host>` also reports packages installed into the shared directory, because that host loads them. |
-| `marketplace uninstall <name> [--dcc <dcc>] [--reload]` | local installed-state file + filesystem | Remove an installed marketplace package; infer the DCC from installed state when unambiguous, and optionally reload the adapter. |
+| `marketplace install <name> [--dcc <dcc>] [--source <source>] [--force]` | marketplace catalog + local filesystem/git | Install host-neutral and multi-DCC packages to `~/.dcc-mcp/marketplace/any/<name>/`, otherwise use `~/.dcc-mcp/marketplace/<dcc>/<name>/`. |
+| `marketplace list-installed [--dcc <dcc>]` | local installed-state file | List locally installed marketplace packages and their versions/paths. Shared packages are listed once for each matching host. |
+| `marketplace uninstall <name> --dcc <dcc>` | local installed-state file + filesystem | Remove an installed marketplace package. |
 | `marketplace outdated [NAME...] [--dcc <dcc>]` | marketplace catalog + local installed state | Compare installed versions against latest catalog entries and list packages with newer versions available. |
 | `marketplace update [<name>] [--all] [--dcc <dcc>]` | marketplace catalog + git/filesystem + local installed state | Upgrade installed packages to the latest catalog version. Git updates reinstall the next full commit OID through verified staging; ZIP updates require and verify SHA-256. Use `--all` to update every outdated package. |
 | `marketplace add-repo <repo> --commit <40-hex-oid> [--dcc <dcc>]` | direct Git fetch + local filesystem | Install directly from an immutable repository commit. `--list` is read-only and may omit `--commit`; installation may not. |
 | `marketplace pack <path> [--out <path>]` | local filesystem + zip | Build a release zip for a marketplace package and print its SHA-256 digest. |
 | `marketplace publish <path> --catalog <file> --install-url <url>` | local marketplace catalog file | Build or update a `marketplace.json` entry from `SKILL.md` metadata and CLI overrides. |
-| `update check [--binary <name>] [--current-version <version>]` | `GET /v1/update/check` | Check the gateway update manifest. Defaults to the CLI binary/version; pass `--binary dcc-mcp-server` plus a server version when checking an instance shown in Admin. |
-| `update` | `GET /v1/update/check` + download URL | Check, download, and stage the CLI binary for the next CLI launch in one step; no confirmation flag is required. `update apply` and `--yes` remain accepted for backward compatibility. It does not update or restart running server instances; run `dcc-mcp-server update apply` in the exact server environment. |
-| `components status dcc-cua` | CLI sibling + `dcc-cua manifest` | Read-only check of the independently released CUA runtime installed beside this CLI. |
-| `components ensure dcc-cua [--version <version>] --yes` | official per-target install manifest + archive | Download only from `dcc-mcp/dcc-cua`, require the manifest SHA-256, safely extract and validate the candidate runtime contract, then install it beside this CLI. Explicit `--yes` is mandatory. |
+| `update` | `GET /v1/update/check` + download URL + SHA-256 verification | Check, download, verify, and stage the CLI binary for the next CLI launch. An existing staged update is reused. |
+| `update check [--binary <name>] [--current-version <version>]` | `GET /v1/update/check` | Read-only check of the gateway update manifest. Defaults to the CLI binary/version; pass `--binary dcc-mcp-server` plus a server version when checking an instance shown in Admin. |
+| `update apply` | `GET /v1/update/check` + download URL | Explicitly download and stage the CLI binary for the next CLI launch. It does not update running server instances; use Admin's instance update button or `dcc-mcp-server update apply` in the server environment. |
+| `--auto-update <command>` | same as `update` | Best-effort check and staging before an ordinary command. Enable with `DCC_MCP_CLI_AUTO_UPDATE=true` or the flag. Failures are warnings and do not change the current command result. |
 | `gateway register <url> --name <profile>` | local profile config | Persist a named remote gateway profile. |
 | `gateway list` | local profile config | Show configured remote profiles and the active local/remote selection. |
 | `gateway set <profile\|local>` | local profile config | Select the active gateway profile. |
@@ -481,16 +484,16 @@ accepts this JSON plus bounded task and validation summaries.
 ### `start-instance` (project-bound launch and wait-ready)
 
 An adapter can be installed and receipted for an exact project while
-`dcc-mcp-cli list` still reports `total: 0` because no host is running.
+`dccmcp list` still reports `total: 0` because no host is running.
 `start-instance` closes that zero-instance gap: it launches the DCC host bound
 to one project and waits until it is ready.
 
 ```bash
-dcc-mcp-cli start-instance --dcc-type unity --project /abs/path/MyProject --dry-run
-dcc-mcp-cli start-instance --dcc-type unity --project /abs/path/MyProject --wait-ready --yes
-dcc-mcp-cli start-instance --dcc-type unity --project /abs/path/MyProject \
+dccmcp start-instance --dcc-type unity --project /abs/path/MyProject --dry-run
+dccmcp start-instance --dcc-type unity --project /abs/path/MyProject --wait-ready --yes
+dccmcp start-instance --dcc-type unity --project /abs/path/MyProject \
   --wait-ready --require skill_catalog --timeout-secs 600 --yes
-dcc-mcp-cli stop-instance --operation-id <operation-id>
+dccmcp stop-instance --operation-id <operation-id>
 ```
 
 Ownership split: **core owns the lifecycle and readiness contract; the adapter
@@ -566,25 +569,25 @@ Use the existing surfaces instead of copying unbounded logs:
 1. Preserve the failed call's `request_id`, trace/job ids, tool slug, instance,
    sanitized arguments, error code, and validation result. Do not blindly
    replay a mutating call.
-2. Run `dcc-mcp-cli doctor` for profile, registry, daemon, binary, or readiness
+2. Run `dccmcp doctor` for profile, registry, daemon, binary, or readiness
    failures. For task-level evidence, run
-   `dcc-mcp-cli stats --range 24h --status failure --session-id <session-id>`.
-3. Run `dcc-mcp-cli feedback` with `tool_name`, `intent`, `attempt`, `blocker`,
+   `dccmcp stats --range 24h --status failure --session-id <session-id>`.
+3. Run `dccmcp feedback` with `tool_name`, `intent`, `attempt`, `blocker`,
    and `severity`; include the DCC/instance/request/job ids when known. This
    gateway-owned route works after an instance exits, records a bounded event,
    and does not open a GitHub issue.
 4. Review persisted reports with
-   `dcc-mcp-cli feedback list --range 7d --dcc <dcc> --json`; use
+   `dccmcp feedback list --range 7d --dcc <dcc> --json`; use
    `feedback export` for the largest bounded machine-readable window. A failed
    `DccServerBase.start()` writes a `needs-review` startup Finding to this store
    even though no gateway `request_id` exists. Treat its exception-derived
    observed text as local evidence until it has been reviewed and redacted.
 5. When a Finding v1 JSON file is available, run
-   `dcc-mcp-cli feedback route finding.json --json`. The offline command uses
+   `dccmcp feedback route finding.json --json`. The offline command uses
    exact catalog or Skill-metadata ownership and never creates the external
    issue; a routing error must be resolved instead of guessed.
 6. After reviewing the Finding and setting all public-safe exclusion flags,
-   run `dcc-mcp-cli feedback bundle finding.json --install-report install-report.json --json`.
+   run `dccmcp feedback bundle finding.json --install-report install-report.json --json`.
    Pass the single JSON stdout object from `install --execute --json` when it
    is available. The bundle adds the safe issue report when a request id
    exists, a redacted doctor snapshot, version matrix, an exact-file bounded
@@ -593,7 +596,7 @@ Use the existing surfaces instead of copying unbounded logs:
    the Finding's DCC/core/adapter identity. Treat a validation failure as
    fail-closed; treat any `unavailable` component or `complete=false` as
    incomplete evidence.
-7. Run `dcc-mcp-cli feedback file finding.json --json` to search the routed
+7. Run `dccmcp feedback file finding.json --json` to search the routed
    repository without writing. A single exact fingerprint match returns one
    comment next step; no match returns a create next step. Keyword-only or
    multiple matches return review options and must not be auto-selected.
@@ -641,12 +644,16 @@ of a host require `--dcc-path` or `--python`, and a
 missing hosted interpreter fails preflight. The JSON plan records the selected
 source in `python_source`. Pass
 `--execute` to prompt for consent and run executable package-install steps.
-Execution rolls back completed steps when a later step fails. Pip installs use
-an HTTPS wheel bound to the catalog package/version and SHA-256, pass pip a
-direct reference with `#sha256=`, and verify the installed version with
-`pip show`. Git/ZIP/path installs verify that their target exists and is not an
-empty directory. A DCC is considered online only after its host plugin or
-sidecar starts, remains alive, and appears in `dcc-mcp-cli list`; the CLI does
+The plan also includes `detected_installations` from the read-only
+`dccmcp discover` scan and uses the first matching host Python when
+`--python` is omitted.
+Set `DCC_MCP_DCC_SEARCH_PATHS` to a platform-separated list of additional
+installation roots when a studio volume is outside the standard folders.
+Execution rolls back completed steps when a later step fails, uses
+`<python> -m pip` for pip installs, verifies pip installs with `pip show`, and
+verifies git/zip/path installs by checking that their target path exists and is
+not an empty directory. A DCC is considered online only after its host plugin or
+sidecar starts, remains alive, and appears in `dccmcp list`; the CLI does
 not fake gateway registration during install.
 
 Standalone `verify --dcc-type <dcc> --python <target-python> [--catalog <path>]
@@ -698,16 +705,16 @@ Additional sources are persisted under
 `~/.dcc-mcp/marketplace/<dcc>/<name>/`, with
 `DCC_MCP_MARKETPLACE_INSTALL_ROOT` overriding the root. The current installer
 supports `install.type: git`, `install.type: path`, and `install.type: zip`.
-Git installs require and verify a full 40-character commit object ID. Archive
-installs require `install.sha256` before I/O, verify the received bytes, and
-reject entries that escape the install root. DCC adapters include
-`~/.dcc-mcp/marketplace/any`, the legacy `~/.dcc-mcp/marketplace/all`, and
-`~/.dcc-mcp/marketplace/<dcc>` in that order in their skill search paths, so
-installed skills are discovered on adapter startup. To expose an exact package to running
-adapters immediately, use
-`dcc-mcp-cli marketplace install <name> --dcc <dcc> --reload`; otherwise run
-`dcc-mcp-cli reload-skills --dcc-type <dcc>` separately. After a reload, run
-`dcc-mcp-cli load-skill <skill-name> --dcc-type <dcc> --instance-id <id>` when
+Host-neutral and multi-DCC entries use `~/.dcc-mcp/marketplace/any/<name>/`
+and are visible to every matching DCC. The legacy `all` directory remains a
+read-only discovery fallback.
+Remote catalogs, git sources, and package archives require HTTPS. Remote ZIP
+installs require `install.sha256` and reject entries that escape the install
+root. DCC adapters include
+`~/.dcc-mcp/marketplace/<dcc>` in their skill search paths, so installed skills
+are discovered on adapter startup or the next
+`dccmcp reload-skills --dcc-type <dcc>`. After a reload, run
+`dccmcp load-skill <skill-name> --dcc-type <dcc> --instance-id <id>` when
 the adapter has not auto-loaded that skill yet.
 
 `update` compares each installed package version against the latest catalog
@@ -716,14 +723,14 @@ commit rather than mutated in place. The local installed-state file is updated
 with the new version metadata. Installed packages with no matching catalog
 entry (e.g. the source was removed) are silently skipped.
 
-`dcc-mcp-cli update` is for binary updates exposed by the gateway update
+`dccmcp update` is for binary updates exposed by the gateway update
 manifest configured with `DCC_MCP_UPDATE_MANIFEST_URL` (or
 `GatewayConfig.update_manifest_url`). Official release builds refresh a local
 status cache in a detached process at most once every 24 hours. Failures use a
 one-hour retry interval and never block the foreground command. A cached
 available update adds `cli_update` to structured command output and writes a
 diagnostic to stderr. Agents should report its current/latest versions; the
-reported `update_policy.apply_command` is `dcc-mcp-cli update`, which applies
+reported `update_policy.apply_command` is `dccmcp update`, which applies
 the update in one step with no separate confirmation flag. Set
 `DCC_MCP_DISABLE_UPDATE_CHECK=1` to disable passive checks; explicit checks
 remain available.
@@ -732,7 +739,7 @@ remain available.
 `/v1/update/check`; the CLI auto-ensures the local gateway before the request.
 Its result includes `version_status`, live/cache timing, target compatibility,
 and the update policy. An available entry is valid only when its URL and
-64-hex SHA-256 are present. `dcc-mcp-cli update` streams and verifies that
+64-hex SHA-256 are present. `dccmcp update` streams and verifies that
 exact asset, stages one installation-bound CLI component, and re-verifies it
 before replacement on the next launch, all in one step with no confirmation
 flag. The CLI then restarts with the original arguments and reports
@@ -757,29 +764,14 @@ cannot prove a selected local or remote instance's installation root. Run
 `dcc-mcp-server update apply` in the exact server environment. It uses the same
 mandatory digest and apply-time verification contract and stages only the
 server binary. The standalone `dcc-cua` CLI is released independently and is
-reconciled through `components ensure`; it is not part of the gateway update
-manifest.
+accessed through the forwarding command `dccmcp cua --`; it is not part of the
+gateway update manifest.
 
-`components ensure dcc-cua --yes` installs the complete verified release plan,
-including the foreground and background runtimes, skills, plugin metadata, and
-assets. A same-version installation is `existing` only after every declared
-file and directory passes verification. Missing package files are repaired.
-Each file is renamed atomically under the installation lock; a recovery journal
-rolls back the package and its ownership receipt if installation or the final
-runtime check fails. This package transaction does not include the Core CLI.
-
-The `.dcc-cua-install-receipt.json` beside the CLI records only package-relative
-paths and verified hashes. Legacy installs without a receipt adopt files whose
-contents match the requested release. An older foreground executable may also
-be adopted when its full hash matches the official manifest for that exact
-older version and platform. Core reads a bounded, unambiguous version banner
-from its bytes without executing it; the banner is only a hint for a fixed
-official manifest URL, never proof of ownership. Missing/ambiguous banners,
-unavailable old manifests, and hash mismatches fail closed. Background runtimes
-and data files do not receive this migration exception. An unowned conflicting
-file, or an owned file modified since installation, stops the operation before
-replacement. Preserve or relocate that conflicting file before retrying; do not
-edit the receipt to bypass the conflict. Unrelated and obsolete files are kept.
+Use `dccmcp cua -- manifest` to inspect the installed standalone runtime and
+`dccmcp cua -- host-ensure` to ensure its shared Host process. If the runtime is
+missing, install it from the independent `dcc-mcp/dcc-cua` release and set
+`DCC_MCP_CUA_BINARY` when it uses a custom location. The CLI self-update does
+not install, replace, or restart the CUA runtime.
 
 `lint` reuses the production `dcc-mcp-skills` validator, so local checks and
 runtime loading fail for the same structural problems. It also loads every
@@ -795,18 +787,20 @@ The installer scripts download one of these GitHub Release assets:
 
 | Platform | Asset |
 |---|---|
-| Linux x86_64 | `dcc-mcp-cli-linux-x86_64` |
-| Windows x86_64 | `dcc-mcp-cli-windows-x86_64.exe` |
-| macOS universal2 | `dcc-mcp-cli-macos-universal2` |
+| Linux x86_64 | `dccmcp-linux-x86_64` |
+| Windows x86_64 | `dccmcp-windows-x86_64.exe` |
+| macOS universal2 | `dccmcp-macos-universal2` |
+
+Compatibility raw assets remain available as `dcc-mcp-cli-*` with the same
+platform suffixes.
 
 Default install locations are `~/.local/bin` on Linux/macOS and
 `%LOCALAPPDATA%\dcc-mcp\bin` on Windows. Override with
 `DCC_MCP_INSTALL_DIR` or `--install-dir`.
 
-After installing the verified Core CLI, both official installers run
-`components ensure dcc-cua --yes`. The two verified replacements converge on a
-complete installation but are not yet one crash-atomic cross-binary
-transaction; rerunning the installer safely reconciles an interrupted pair.
+The official CLI installers install and update only the standalone DCCMCP CLI.
+The CUA runtime remains an independently installed and independently updated
+companion.
 
 ---
 
@@ -814,7 +808,7 @@ transaction; rerunning the installer safely reconciles an interrupted pair.
 
 Runtime binary for adapters, sidecars, bridges, and the machine-wide gateway
 daemon. It remains scriptable for CI and operations, but the primary user and
-agent UX is `dcc-mcp-cli`.
+agent UX is `dccmcp`.
 
 Invoking `dcc-mcp-server` with no subcommand behaves like `dcc-mcp-server auto`:
 it ensures a local gateway daemon exists, registers the per-DCC server as a
@@ -890,7 +884,7 @@ Admin audit/trace persistence is configured by environment only: set `DCC_MCP_GA
 
 Daemon auto-ensure paths pass a bounded idle timeout by default unless
 `DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS` is set. The user-facing
-`dcc-mcp-cli gateway daemon start` wrapper passes `0` by default so the
+`dccmcp gateway daemon start` wrapper passes `0` by default so the
 explicitly managed machine-wide daemon does not exit just because no DCC is
 currently registered.
 

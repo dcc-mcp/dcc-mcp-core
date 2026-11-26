@@ -5,13 +5,15 @@ use std::sync::Arc;
 
 use dcc_mcp_skill_rest::ReadinessProbe;
 
-use crate::rmcp_providers::{PromptProvider, ResourceProvider};
+use crate::rmcp_providers::{PromptProvider, ResourceProvider, SkillProvider};
 
 /// Context carrying providers and cross-cutting hooks used by the rmcp adapter.
 #[derive(Clone)]
 pub struct RegistryContext {
     /// Resource provider (list + read). `None` if resources are disabled.
     pub resource_provider: Option<Arc<dyn ResourceProvider>>,
+    /// Skills extension provider (list/get and `skill://` resources).
+    pub skill_provider: Option<Arc<dyn SkillProvider>>,
     /// Prompt provider (list + get). `None` if prompts are disabled.
     pub prompt_provider: Option<Arc<dyn PromptProvider>>,
     /// Readiness gate for DCC-touching registry tool dispatches (issue #714).

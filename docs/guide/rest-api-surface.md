@@ -33,7 +33,7 @@ continue to serve their own adapter OpenAPI contract from the same path.
 | `GET` | `/v1/readyz` | Gateway readiness summary with per-instance readiness bits; the route stays `200` even when no instance is ready. |
 | `POST` | `/v1/feedback` | Record bounded agent feedback at the gateway, including dead-instance/request/job correlation. Works with zero live DCC instances. |
 | `GET` | `/admin/api/feedback` | Aggregate persisted per-instance feedback JSONL. Query: `range=1h\|24h\|7d\|all`, optional `dcc`, optional `severity`, and bounded `limit` (1-1000). Results are newest first and deduplicated by feedback id. |
-| `GET` | `/v1/update/check` | Gateway update-manifest check for `dcc-mcp-cli`, `dcc-mcp-server`, or another configured binary. Query: `binary`, `current_version`. |
+| `GET` | `/v1/update/check` | Gateway update-manifest check for `dccmcp` (with `dcc-mcp-cli` compatibility), `dcc-mcp-server`, or another configured binary. Query: `binary`, `current_version`. |
 | `GET` | `/v1/update/download/{binary_name}` | Resolve the latest manifest download URL for one binary; returns a structured update error when no URL is configured. |
 | `GET` | `/v1/skills` | Loaded gateway capability records projected as skill entries. |
 | `POST` | `/v1/list_skills` | Forward a skill-list request to a selected backend instance. |
@@ -188,7 +188,7 @@ response payload previews, prompts, scripts, and scene data. Browser URLs such
 as `/admin?panel=traces&trace=<request_id>` and historical
 `/admin?agent=traces&trace=<id>` links are UI navigation, not a stable API.
 
-For bug reporting, start from the `request_id` returned by `dcc-mcp-cli`, read
+For bug reporting, start from the `request_id` returned by `dccmcp`, read
 the agent trace packet, then retrieve
 `/v1/debug/issue-reports/{request_id}`. The default report is public-safe and
 includes a suggested GitHub title/body; `?mode=raw` is local evidence that must
@@ -518,7 +518,7 @@ are ignored. Use `client_platform` values such as `cursor`, `claude-desktop`,
 `openclaw`, `clawhub`, `custom-http`, or `studio-tool` to distinguish surfaces
 without overloading agent identity. If a REST request omits `client_platform`,
 the gateway falls back to the first `User-Agent` product token, for example
-`dcc-mcp-cli` from `dcc-mcp-cli/0.17.37`.
+`dccmcp` from `dccmcp/0.21.2`.
 
 The gateway annotates stored context with a server-computed `trust` map and
 Admin rows expose the same map as `attribution_trust`. Values are

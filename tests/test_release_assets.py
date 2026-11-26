@@ -19,7 +19,7 @@ def _asset_payload(names):
 
 
 def _baseline_names(version=VERSION):
-    """Mirror the v0.20.32-v0.20.33 asset set: 33 files."""
+    """Mirror the Core release asset set after the standalone CLI split."""
     names = [
         f"dcc_mcp_core-{version}-cp37-cp37m-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
         f"dcc_mcp_core-{version}-cp37-cp37m-win_amd64.whl",
@@ -40,9 +40,7 @@ def _baseline_names(version=VERSION):
     for platform in PLATFORMS:
         suffix = ".exe" if platform == "windows-x86_64" else ""
         names.append(f"dcc-mcp-server-{platform}{suffix}")
-        names.append(f"dcc-mcp-cli-{platform}{suffix}")
         names.append(f"dcc-mcp-server-{version}-{platform}.zip")
-        names.append(f"dcc-mcp-cli-{version}-{platform}.zip")
         names.append(f"dcc-mcp-update-manifest-{platform}.json")
         names.append(f"dcc-mcp-update-manifest-{platform}.sigstore.json")
     return names

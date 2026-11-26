@@ -69,7 +69,7 @@ npx --yes clawhub@0.23.1 install @loonghao/dcc-mcp
 ```
 
 Start a new agent turn after installation. The `dcc-mcp` Skill then guides the
-agent through `dcc-mcp-cli list -> search -> describe/load-skill -> call`.
+agent through `dccmcp list -> search -> describe/load-skill -> call`.
 
 ## Tools
 
@@ -312,7 +312,7 @@ handle = server.start()
 print(handle.is_gateway)  # True if this process won the gateway port
 ```
 
-Shell-capable agents use the `dcc-mcp` Skill and `dcc-mcp-cli`; the local
+Shell-capable agents use the `dcc-mcp` Skill and `dccmcp`; the local
 profile discovers registered instances automatically. MCP-only clients connect
 to `http://localhost:9765/mcp` and read the `gateway://instances` resource when
 they need a concrete DCC process; each entry already carries `mcp_url`.
@@ -365,10 +365,10 @@ cfg.init()
 
 Agents should self-check before opening an issue:
 
-1. Keep the failed call's `request_id`; run `dcc-mcp-cli doctor` for startup or
-   readiness faults and `dcc-mcp-cli stats --status failure --session-id <id>`
+1. Keep the failed call's `request_id`; run `dccmcp doctor` for startup or
+   readiness faults and `dccmcp stats --status failure --session-id <id>`
    for the bounded task slice.
-2. Run `dcc-mcp-cli feedback` to record structured feedback at the gateway;
+2. Run `dccmcp feedback` to record structured feedback at the gateway;
    include the last known instance/request/job ids for crash-class failures.
    This remains available after the DCC exits.
 3. For a gateway-routed failure, retrieve public-safe

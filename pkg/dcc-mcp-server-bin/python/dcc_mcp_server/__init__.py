@@ -23,7 +23,7 @@ import sysconfig
 __all__ = ["__version__", "binary_path"]
 
 # Kept in sync with pyproject.toml / Rust crate via release-please.
-__version__ = "0.20.55"  # x-release-please-version
+__version__ = "0.21.0"  # x-release-please-version
 
 _BINARY_NAME = "dcc-mcp-server.exe" if os.name == "nt" else "dcc-mcp-server"
 
@@ -78,7 +78,11 @@ def binary_path() -> Path:
     # In particular, --user scripts need not be on a DCC host's PATH.
     for user in (False, True):
         try:
-            scripts = sysconfig.get_path("scripts", scheme=_user_scheme()) if user else sysconfig.get_path("scripts")
+            scripts = (
+                sysconfig.get_path("scripts", scheme=_user_scheme())
+                if user
+                else sysconfig.get_path("scripts")
+            )
         except (AttributeError, ImportError, KeyError, OSError, ValueError):
             # Embedded interpreters can omit schemes or build configuration.
             continue

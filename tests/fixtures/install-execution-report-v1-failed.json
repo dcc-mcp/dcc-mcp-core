@@ -29,13 +29,13 @@
       "id": "inspect-runtime",
       "description": "Inspect safe local runtime diagnostics.",
       "why": "Diagnostics can identify a safe remediation before retrying installation.",
-      "command": ["dcc-mcp-cli", "doctor"]
+      "command": ["dccmcp", "doctor"]
     },
     {
       "id": "review-plan",
       "description": "Review a fresh non-mutating install plan for maya.",
       "why": "The plan can be reviewed safely before another authorized execution.",
-      "command": ["dcc-mcp-cli", "install", "--dcc-type", "maya", "--json"]
+      "command": ["dccmcp", "install", "--dcc-type", "maya", "--json"]
     }
   ],
   "receipt_path": null,

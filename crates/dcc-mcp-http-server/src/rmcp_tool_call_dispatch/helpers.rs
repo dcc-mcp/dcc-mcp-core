@@ -377,6 +377,7 @@ pub(crate) fn ready_context() -> RegistryContext {
 
     RegistryContext {
         resource_provider: None,
+        skill_provider: None,
         prompt_provider: None,
         readiness: std::sync::Arc::new(StaticReadiness::fully_ready()),
         on_skill_catalog_mutated: std::sync::Arc::new(|| {}),

@@ -1,6 +1,6 @@
 # Adapter Launch Plan and Readiness Contract
 
-This is the adapter-author contract behind `dcc-mcp-cli start-instance`.
+This is the adapter-author contract behind `dccmcp start-instance`.
 Read it if you maintain a DCC adapter and want agents to be able to go from
 "no instance is running" to "a typed session is ready" without a human opening
 the host by hand.
@@ -25,11 +25,11 @@ document covers what **your adapter** has to publish.
 
 ## The zero-instance gap
 
-`dcc-mcp-cli list` reports `total: 0` when no host process is running, even for
+`dccmcp list` reports `total: 0` when no host process is running, even for
 a DCC whose adapter is installed and receipted against an exact project. The
 agent then has no structured way forward.
 
-`dcc-mcp-cli dcc-types --dcc-type <dcc> --project <path>` now recommends
+`dccmcp dcc-types --dcc-type <dcc> --project <path>` now recommends
 `start-instance` in exactly that state — but only when a **validated launch
 plan resolves** for that DCC type and project. Until your adapter publishes one,
 the recommendation falls back to `install`, and the gap stays open.
@@ -419,21 +419,21 @@ it started.
 
 ```bash
 # Resolve and report the plan without spawning anything.
-dcc-mcp-cli start-instance --dcc-type unity --project /abs/path/MyProject --dry-run
+dccmcp start-instance --dcc-type unity --project /abs/path/MyProject --dry-run
 
 # Launch and wait for terminal readiness.
-dcc-mcp-cli start-instance --dcc-type unity --project /abs/path/MyProject --wait-ready --yes
+dccmcp start-instance --dcc-type unity --project /abs/path/MyProject --wait-ready --yes
 
 # Narrow a readiness gate, and give a slow host more time.
-dcc-mcp-cli start-instance --dcc-type unity --project /abs/path/MyProject \
+dccmcp start-instance --dcc-type unity --project /abs/path/MyProject \
   --wait-ready --require skill_catalog,host_execution_bridge --timeout-secs 600 --yes
 
 # Disambiguate several instances claiming the same project.
-dcc-mcp-cli start-instance --dcc-type unity --project /abs/path/MyProject \
+dccmcp start-instance --dcc-type unity --project /abs/path/MyProject \
   --instance-id 3f2a1c9e --wait-ready --yes
 
 # Stop only what the operation launched and owns.
-dcc-mcp-cli stop-instance --operation-id <operation-id>
+dccmcp stop-instance --operation-id <operation-id>
 ```
 
 | Flag | Effect |
@@ -474,7 +474,7 @@ claims `terminal`: **process creation is not adapter readiness.**
       with the understanding that they are advisory only.
 - [ ] Blocking conditions are published with the structured key rather than
       prose `failure_reason`, and use whole words.
-- [ ] `dcc-mcp-cli start-instance --dry-run` resolves the plan for a real
+- [ ] `dccmcp start-instance --dry-run` resolves the plan for a real
       project.
 - [ ] A second identical `start-instance` returns `reused: true` and
       `converged_on_operation_id` instead of launching a second host.

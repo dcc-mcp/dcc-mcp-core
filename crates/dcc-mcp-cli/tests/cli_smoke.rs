@@ -75,7 +75,7 @@ async fn mcp(
     match body["method"].as_str().unwrap() {
         "initialize" => {
             let mut response = json!({"jsonrpc":"2.0", "id":id, "result":{
-                "protocolVersion":"2025-06-18", "capabilities":{"tools":{}},
+                "protocolVersion": dcc_mcp_jsonrpc::MCP_PROTOCOL_VERSION, "capabilities":{"tools":{}},
                 "serverInfo":{"name":"controlled-smoke-fixture", "version":"test"}
             }});
             match state.case {
