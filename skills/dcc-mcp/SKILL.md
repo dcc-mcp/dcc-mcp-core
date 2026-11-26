@@ -20,7 +20,7 @@ metadata:
     dcc: python
     layer: infrastructure
     compatibility: Cross-platform Windows/macOS/Linux. Prefers dccmcp on PATH; can download release asset from GitHub; local profile needs no gateway env. DCC_MCP_BASE_URL is optional for remote/legacy gateway REST fallback.
-  version: "0.21.0"  # x-release-please-version
+    version: "0.21.0"  # x-release-please-version
     search-hint: "dcc control operate UI control menu dialog window button click keyboard Maya Blender Houdini Photoshop 3ds Max Nuke Unreal Godot RenderDoc Substance connect create edit render automate cli gateway stats 操作 控制 界面 菜单 弹窗 窗口 按钮 点击 键盘"
     tags: "dcc, dcc-ui-control, ui-control, maya, blender, houdini, photoshop, nuke, unreal, godot, renderdoc, cli, gateway, clawhub, openclaw"
   openclaw:
@@ -152,9 +152,16 @@ curl -fsSL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-cli/main/scripts/in
 powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-cli/main/scripts/install-cli.ps1 | iex"
 ```
 
-After installation, use `dccmcp update check` and
-`dccmcp update apply` to keep the CLI current. The apply step stages the
-new CLI for the next launch; it does not update a running `dcc-mcp-server`.
+After installation, use `dccmcp update` for the normal self-update flow. It
+checks the release manifest, downloads the platform asset, verifies its
+SHA-256 digest, and stages the binary for the next CLI launch. Use
+`dccmcp update check` for a read-only check or `dccmcp update apply` when an
+explicit apply action is clearer in an operator runbook. Set
+`DCC_MCP_CLI_AUTO_UPDATE=true`, or pass `--auto-update`, to perform the same
+best-effort check and staging before an ordinary CLI command. A staged update
+is reused instead of downloaded again. Automatic update failures are reported
+as warnings and do not block the current command. This updates the CLI only;
+it does not update a running `dcc-mcp-server`.
 
 Before creating an adapter install plan, run the read-only host discovery
 command. It checks PATH, configured search roots, common application folders,
@@ -183,8 +190,12 @@ sidecar and the operator has explicitly accepted that exception.
 ### DCC UI Control fallback
 
 **DCC UI Control** is the public capability name and `ui-control` is its stable
-CLI command. The `app_ui__*` names below are legacy runtime tool identifiers;
-do not call the feature “Computer Use” in agent-facing text.
+CLI command. DCCMCP is the control-plane layer. The project-owned **DCC-CUA**
+capability layer is the execution boundary behind that route. It owns exact
+window binding, screenshots, UI Automation, native input, visible safety
+effects, user interruption, and audit records. The `app_ui__*` names below are
+legacy runtime tool identifiers and MCP compatibility names. Do not call the
+feature generic “Computer Use” in agent-facing text.
 
 Do not choose UI Control first. Search, describe, and call the structured DCC
 skill, host API, or adapter script that owns the operation. If the operation is
@@ -201,7 +212,11 @@ Control:
    abandoned so the visible effects and input owner are released.
 
 Shell agents should use the stable CLI wrapper instead of hand-building legacy
-tool slugs:
+tool slugs. Before the first observation or input action, the DCC-CUA host
+must report `provider=dcc-cua`, its runtime version, and the exact target PID
+and HWND. No UI action is valid without all four bindings. This requirement
+also applies when an explicit DCC-CUA request targets a browser or another
+non-DCC application through the project `ui-control` route.
 
 ```bash
 dccmcp ui-control snapshot --instance-id <id> \
@@ -219,6 +234,14 @@ dccmcp ui-control stop --instance-id <id> \
 Use `ui-control wait` for condition-based waits. Every subcommand accepts
 `--dcc-type`, `--json-file`, `--meta-json`, and `--timeout-secs` with the same
 meaning as `call`.
+
+DCCMCP does not implement desktop input itself. The CLI validates and routes
+the request, while the DCC-CUA host performs the scoped operation. The only
+valid sequence is `snapshot -> find -> one act -> snapshot -> stop`. A
+`policy_disabled`, `permission_denied`, `authentication`, `confirmation`,
+`desktop_unavailable`, or `user_interrupted` result stops the workflow. Do not
+silently switch to a generic Computer Use provider, retry after
+`Ctrl+Alt+Esc`, or change the target session.
 
 Do not transition or retry through another UI/input path after a policy,
 authorization, authentication, security, confirmation, `desktop_unavailable`,
@@ -501,8 +524,15 @@ GitHub release by default. Set `DCC_MCP_UPDATE_MANIFEST_URL` only to override
 that source for a studio mirror or pinned deployment.
 
 ```bash
-# Check whether the local CLI has an update.
+# Normal self-update: check, download, verify, and stage for the next launch.
+dccmcp update
+
+# Read-only check or explicit staging.
 dccmcp update check
+dccmcp update apply
+
+# Best-effort automatic update before this command.
+dccmcp --auto-update list
 
 # Check a server/instance version shown in the admin panel.
 dccmcp update check --binary dcc-mcp-server --current-version 0.18.16
@@ -511,8 +541,9 @@ dccmcp update check --binary dcc-mcp-server --current-version 0.18.16
 dccmcp update apply
 ```
 
-`dccmcp update apply` only stages the CLI binary. To update a running
-server binary, run the server-side command in that server environment:
+`dccmcp update` and `dccmcp update apply` only stage the CLI binary. To
+update a running server binary, run the server-side command in that server
+environment:
 
 ```bash
 dcc-mcp-server update check
