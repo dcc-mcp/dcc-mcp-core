@@ -332,10 +332,6 @@ def test_release_workflow_publishes_server_manifests_without_cli_assets() -> Non
     assert '"$MATRIX_ARTIFACT_NAME"' in manifest["run"]
     assert "cli_artifact" not in manifest["run"]
 
-    upload = next(
-        step
-        for step in build["steps"]
-        if step.get("uses") == "softprops/action-gh-release@v3"
-    )
+    upload = next(step for step in build["steps"] if step.get("uses") == "softprops/action-gh-release@v3")
     assert "${{ steps.update-manifest.outputs.manifest_path }}" in upload["with"]["files"]
     assert "dcc-mcp-cli" not in upload["with"]["files"]
