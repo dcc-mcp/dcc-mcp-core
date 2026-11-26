@@ -374,7 +374,7 @@ fn load_catalog_value(path: &Path) -> Result<Value, MarketplaceError> {
     if !path.exists() {
         return Ok(json!({
             "name": "dcc-mcp-local",
-            "schemaVersion": "2",
+            "schemaVersion": "1",
             "version": "1.0.0",
             "skills": []
         }));

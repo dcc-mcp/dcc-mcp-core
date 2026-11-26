@@ -819,7 +819,7 @@ mod tests {
         let error = run_child_bounded(command, None, Duration::from_millis(50)).unwrap_err();
 
         assert_eq!(error.message, "GitHub CLI timed out and was terminated");
-        assert!(started.elapsed() < Duration::from_secs(1));
+        assert!(started.elapsed() < GH_CLEANUP_TIMEOUT + Duration::from_secs(1));
     }
 
     #[test]

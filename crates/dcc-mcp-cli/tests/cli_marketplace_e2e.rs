@@ -26,7 +26,7 @@ fn marketplace_add_list_search_and_inspect_local_source() {
     "install": {
       "type": "git",
       "url": "https://github.com/dcc-mcp/dcc-asset-hunyuan-download",
-      "ref": "v0.1.0"
+      "ref": "0123456789012345678901234567890123456789"
     }
   }, {
     "name": "dcc-asset-polyhaven",
@@ -37,7 +37,7 @@ fn marketplace_add_list_search_and_inspect_local_source() {
     "install": {
       "type": "git",
       "url": "https://github.com/dcc-mcp/dcc-asset-polyhaven",
-      "ref": "v0.1.0"
+      "ref": "0123456789012345678901234567890123456789"
     }
   }]
 }
@@ -93,7 +93,10 @@ fn marketplace_add_list_search_and_inspect_local_source() {
         &envs,
     );
     assert_eq!(inspect["count"], 1);
-    assert_eq!(inspect["matches"][0]["entry"]["install"]["ref"], "v0.1.0");
+    assert_eq!(
+        inspect["matches"][0]["entry"]["install"]["ref"],
+        "0123456789012345678901234567890123456789"
+    );
 }
 
 #[test]
@@ -598,6 +601,7 @@ fn marketplace_install_git_package_promotes_single_nested_skill_dir() {
     std::fs::write(skill_dir.join("marker.txt"), "nested").unwrap();
     run_git(&repo, &["add", "."]);
     run_git(&repo, &["commit", "-m", "nested skill"]);
+    let commit = git_head(&repo);
 
     let catalog_path = tmp.path().join("marketplace.json");
     let source = catalog_path.to_string_lossy().to_string();
@@ -626,7 +630,8 @@ fn marketplace_install_git_package_promotes_single_nested_skill_dir() {
             "version": "0.1.0",
             "install": {
                 "type": "git",
-                "url": repo.to_string_lossy()
+                "url": repo.to_string_lossy(),
+                "ref": commit
             }
         }]
     });
@@ -930,7 +935,7 @@ fn marketplace_install_zip_rejects_sha256_mismatch_without_replacing_existing_pa
             "install": {
                 "type": "zip",
                 "url": zip_path.to_string_lossy(),
-                "sha256": "sha256:0000"
+                "sha256": format!("sha256:{}", "0".repeat(64))
             }
         }]
     });
@@ -1142,8 +1147,8 @@ fn marketplace_update_git_package_uses_latest_catalog_ref() {
     run_git(&repo, &["init"]);
     run_git(&repo, &["config", "user.name", "dcc-mcp-test"]);
     run_git(&repo, &["config", "user.email", "dcc-mcp-test@example.com"]);
-    commit_git_skill_version(&repo, "v0.1.0", "v1");
-    commit_git_skill_version(&repo, "v0.2.0", "v2");
+    let commit_v1 = commit_git_skill_version(&repo, "v0.1.0", "v1");
+    let commit_v2 = commit_git_skill_version(&repo, "v0.2.0", "v2");
 
     let catalog_path = tmp.path().join("marketplace.json");
     let source = catalog_path.to_string_lossy().to_string();
@@ -1174,7 +1179,7 @@ fn marketplace_update_git_package_uses_latest_catalog_ref() {
             "install": {
                 "type": "git",
                 "url": repo.to_string_lossy(),
-                "ref": "v0.1.0"
+                "ref": commit_v1
             }
         }]
     });
@@ -1213,7 +1218,7 @@ fn marketplace_update_git_package_uses_latest_catalog_ref() {
             "install": {
                 "type": "git",
                 "url": repo.to_string_lossy(),
-                "ref": "v0.2.0"
+                "ref": commit_v2
             }
         }]
     });
@@ -1229,7 +1234,7 @@ fn marketplace_update_git_package_uses_latest_catalog_ref() {
     );
     assert_eq!(outdated["count"], 1);
     assert_eq!(outdated["packages"][0]["latest_version"], "0.2.0");
-    assert_eq!(outdated["packages"][0]["install_ref"], "v0.2.0");
+    assert_eq!(outdated["packages"][0]["install_ref"], commit_v2);
 
     let updated = run_json_with_env(
         &["marketplace", "update", "git-skill", "--dcc", "maya"],
@@ -1243,7 +1248,7 @@ fn marketplace_update_git_package_uses_latest_catalog_ref() {
 
     let listed = run_json_with_env(&["marketplace", "list-installed", "--dcc", "maya"], &envs);
     assert_eq!(listed["packages"][0]["version"], "0.2.0");
-    assert_eq!(listed["packages"][0]["install_ref"], "v0.2.0");
+    assert_eq!(listed["packages"][0]["install_ref"], commit_v2);
 }
 
 #[test]

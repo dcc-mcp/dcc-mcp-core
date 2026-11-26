@@ -6,6 +6,16 @@ use super::super::registry_format::{RegistryParseError, parse_registry_entries};
 use super::{ServiceEntry, TransportError, TransportResult};
 
 pub(super) fn read_snapshot(path: &Path) -> TransportResult<Vec<ServiceEntry>> {
+    if let Some(parent) = path.parent()
+        && let Ok(metadata) = fs::metadata(parent)
+        && !metadata.is_dir()
+    {
+        return Err(std::io::Error::new(
+            ErrorKind::NotADirectory,
+            "registry parent is not a directory",
+        )
+        .into());
+    }
     let content = match fs::read_to_string(path) {
         Ok(content) => content,
         Err(error) if error.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
