@@ -12,6 +12,9 @@ from zipfile import ZIP_DEFLATED
 from zipfile import ZipFile
 from zipfile import ZipInfo
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
+NOTICE_FILES = ("LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.txt", "THIRD_PARTY_LICENSES.txt")
+
 
 def _github_error(message: str) -> None:
     print(f"::error::{message}", file=sys.stderr)
@@ -40,6 +43,16 @@ def _write_binary(zf: ZipFile, source: Path, archive_name: str) -> None:
         shutil.copyfileobj(src, dst)
 
 
+def _write_notice_files(zf: ZipFile) -> None:
+    for name in NOTICE_FILES:
+        source = REPO_ROOT / name
+        if name == "THIRD_PARTY_LICENSES.txt" and not source.is_file():
+            continue
+        if not source.is_file():
+            raise FileNotFoundError(f"release notice not found: {source}")
+        _write_binary(zf, source, name)
+
+
 def build_bundle(
     *,
     version: str,
@@ -56,16 +69,13 @@ def build_bundle(
     out_dir.mkdir(parents=True, exist_ok=True)
     bundle_path = out_dir / f"dcc-mcp-server-{version}-{platform}.zip"
 
-    if platform.startswith("windows-") and capture_helper is None:
-        raise ValueError("Windows server bundles require --capture-helper")
-    if platform.startswith("windows-") and ui_control_host is None:
-        raise ValueError("Windows server bundles require --ui-control-host")
     if capture_helper is not None and capture_helper.suffix.lower() != ".exe":
         raise ValueError("capture helper must be a Windows .exe")
     if ui_control_host is not None and ui_control_host.suffix.lower() != ".exe":
         raise ValueError("UI Control host must be a Windows .exe")
 
     with ZipFile(bundle_path, "w", ZIP_DEFLATED) as zf:
+        _write_notice_files(zf)
         _write_binary(zf, server_bin, _archive_binary_name("server", server_bin))
         if capture_helper is not None:
             _write_binary(zf, capture_helper, "dcc-mcp-capture-helper.exe")
