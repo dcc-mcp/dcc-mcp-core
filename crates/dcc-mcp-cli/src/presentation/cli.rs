@@ -91,24 +91,14 @@ pub struct Args {
     /// Disable the default local gateway auto-start before agent control commands.
     #[arg(long, env = "DCC_MCP_CLI_NO_AUTO_GATEWAY", default_value = "false")]
     no_auto_gateway: bool,
-    /// Skip automatic staged updates, marketplace checks and CLI update-cache refresh.
-    /// Explicit update commands still perform the operation requested by the caller.
-    #[arg(long, global = true, visible_alias = "quiet")]
-    no_update_maintenance: bool,
-    /// Include maintenance metadata on call/list/search/describe (quiet by default).
-    #[arg(long, global = true, conflicts_with = "no_update_maintenance")]
-    show_maintenance: bool,
-    /// Require local agent-control calls to pass through the gateway for audit and stats.
+    /// Check and stage a verified CLI update before running this command.
     #[arg(
         long,
         global = true,
-        env = "DCC_MCP_CLI_REQUIRE_GATEWAY",
+        env = "DCC_MCP_CLI_AUTO_UPDATE",
         default_value = "false"
     )]
-    require_gateway: bool,
-    /// Task-scoped stats identifier written to _meta.agent_context.session_id on calls.
-    #[arg(long, global = true, env = "DCC_MCP_AGENT_SESSION_ID")]
-    agent_session_id: Option<String>,
+    auto_update: bool,
     /// Explicit gateway binary for auto-start. Defaults to discovery/cache/current CLI fallback.
     #[arg(long, env = "DCC_MCP_GATEWAY_BIN")]
     auto_gateway_bin: Option<PathBuf>,
@@ -384,7 +374,7 @@ enum Command {
     /// Check for and apply gateway-controlled binary updates.
     Update {
         #[command(subcommand)]
-        action: UpdateAction,
+        action: Option<UpdateAction>,
     },
     /// Gateway lifecycle management.
     Gateway {
@@ -823,10 +813,7 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
         base_url,
         gateway,
         no_auto_gateway,
-        no_update_maintenance,
-        show_maintenance,
-        require_gateway,
-        agent_session_id,
+        auto_update,
         auto_gateway_bin,
         auto_gateway_timeout_secs,
         output,
@@ -933,6 +920,28 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
             auto_gateway_timeout_secs,
         )
         .await?;
+    }
+
+    if auto_update && !matches!(&command, Command::Update { .. }) {
+        let service = crate::application::update::UpdateService::new(
+            &base_url,
+            runtime_cli_name(),
+            env!("CARGO_PKG_VERSION"),
+        );
+        match service.auto_update().await {
+            Ok(update) => match update.get("status").and_then(Value::as_str) {
+                Some("staged") => eprintln!(
+                    "info: a verified {} update was staged for the next launch",
+                    runtime_cli_name()
+                ),
+                Some("pending") => eprintln!(
+                    "info: a verified {} update is already staged for the next launch",
+                    runtime_cli_name()
+                ),
+                _ => {}
+            },
+            Err(error) => eprintln!("warning: automatic CLI update skipped: {error}"),
+        }
     }
 
     let mut failed = false;
@@ -1631,7 +1640,7 @@ async fn run_with_args(args: Args) -> anyhow::Result<()> {
             }
             result.value
         }
-        Command::Update { action } => match action {
+        Command::Update { action } => match action.unwrap_or(UpdateAction::Apply) {
             UpdateAction::Check {
                 binary,
                 current_version,

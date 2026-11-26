@@ -451,6 +451,22 @@ fn call_batch_compatibility_alias_still_parses() {
 }
 
 #[test]
+fn update_without_subcommand_defaults_to_apply() {
+    let args = Args::try_parse_from(["dccmcp", "update"]).expect("parse default update");
+    let Command::Update { action } = args.command else {
+        panic!("expected update command");
+    };
+    assert!(action.is_none());
+}
+
+#[test]
+fn auto_update_flag_is_global() {
+    let args = Args::try_parse_from(["dccmcp", "--auto-update", "doctor"])
+        .expect("parse global auto-update flag");
+    assert!(args.auto_update);
+}
+
+#[test]
 fn ui_control_contract_parses_a_stable_snapshot_command() {
     let args = Args::try_parse_from([
         "dcc-mcp-cli",

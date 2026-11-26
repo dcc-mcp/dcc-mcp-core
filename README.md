@@ -144,17 +144,17 @@ Skills remain under `python/dcc_mcp_core/skills/`.
 Keep an official build current through the release manifest:
 
 ~~~bash
+dccmcp update
 dccmcp update check
 dccmcp update apply
+dccmcp --auto-update list
 ~~~
 
-Official release builds refresh a cached update status in the background every
-24 hours without blocking the foreground command. Available updates appear as
-structured `cli_update` data. `dcc-mcp-cli update` checks, downloads, and stages
-the latest CLI for the next launch in one step, with no separate confirmation
-flag; `update apply` and `--yes` remain accepted for backward compatibility. It
-does not update or restart a running `dcc-mcp-server`; update that server in its
-own environment.
+`dccmcp update` checks, downloads, verifies, and stages the latest CLI for the
+next launch. Set `DCC_MCP_CLI_AUTO_UPDATE=true` to enable the same best-effort
+behavior before ordinary commands. Update failures are warnings in automatic
+mode. These commands do not update a running `dcc-mcp-server`; update that
+server in its own environment.
 
 Then discover a live capability before calling it:
 

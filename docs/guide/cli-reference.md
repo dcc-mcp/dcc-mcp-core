@@ -328,9 +328,11 @@ dccmcp reload-skills --dcc-type maya
 dccmcp marketplace update --all
 dccmcp marketplace pack path/to/skill --out dist/
 dccmcp marketplace publish path/to/skill --catalog marketplace.json --install-url https://example.com/skill.zip --sha256 sha256:<digest>
+dccmcp update
 dccmcp update check
 dccmcp update check --binary dcc-mcp-server --current-version 0.18.16
 dccmcp update apply
+dccmcp --auto-update list
 dccmcp gateway daemon start
 dccmcp gateway daemon restart
 dccmcp gateway daemon stop
@@ -422,10 +424,10 @@ launching operation.
 | `marketplace add-repo <repo> --commit <40-hex-oid> [--dcc <dcc>]` | direct Git fetch + local filesystem | Install directly from an immutable repository commit. `--list` is read-only and may omit `--commit`; installation may not. |
 | `marketplace pack <path> [--out <path>]` | local filesystem + zip | Build a release zip for a marketplace package and print its SHA-256 digest. |
 | `marketplace publish <path> --catalog <file> --install-url <url>` | local marketplace catalog file | Build or update a `marketplace.json` entry from `SKILL.md` metadata and CLI overrides. |
-| `update check [--binary <name>] [--current-version <version>]` | `GET /v1/update/check` | Check the gateway update manifest. Defaults to the CLI binary/version; pass `--binary dcc-mcp-server` plus a server version when checking an instance shown in Admin. |
-| `update` | `GET /v1/update/check` + download URL | Check, download, and stage the CLI binary for the next CLI launch in one step; no confirmation flag is required. `update apply` and `--yes` remain accepted for backward compatibility. It does not update or restart running server instances; run `dcc-mcp-server update apply` in the exact server environment. |
-| `components status dcc-cua` | CLI sibling + `dcc-cua manifest` | Read-only check of the independently released CUA runtime installed beside this CLI. |
-| `components ensure dcc-cua [--version <version>] --yes` | official per-target install manifest + archive | Download only from `dcc-mcp/dcc-cua`, require the manifest SHA-256, safely extract and validate the candidate runtime contract, then install it beside this CLI. Explicit `--yes` is mandatory. |
+| `update` | `GET /v1/update/check` + download URL + SHA-256 verification | Check, download, verify, and stage the CLI binary for the next CLI launch. An existing staged update is reused. |
+| `update check [--binary <name>] [--current-version <version>]` | `GET /v1/update/check` | Read-only check of the gateway update manifest. Defaults to the CLI binary/version; pass `--binary dcc-mcp-server` plus a server version when checking an instance shown in Admin. |
+| `update apply` | `GET /v1/update/check` + download URL | Explicitly download and stage the CLI binary for the next CLI launch. It does not update running server instances; use Admin's instance update button or `dcc-mcp-server update apply` in the server environment. |
+| `--auto-update <command>` | same as `update` | Best-effort check and staging before an ordinary command. Enable with `DCC_MCP_CLI_AUTO_UPDATE=true` or the flag. Failures are warnings and do not change the current command result. |
 | `gateway register <url> --name <profile>` | local profile config | Persist a named remote gateway profile. |
 | `gateway list` | local profile config | Show configured remote profiles and the active local/remote selection. |
 | `gateway set <profile\|local>` | local profile config | Select the active gateway profile. |
