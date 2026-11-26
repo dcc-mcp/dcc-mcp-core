@@ -95,7 +95,7 @@ components are shipped by Core.
 
 ```mermaid
 flowchart LR
-    AGENT["Agent / dcc-mcp-cli"] --> GW["Gateway or direct MCP route"]
+    AGENT["Agent / dccmcp"] --> GW["Gateway or direct MCP route"]
     GW --> ADAPTER["DCC adapter app_ui proxy"]
     ADAPTER -->|"versioned named pipe"| HOST["dcc-mcp-ui-control-host.exe"]
     HOST --> POLICY["Scope, approval, stop latch, input owner"]

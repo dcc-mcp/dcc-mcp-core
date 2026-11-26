@@ -149,9 +149,11 @@ dccmcp reload-skills --dcc-type maya
 dccmcp marketplace update --all
 dccmcp marketplace pack path/to/skill --out dist/
 dccmcp marketplace publish path/to/skill --catalog marketplace.json --install-url https://example.com/skill.zip --sha256 sha256:<digest>
+dccmcp update
 dccmcp update check
 dccmcp update check --binary dcc-mcp-server --current-version 0.18.16
 dccmcp update apply
+dccmcp --auto-update list
 dccmcp gateway daemon start
 dccmcp gateway daemon restart
 dccmcp gateway daemon stop
@@ -212,8 +214,10 @@ dccmcp mcp prompts get --url http://127.0.0.1:9765/mcp --name review_scene --arg
 | `marketplace update [<name>] [--all] [--dcc <dcc>]` | marketplace catalog + git/filesystem + local installed state | Upgrade installed packages to the latest catalog version. For `git` installs, fetches the new ref in place; for other types, re-installs from the catalog. Use `--all` to update every outdated package. |
 | `marketplace pack <path> [--out <path>]` | local filesystem + zip | Build a release zip for a marketplace package and print its SHA-256 digest. |
 | `marketplace publish <path> --catalog <file> --install-url <url>` | local marketplace catalog file | Build or update a `marketplace.json` entry from `SKILL.md` metadata and CLI overrides. |
-| `update check [--binary <name>] [--current-version <version>]` | `GET /v1/update/check` | Check the gateway update manifest. Defaults to the CLI binary/version; pass `--binary dcc-mcp-server` plus a server version when checking an instance shown in Admin. |
-| `update apply` | `GET /v1/update/check` + download URL | Download and stage the CLI binary for the next CLI launch. It does not update running server instances; use Admin's instance update button or `dcc-mcp-server update apply` in the server environment. |
+| `update` | `GET /v1/update/check` + download URL + SHA-256 verification | Check, download, verify, and stage the CLI binary for the next CLI launch. An existing staged update is reused. |
+| `update check [--binary <name>] [--current-version <version>]` | `GET /v1/update/check` | Read-only check of the gateway update manifest. Defaults to the CLI binary/version; pass `--binary dcc-mcp-server` plus a server version when checking an instance shown in Admin. |
+| `update apply` | `GET /v1/update/check` + download URL | Explicitly download and stage the CLI binary for the next CLI launch. It does not update running server instances; use Admin's instance update button or `dcc-mcp-server update apply` in the server environment. |
+| `--auto-update <command>` | same as `update` | Best-effort check and staging before an ordinary command. Enable with `DCC_MCP_CLI_AUTO_UPDATE=true` or the flag. Failures are warnings and do not change the current command result. |
 | `gateway register <url> --name <profile>` | local profile config | Persist a named remote gateway profile. |
 | `gateway list` | local profile config | Show configured remote profiles and the active local/remote selection. |
 | `gateway set <profile\|local>` | local profile config | Select the active gateway profile. |
