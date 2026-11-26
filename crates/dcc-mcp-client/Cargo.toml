@@ -15,5 +15,5 @@ serde_json.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
-axum = { version = "0.8", features = ["http1", "tokio"] }
+axum = { workspace = true, features = ["http1", "tokio"] }
 tokio.workspace = true

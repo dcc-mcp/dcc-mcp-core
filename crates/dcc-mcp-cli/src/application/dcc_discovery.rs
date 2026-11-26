@@ -130,10 +130,10 @@ pub fn discover_dcc_installations(
 
     for spec in specs {
         let env_key = format!("DCC_MCP_{}_PATH", spec.dcc_type.to_ascii_uppercase());
-        if let Ok(path) = env::var(&env_key) {
-            if let Some(installation) = installation_from_path(spec, Path::new(&path), "env") {
-                found.insert(dedupe_key(&installation), installation);
-            }
+        if let Ok(path) = env::var(&env_key)
+            && let Some(installation) = installation_from_path(spec, Path::new(&path), "env")
+        {
+            found.insert(dedupe_key(&installation), installation);
         }
 
         for path_entry in path_entries() {

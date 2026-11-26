@@ -22,6 +22,7 @@ pub(crate) fn build_initialize_result(
     state: &ServerState,
     session_id: &str,
     params: &InitializeRequestParams,
+    skills_extension_enabled: bool,
 ) -> InitializeResult {
     let negotiated = negotiate_protocol_version(Some(params.protocol_version.as_str()));
 
@@ -44,7 +45,11 @@ pub(crate) fn build_initialize_result(
         .sessions
         .set_supports_roots(session_id, client_supports_roots);
 
-    let mut result = InitializeResult::new(server_capabilities(state, client_wants_delta));
+    let mut result = InitializeResult::new(server_capabilities(
+        state,
+        client_wants_delta,
+        skills_extension_enabled,
+    ));
     result.protocol_version = parse_protocol_version(negotiated);
     result.server_info =
         rmcp::model::Implementation::new(state.server_name.clone(), state.server_version.clone());
@@ -60,6 +65,7 @@ pub(crate) fn build_initialize_result_from_value(
     state: &ServerState,
     session_id: &str,
     params: Option<&Value>,
+    skills_extension_enabled: bool,
 ) -> InitializeResult {
     let p = params.cloned().unwrap_or(json!({}));
     let capabilities: ClientCapabilities =
@@ -74,12 +80,13 @@ pub(crate) fn build_initialize_result_from_value(
     if let Some(version) = p.get("protocolVersion").and_then(|v| v.as_str()) {
         init_params = init_params.with_protocol_version(parse_protocol_version(version));
     }
-    build_initialize_result(state, session_id, &init_params)
+    build_initialize_result(state, session_id, &init_params, skills_extension_enabled)
 }
 
 pub(crate) fn server_capabilities(
     state: &ServerState,
     client_wants_delta: bool,
+    skills_extension_enabled: bool,
 ) -> ServerCapabilities {
     let mut caps = match (
         state.features.enable_resources,
@@ -121,7 +128,7 @@ pub(crate) fn server_capabilities(
         experimental.insert(DELTA_TOOLS_UPDATE_CAP.to_string(), enabled);
         caps.experimental = Some(experimental);
     }
-    if state.features.enable_resources && state.features.enable_skills_extension {
+    if skills_extension_enabled {
         let mut extensions = BTreeMap::new();
         extensions.insert(
             "io.modelcontextprotocol/skills".to_string(),

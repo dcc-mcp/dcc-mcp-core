@@ -104,6 +104,7 @@ impl ServerHandler for DccMcpHandler {
         let mut info = ServerConfig::new(crate::rmcp_initialize::server_capabilities(
             &self.state,
             false,
+            self.registry_context.skill_provider.is_some(),
         ));
         info.server_info = Implementation::new(
             self.state.server_name.clone(),
@@ -140,7 +141,12 @@ impl ServerHandler for DccMcpHandler {
             }
             let sid = self.state.sessions.create();
             let _ = self.state.sessions.mark_initialized(&sid);
-            Ok(build_initialize_result(&self.state, &sid, &request))
+            Ok(build_initialize_result(
+                &self.state,
+                &sid,
+                &request,
+                self.registry_context.skill_provider.is_some(),
+            ))
         }
     }
 
@@ -153,8 +159,12 @@ impl ServerHandler for DccMcpHandler {
             if request.method == "initialize" {
                 let sid = self.state.sessions.create();
                 let _ = self.state.sessions.mark_initialized(&sid);
-                let result =
-                    build_initialize_result_from_value(&self.state, &sid, request.params.as_ref());
+                let result = build_initialize_result_from_value(
+                    &self.state,
+                    &sid,
+                    request.params.as_ref(),
+                    self.registry_context.skill_provider.is_some(),
+                );
                 let value = serde_json::to_value(result)
                     .map_err(|e| McpError::internal_error(e.to_string(), None))?;
                 return Ok(CustomResult(value));

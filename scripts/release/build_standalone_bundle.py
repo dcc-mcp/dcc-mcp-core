@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build a standalone dcc-mcp-cli release zip."""
+"""Build a standalone binary release zip."""
 
 from __future__ import annotations
 
@@ -8,9 +8,13 @@ import os
 from pathlib import Path
 import shutil
 import sys
+from typing import Optional
 from zipfile import ZIP_DEFLATED
 from zipfile import ZipFile
 from zipfile import ZipInfo
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+NOTICE_FILES = ("LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.txt", "THIRD_PARTY_LICENSES.txt")
 
 
 def _github_error(message: str) -> None:
@@ -35,47 +39,73 @@ def _write_binary(zf: ZipFile, source: Path, archive_name: str) -> None:
         shutil.copyfileobj(src, dst)
 
 
+def _write_notice_files(zf: ZipFile) -> None:
+    for name in NOTICE_FILES:
+        source = REPO_ROOT / name
+        if name == "THIRD_PARTY_LICENSES.txt" and not source.is_file():
+            continue
+        if not source.is_file():
+            raise FileNotFoundError(f"release notice not found: {source}")
+        _write_binary(zf, source, name)
+
+
 def build_bundle(
     *,
     version: str,
     platform: str,
-    cli_bin: Path,
+    binary_name: Optional[str] = None,
+    binary_path: Optional[Path] = None,
     out_dir: Path,
-    name_prefix: str = "dcc-mcp-cli",
+    cli_bin: Optional[Path] = None,
+    name_prefix: Optional[str] = None,
 ) -> Path:
-    """Create a deployable CLI zip and return its path."""
+    """Create a deployable standalone binary zip and return its path.
+
+    ``binary_name``/``binary_path`` remain supported for release workflows and
+    older callers. ``name_prefix``/``cli_bin`` are the clearer CLI-oriented
+    aliases used by newer integrations.
+    """
+    binary_name = name_prefix or binary_name or "dcc-mcp-cli"
+    binary_path = cli_bin or binary_path
+    if binary_path is None:
+        raise ValueError("binary_path or cli_bin is required")
     version = _validate_filename_part(version, label="version")
     platform = _validate_filename_part(platform, label="platform")
-    name_prefix = _validate_filename_part(name_prefix, label="name_prefix")
+    binary_name = _validate_filename_part(binary_name, label="binary name")
 
     out_dir.mkdir(parents=True, exist_ok=True)
-    bundle_path = out_dir / f"{name_prefix}-{version}-{platform}.zip"
-
-    suffix = ".exe" if cli_bin.suffix.lower() == ".exe" else ""
-    archive_name = f"{name_prefix}{suffix}"
+    bundle_path = out_dir / f"{binary_name}-{version}-{platform}.zip"
+    suffix = ".exe" if binary_path.suffix.lower() == ".exe" else ""
 
     with ZipFile(bundle_path, "w", ZIP_DEFLATED) as zf:
-        _write_binary(zf, cli_bin, archive_name)
+        _write_notice_files(zf)
+        _write_binary(zf, binary_path, f"{binary_name}{suffix}")
 
     return bundle_path
 
 
 def main() -> int:
-    """Run the CLI bundle builder."""
+    """Run the standalone bundle builder."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--version", required=True)
     parser.add_argument("--platform", required=True)
-    parser.add_argument("--cli-bin", type=Path, required=True)
-    parser.add_argument("--name-prefix", default="dcc-mcp-cli")
+    parser.add_argument("--binary-name")
+    parser.add_argument("--binary-path", type=Path)
+    parser.add_argument("--name-prefix")
+    parser.add_argument("--cli-bin", type=Path)
     parser.add_argument("--out-dir", type=Path, default=Path())
     args = parser.parse_args()
 
     try:
+        if args.binary_path is None and args.cli_bin is None:
+            parser.error("one of --binary-path or --cli-bin is required")
         bundle_path = build_bundle(
             version=args.version,
             platform=args.platform,
-            cli_bin=args.cli_bin,
+            binary_name=args.binary_name,
+            binary_path=args.binary_path,
             out_dir=args.out_dir,
+            cli_bin=args.cli_bin,
             name_prefix=args.name_prefix,
         )
     except Exception as exc:
@@ -86,7 +116,7 @@ def main() -> int:
     github_output = os.environ.get("GITHUB_OUTPUT")
     if github_output:
         with Path(github_output).open("a", encoding="utf-8") as fh:
-            fh.write(f"cli_bundle_path={bundle_output}\n")
+            fh.write(f"bundle_path={bundle_output}\n")
     print(bundle_output)
     return 0
 

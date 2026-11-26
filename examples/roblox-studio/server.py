@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import functools
 import json
 import sys
 from typing import Any
@@ -142,6 +143,16 @@ def _studio_snapshots(bridge: DccBridge) -> list[dict[str, Any]]:
     return snapshots
 
 
+async def _call_in_thread(function, *args, **kwargs):
+    """Run bridge I/O on a worker on Python 3.7 and newer."""
+    to_thread = getattr(asyncio, "to_thread", None)
+    if to_thread is not None:
+        return await to_thread(function, *args, **kwargs)
+    loop = asyncio.get_event_loop()
+    call = functools.partial(function, *args, **kwargs)
+    return await loop.run_in_executor(None, call)
+
+
 async def handle_mcp_message(bridge: DccBridge, message: dict[str, Any]) -> None:
     request_id = message.get("id")
     if request_id is None:
@@ -177,7 +188,7 @@ async def handle_mcp_message(bridge: DccBridge, message: dict[str, Any]) -> None
             result = {"studios": _studio_snapshots(bridge)}
         else:
             target_instance_id = _take_studio_target(arguments)
-            result = await asyncio.to_thread(
+            result = await _call_in_thread(
                 bridge.call,
                 tool["method"],
                 target_instance_id=target_instance_id,

@@ -40,6 +40,12 @@ dependencies = [
     "dcc-mcp-server>=0.18.17,<1.0.0",
 ]
 
+[project.scripts]
+# Keep the package-level launchers available to Rez, pip, and Python 3.7 hosts.
+dcc-mcp-core = "dcc_mcp_core.__main__:main"
+dcc-mcp-install-lifecycle = "dcc_mcp_core.install_lifecycle_cli:main"
+dcc-mcp-ui-control-server = "dcc_mcp_core.ui_control_server:cli"
+
 [project.optional-dependencies]
 test = [
     "jsonschema>=4.18; python_version>='3.8'",
@@ -65,6 +71,7 @@ dev = [
     "mypy>=1.0; python_version>='3.8'",
     "maturin>=1.0",
 ]
+bridge = ["websockets>=11,<18"]
 # Optional ONNX-backed semantic embeddings for VectorSkillIndex
 # (issues #1393, #1395). Default install stays zero-dep; install this extra
 # when ``HashedEmbedder`` (the deterministic hashing-trick default) is not
@@ -192,6 +199,7 @@ known-first-party = ["dcc_mcp_core"]
 "scripts/check_py37_syntax.py" = ["UP032"]  # intentional: f-strings are syntax errors on 3.7; verified by py37-syntax-check CI job. Enforced in CI via check-py37-syntax job.
 "scripts/release/generate_third_party_licenses.py" = ["UP006"]
 "scripts/release/extract_third_party_licenses.py" = ["UP006"]
+"scripts/release/build_standalone_bundle.py" = ["UP045"]
 "scripts/ci/check_release_workflow_digest.py" = ["UP006"]
 "scripts/ci/release_workflow_integrity/check_release_workflow_digest.py" = ["UP006"]
 "scripts/ci/release_workflow_integrity/test_release_workflow_integrity.py" = ["D103", "D202"]
