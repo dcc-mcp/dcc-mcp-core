@@ -6,7 +6,7 @@ use super::InstallError;
 
 const INSTALL_DISABLED_ENV: &str = "DCC_MCP_INSTALL_DISABLED";
 const INSTALL_DISABLED_PROMPT_ENV: &str = "DCC_MCP_INSTALL_DISABLED_PROMPT";
-const DEFAULT_INSTALL_DISABLED_PROMPT: &str = "Automatic DCC adapter installation is disabled in this environment. Ask your Pipeline TD or studio deployment owner to deploy {adapter} for {dcc_type}, then start the DCC plugin and rerun `dcc-mcp-cli list`.";
+const DEFAULT_INSTALL_DISABLED_PROMPT: &str = "Automatic DCC adapter installation is disabled in this environment. Ask your Pipeline TD or studio deployment owner to deploy {adapter} for {dcc_type}, then start the DCC plugin and rerun `dccmcp list`.";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct AutoInstallPolicy {

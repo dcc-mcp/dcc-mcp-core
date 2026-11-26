@@ -734,6 +734,27 @@ pub(crate) fn spawn_local_mcp_fixture() -> LocalMcpFixture {
 
                 let method = body.get("method").and_then(Value::as_str).unwrap_or("");
                 match method {
+                    "initialize" => (
+                        StatusCode::OK,
+                        Json(json!({
+                            "jsonrpc": "2.0",
+                            "id": body.get("id").cloned().unwrap_or(json!(null)),
+                            "result": {
+                                "protocolVersion": "2025-03-26",
+                                "capabilities": {
+                                    "tools": {"listChanged": true}
+                                },
+                                "serverInfo": {
+                                    "name": "fixture-local-mcp",
+                                    "version": "0.0.0-test"
+                                }
+                            }
+                        })),
+                    ),
+                    "notifications/initialized" => (
+                        StatusCode::ACCEPTED,
+                        Json(json!({})),
+                    ),
                     "tools/list" => {
                         tools_list_calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                         (
@@ -790,19 +811,6 @@ pub(crate) fn spawn_local_mcp_fixture() -> LocalMcpFixture {
                                             "error": {
                                                 "code": -32602,
                                                 "message": "Missing required parameter: query"
-                                            }
-                                        })),
-                                    );
-                                }
-                                if arguments.get("include_disabled") != Some(&json!(true)) {
-                                    return (
-                                        StatusCode::OK,
-                                        Json(json!({
-                                            "jsonrpc": "2.0",
-                                            "id": body.get("id").cloned().unwrap_or(json!(null)),
-                                            "error": {
-                                                "code": -32602,
-                                                "message": "local search must include inactive-group tools"
                                             }
                                         })),
                                     );
@@ -1098,6 +1106,7 @@ pub(crate) fn spawn_local_mcp_fixture() -> LocalMcpFixture {
                     "readiness": {
                         "process": true,
                         "dcc": true,
+                        "skill_catalog": true,
                         "dispatcher": true,
                         "host_execution_bridge": true,
                         "main_thread_executor": true

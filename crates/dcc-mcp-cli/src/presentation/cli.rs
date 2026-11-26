@@ -259,6 +259,7 @@ fn command_shows_maintenance(command: &Command, requested: bool) -> bool {
             Command::Call { .. }
                 | Command::CallBatch { .. }
                 | Command::List
+                | Command::DccTypes { .. }
                 | Command::Search { .. }
                 | Command::Describe { .. }
                 | Command::Capabilities { .. }

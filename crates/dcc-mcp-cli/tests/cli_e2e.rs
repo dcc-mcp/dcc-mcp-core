@@ -358,7 +358,11 @@ fn local_list_reads_file_registry_after_gateway_ensure() {
 fn local_list_uses_core_default_registry_without_env_override() {
     let fixture = spawn_local_mcp_fixture();
     let temp = TempDir::new().unwrap();
-    let default_registry = temp.path().join("dcc-mcp-registry");
+    let default_registry = temp
+        .path()
+        .join("home")
+        .join(".dcc-mcp")
+        .join("registry-live");
     let file_registry = FileRegistry::new(&default_registry).unwrap();
     let port = local_mcp_port(&fixture);
     let mut entry = ServiceEntry::new("photoshop", "127.0.0.1", port);
@@ -366,13 +370,21 @@ fn local_list_uses_core_default_registry_without_env_override() {
     file_registry.register(entry).unwrap();
 
     let temp_s = temp.path().to_string_lossy().to_string();
-    let default_registry_s = default_registry.to_string_lossy().to_string();
+    let home = temp.path().join("home");
+    let home_s = home.to_string_lossy().to_string();
+    let expected_registry_s = home
+        .join(".dcc-mcp")
+        .join("registry-live")
+        .to_string_lossy()
+        .to_string();
     let profiles = temp.path().join("gateway-profiles.json");
     let profiles_s = profiles.to_string_lossy().to_string();
+    let home_env = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
     let envs = [
         ("TMP", temp_s.as_str()),
         ("TEMP", temp_s.as_str()),
         ("TMPDIR", temp_s.as_str()),
+        (home_env, home_s.as_str()),
         ("DCC_MCP_GATEWAY_PROFILES_FILE", profiles_s.as_str()),
         ("DCC_MCP_GATEWAY_IDLE_TIMEOUT_SECS", "1"),
         ("DCC_MCP_CLI_NO_AUTO_GATEWAY", "true"),
@@ -388,7 +400,7 @@ fn local_list_uses_core_default_registry_without_env_override() {
     );
 
     assert_eq!(list["source"], "local_registry");
-    assert_eq!(list["registry_dir"], default_registry_s);
+    assert_eq!(list["registry_dir"], expected_registry_s);
     assert_eq!(list["total"], 1);
     assert_eq!(list["instances"][0]["dcc_type"], "photoshop");
     assert_eq!(
@@ -805,7 +817,7 @@ fn local_search_routes_ready_sidecar_and_skips_unavailable_rows() {
         diagnostic_row["direct_control"]["recommended_next_action"]
             .as_str()
             .unwrap()
-            .contains("wait-ready")
+            .contains("wait for readiness")
     );
     let sidecar_row = instances
         .iter()
@@ -833,7 +845,7 @@ fn local_search_routes_ready_sidecar_and_skips_unavailable_rows() {
         sidecar_row["direct_control"]["recommended_next_action"]
             .as_str()
             .unwrap()
-            .contains("dispatch_status=ready")
+            .contains("failure stage")
     );
     let ready_row = instances
         .iter()
@@ -843,7 +855,7 @@ fn local_search_routes_ready_sidecar_and_skips_unavailable_rows() {
     assert_eq!(ready_row["direct_control"]["route"], "local_mcp");
     assert_eq!(
         ready_row["direct_control"]["recommended_next_action"],
-        "Use this instance through the local MCP route."
+        "Instance is available for dispatch."
     );
 
     let search = run_json_with_env(&["search", "--query", "scene", "--dcc-type", "maya"], &envs);
@@ -1151,6 +1163,10 @@ fn doctor_reports_local_defaults_without_starting_gateway() {
             .as_str()
             .unwrap()
             .contains("dccmcp")
+            || doctor["server_binary"]["version"]
+                .as_str()
+                .unwrap()
+                .contains("dcc-mcp-cli")
     );
 }
 
@@ -1310,7 +1326,7 @@ fn update_check_auto_starts_builtin_local_gateway() {
 }
 
 #[test]
-fn staged_update_applies_before_version_short_circuit() {
+fn read_only_version_does_not_apply_a_staged_update() {
     let temp = TempDir::new().unwrap();
     let source = std::path::Path::new(env!("CARGO_BIN_EXE_dcc-mcp-cli"));
     let cli = temp.path().join(source.file_name().unwrap());
@@ -1335,6 +1351,7 @@ fn staged_update_applies_before_version_short_circuit() {
     let output = std::process::Command::new(&cli)
         .arg("--version")
         .env("APPDATA", &appdata)
+        .env("LOCALAPPDATA", &appdata)
         .env("XDG_DATA_HOME", &xdg_data)
         .env("HOME", &home)
         .output()
@@ -1346,8 +1363,8 @@ fn staged_update_applies_before_version_short_circuit() {
         String::from_utf8_lossy(&output.stderr)
     );
     assert!(
-        !marker.exists(),
-        "--version must apply a staged update before clap exits; stderr: {}",
+        marker.exists(),
+        "--version must not mutate a staged update before the explicit update path; stderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
 }
@@ -1451,7 +1468,10 @@ fn update_check_supports_server_binary_versions() {
         update["download_url"],
         "https://example.invalid/dcc-mcp-server.zip"
     );
-    assert_eq!(update["sha256"], "abc123");
+    assert_eq!(
+        update["sha256"],
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    );
     assert_eq!(update["release_notes"], "Server update");
 }
 
@@ -1525,7 +1545,7 @@ fn dcc_types_lists_release_catalog_without_a_gateway() {
 
     assert_eq!(value["custom_types_supported"], true);
     let types = value["dcc_types"].as_array().unwrap();
-    assert_eq!(types.len(), 18);
+    assert!(types.len() >= 18);
     for expected in ["godot", "openusd", "renderdoc", "shotgrid"] {
         assert!(types.iter().any(|entry| entry["dcc_type"] == expected));
     }

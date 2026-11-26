@@ -46,13 +46,14 @@ fn pip_execution_sentinel(root: &TempDir) -> std::path::PathBuf {
 }
 
 fn execute_catalog(root: &TempDir, sentinel: &std::path::Path) -> std::process::Output {
+    let python = std::env::var("PYTHON").unwrap_or_else(|_| "python".to_string());
     cli_command()
         .args([
             "install",
             "--dcc-type",
             "godot",
             "--python",
-            "python",
+            python.as_str(),
             "--execute",
             "--json",
             "--catalog",
@@ -133,7 +134,13 @@ fn invalid_explicit_catalogs_fail_before_the_real_cli_launches_pip() {
     )
     .unwrap();
     let output = execute_catalog(&root, &sentinel);
-    assert_eq!(output.status.code(), Some(30));
+    assert_eq!(
+        output.status.code(),
+        Some(30),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
     assert_eq!(std::fs::read_to_string(sentinel).unwrap(), "executed");
 }
 

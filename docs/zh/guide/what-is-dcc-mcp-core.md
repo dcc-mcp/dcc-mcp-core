@@ -34,7 +34,7 @@ flowchart LR
     IDE([MCP-only IDE 客户端]):::client
     TRAD([cURL / CI / 传统后端]):::client
 
-    AGENT -->|dcc-mcp-cli: search<br/>describe / call| GW
+    AGENT -->|dccmcp: search<br/>describe / call| GW
     IDE -->|MCP: search<br/>describe / load_skill / call| GW
     TRAD -->|REST: POST /v1/search<br/>/describe /call| GW
     TRAD -.->|直连 per-DCC REST| PERDCC

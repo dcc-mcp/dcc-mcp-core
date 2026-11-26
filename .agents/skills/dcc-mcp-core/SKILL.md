@@ -14,7 +14,7 @@ The foundational library enabling AI assistants to interact with Digital Content
 
 | Task | Use this | Not this |
 |------|----------|----------|
-| Operate a live DCC from an agent | [`dcc-mcp`](https://clawhub.ai/loonghao/skills/dcc-mcp) + `dcc-mcp-cli` | embedding the Python API in the agent |
+| Operate a live DCC from an agent | [`dcc-mcp`](https://clawhub.ai/loonghao/skills/dcc-mcp) + `dccmcp` | embedding the Python API in the agent |
 | Create or modernize a DCC-MCP adapter | [`dcc-mcp-creator`](https://clawhub.ai/loonghao/skills/dcc-mcp-creator) | adapter-local copies of core wiring |
 | Create a DCC-specific Skill package | [`dcc-mcp-skills-creator`](https://clawhub.ai/loonghao/skills/dcc-mcp-skills-creator) | a new adapter repository |
 | Analyze or report a failed DCC call | `dcc-mcp` recovery flow: `doctor`, failure-filtered `stats`, `dcc_feedback__report`, public-safe issue report | raw unreviewed logs |
@@ -448,7 +448,7 @@ Repeating work in a DCC host has seven shipped moves. Full details live in the
    The contract is `FileBackedScriptExecutionParams`; the schema comes from the typed
    `def main(...)` signature via `derive_script_parameters_schema` (parsed with `ast`,
    never executed). There is no dedicated CLI flag or params-file option, and no
-   re-materialize; `dcc-mcp-cli call --json-file` only supplies a large argument
+   re-materialize; `dccmcp call --json-file` only supplies a large argument
    object.
 3. **Repeat a sequence — `workflows_run`** — after a sequence succeeds twice, start a
    persisted run with stable `idempotency_key` values on mutating steps and poll with
@@ -470,7 +470,7 @@ Repeating work in a DCC host has seven shipped moves. Full details live in the
 6. **Resume a partial batch** — pass `idempotency_store` to `batch_dispatch`. It must expose
    `get(key)` / `put(key, result)`; only successful positions are reused, with per-invocation
    `_batch` metadata rebuilt on each return.
-7. **Compile reviewed session history** — `dcc-mcp-cli --agent-session-id <id> record-replay
+7. **Compile reviewed session history** — `dccmcp --agent-session-id <id> record-replay
    compile-session --name <name> --reviewed` drafts a Skill from retained redacted calls without a
    prior recording start. The admin route is `POST /v1/recordings/compile-session`.
 

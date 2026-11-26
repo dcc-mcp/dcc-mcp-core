@@ -34,7 +34,7 @@ flowchart LR
     IDE([MCP-only IDE client]):::client
     TRAD([cURL / CI / traditional backends]):::client
 
-    AGENT -->|dcc-mcp-cli: search<br/>describe / call| GW
+    AGENT -->|dccmcp: search<br/>describe / call| GW
     IDE -->|MCP: search<br/>describe / load_skill / call| GW
     TRAD -->|REST: POST /v1/search<br/>/describe /call| GW
     TRAD -.->|direct REST to per-DCC| PERDCC
