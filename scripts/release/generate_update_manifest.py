@@ -90,17 +90,12 @@ def main() -> int:
     parser.add_argument("--release-tag", required=True)
     parser.add_argument("--repo", default="dcc-mcp/dcc-mcp-core")
     parser.add_argument("--server-bin", type=Path, required=True)
-    parser.add_argument("--cli-bin", type=Path, required=True)
-    parser.add_argument("--dccmcp-bin", type=Path)
     parser.add_argument("--out-dir", type=Path, default=Path())
     args = parser.parse_args()
 
     assets = {
         "dcc-mcp-server": args.server_bin,
-        "dcc-mcp-cli": args.cli_bin,
     }
-    if args.dccmcp_bin:
-        assets["dccmcp"] = args.dccmcp_bin
     try:
         manifest_path = generate_manifest(
             version=args.version,

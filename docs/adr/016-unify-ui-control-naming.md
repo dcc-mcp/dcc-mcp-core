@@ -23,7 +23,7 @@ Use one canonical vocabulary everywhere new code is written:
 | --- | --- |
 | Bundled skill | `ui-control` |
 | MCP tools | `ui_control__*` |
-| CLI | `dcc-mcp-cli ui-control` |
+| CLI | `dccmcp ui-control` |
 | Environment | `DCC_MCP_UI_CONTROL_*` |
 | Python contracts | `UiControlPolicy`, `UiControlAuditRecord` |
 | Gateway diagnostics | `diagnostics.ui_control` |

@@ -32,6 +32,9 @@ def test_manifest_declares_dccmcp_and_compatibility_command() -> None:
     assert command["name"] == "dccmcp"
     assert "dcc-mcp-cli" in command["compatibility_aliases"]
     assert manifest["runtime"]["kind"] == "dccmcp-cli"
+    assert manifest["version"] == "0.21.1"
+    assert manifest["runtime"]["minimum_cli"] == "0.21.1"
+    assert manifest["permissions"]["process"] == ["dccmcp", "dcc-mcp-cli"]
 
 
 def test_validator_rejects_unknown_top_level_field() -> None:
@@ -40,6 +43,14 @@ def test_validator_rejects_unknown_top_level_field() -> None:
     manifest["unexpected"] = True
     errors = validator.validate_manifest(manifest, MANIFEST.parent)
     assert any("unknown top-level fields" in error for error in errors)
+
+
+def test_validator_requires_the_primary_command_and_alias() -> None:
+    validator = load_validator()
+    manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
+    manifest["commands"][0] = {"name": "dcc-mcp-cli", "compatibility_aliases": []}
+    errors = validator.validate_manifest(manifest, MANIFEST.parent)
+    assert any("dccmcp" in error and "compatibility alias" in error for error in errors)
 
 
 def test_validator_cli_accepts_checked_in_manifest() -> None:

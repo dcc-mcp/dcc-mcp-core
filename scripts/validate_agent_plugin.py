@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import argparse
 import json
-from pathlib import Path
 import re
 import sys
+from pathlib import Path
 from typing import Any
+
 
 SEMVER = re.compile(
     r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"
@@ -98,7 +99,9 @@ def validate_manifest(manifest: dict[str, Any], skill_root: Path) -> list[str]:
                 entrypoint = _require_object(entrypoint, f"entrypoints[{index}]")
                 unknown_entrypoint = set(entrypoint) - {"kind", "path"}
                 if unknown_entrypoint:
-                    raise ManifestError(f"unknown entrypoint fields: {', '.join(sorted(unknown_entrypoint))}")
+                    raise ManifestError(
+                        f"unknown entrypoint fields: {', '.join(sorted(unknown_entrypoint))}"
+                    )
                 if entrypoint.get("kind") != "skill":
                     raise ManifestError(f"entrypoints[{index}].kind must be 'skill'")
                 if entrypoint.get("path") != "SKILL.md":
@@ -117,19 +120,26 @@ def validate_manifest(manifest: dict[str, Any], skill_root: Path) -> list[str]:
     if not isinstance(commands, list) or not commands:
         errors.append("commands must be a non-empty list")
     else:
+        has_primary_command = False
         for index, command in enumerate(commands):
             try:
                 command = _require_object(command, f"commands[{index}]")
                 unknown_command = set(command) - {"name", "compatibility_aliases"}
                 if unknown_command:
-                    raise ManifestError(f"unknown command fields: {', '.join(sorted(unknown_command))}")
-                _require_string(command.get("name"), f"commands[{index}].name")
-                _require_string_list(
+                    raise ManifestError(
+                        f"unknown command fields: {', '.join(sorted(unknown_command))}"
+                    )
+                command_name = _require_string(command.get("name"), f"commands[{index}].name")
+                aliases = _require_string_list(
                     command.get("compatibility_aliases"),
                     f"commands[{index}].compatibility_aliases",
                 )
+                if command_name == "dccmcp" and "dcc-mcp-cli" in aliases:
+                    has_primary_command = True
             except ManifestError as error:
                 errors.append(str(error))
+        if not has_primary_command:
+            errors.append("commands must declare dccmcp with dcc-mcp-cli as a compatibility alias")
 
     permissions = manifest.get("permissions")
     if not isinstance(permissions, dict):
@@ -143,12 +153,16 @@ def validate_manifest(manifest: dict[str, Any], skill_root: Path) -> list[str]:
                 _require_string_list(permissions.get(group), f"permissions.{group}")
             except ManifestError as error:
                 errors.append(str(error))
+        process = permissions.get("process")
+        if isinstance(process, list):
+            for executable in ("dccmcp", "dcc-mcp-cli"):
+                if executable not in process:
+                    errors.append(f"permissions.process must include {executable!r}")
 
     return errors
 
 
 def parse_args() -> argparse.Namespace:
-    """Parse the manifest and optional skill-root arguments."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("manifest", type=Path)
     parser.add_argument(
@@ -160,7 +174,6 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
-    """Validate one agent plugin manifest and report contract errors."""
     args = parse_args()
     manifest_path = args.manifest.resolve()
     skill_root = (args.skill_root or manifest_path.parent).resolve()

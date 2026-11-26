@@ -44,7 +44,7 @@ entries:
 
 ## CLI Usage
 
-Adapter installation and `dcc-mcp-cli dcc-types` use the
+Adapter installation and `dccmcp dcc-types` use the
 [verified installation catalog](verified-install-catalog.md), which refreshes
 independently of CLI releases. The server catalog commands below remain discovery
 interfaces and do not perform this installation-specific refresh.
@@ -85,7 +85,7 @@ Select that overlay with `DCC_MCP_CATALOG_PATH` or `--catalog`:
 
 ```powershell
 $env:DCC_MCP_CATALOG_PATH = 'F:\studio\catalog\dcc-mcp-internal.yml'
-dcc-mcp-cli install --dcc-type premiere `
+dccmcp install --dcc-type premiere `
   --plugin-source F:\studio\artifacts\premiere-uxp-bridge `
   --adobe-debug-root F:\studio\adobe-debug `
   --execute
@@ -97,7 +97,7 @@ The CLI creates an idempotent directory link, refuses to replace an existing
 non-link or link to a different source, verifies the declared manifest, and
 rolls the link back if a later install step fails. A successful local install
 still requires the Adobe host to be restarted or reloaded and then verified
-through `dcc-mcp-cli list` and the adapter's Skill discovery.
+through `dccmcp list` and the adapter's Skill discovery.
 
 Adobe debug links are intended for development and Internal deployment
 profiles. Public or production distribution should use the adapter's packaged

@@ -43,8 +43,6 @@ concurrency:
 permissions:
   contents: write
   pull-requests: write
-  id-token: write
-  attestations: write
   actions: read
 
 jobs:
@@ -183,21 +181,19 @@ jobs:
           name: admin-ui-bundle
           path: crates/dcc-mcp-gateway-admin/src/generated/index.html
 
-  # ── Build standalone binaries (raw Release assets + server PyPI wheel) ──
+  # ── Build standalone server binaries and the server PyPI wheel ──
   #
   # One job, one native cargo target/ (plus an isolated manylinux target/), four outputs:
   #   1. Raw binary `dcc-mcp-server[-linux-x86_64|-windows-x86_64.exe|-macos-universal2]`
   #      attached to the GitHub Release. Backward-compat artefact for
   #      ops / docker users who don't want to `pip install`.
-  #   2. Raw binary `dcc-mcp-cli[-linux-x86_64|-windows-x86_64.exe|-macos-universal2]`
-  #      attached to the same GitHub Release and consumed by scripts/install-cli.*.
-  #   3. Deployable zip `dcc-mcp-server-<ver>-<platform>.zip` containing
-  #      unsuffixed `dcc-mcp-server` and `dcc-mcp-cli` binaries for that platform.
-  #   4. PyPI wheel `dcc_mcp_server-<ver>-py3-none-<plat>.whl` built from
+  #   2. Deployable zip `dcc-mcp-server-<ver>-<platform>.zip` containing
+  #      the unsuffixed `dcc-mcp-server` binary and optional Windows helpers.
+  #   3. PyPI wheel `dcc_mcp_server-<ver>-py3-none-<plat>.whl` built from
   #      pkg/dcc-mcp-server-bin/ via maturin's `bindings = "bin"`. It has
   #      no Python extension ABI and declares Python 3.7+ compatibility so
   #      Maya 2022's embedded Python can install it. maturin reuses the
-  #      just-built binary from `target/release/` on macOS/Windows so we do
+  #      just-built binary from the native release target on macOS/Windows so we do
   #      NOT compile twice (#1003 review feedback). Linux manylinux wheels use
   #      an isolated `target-manylinux2014/` because host-built Cargo build
   #      scripts cannot run inside the older manylinux2014 glibc environment.
@@ -217,21 +213,15 @@ jobs:
           - os: ubuntu-latest
             platform: linux-x86_64
             artifact_name: dcc-mcp-server-linux-x86_64
-            cli_artifact_name: dcc-mcp-cli-linux-x86_64
             binary: dcc-mcp-server
-            cli_binary: dcc-mcp-cli
           - os: windows-latest
             platform: windows-x86_64
             artifact_name: dcc-mcp-server-windows-x86_64.exe
-            cli_artifact_name: dcc-mcp-cli-windows-x86_64.exe
             binary: dcc-mcp-server.exe
-            cli_binary: dcc-mcp-cli.exe
           - os: macos-latest
             platform: macos-universal2
             artifact_name: dcc-mcp-server-macos-universal2
-            cli_artifact_name: dcc-mcp-cli-macos-universal2
             binary: dcc-mcp-server
-            cli_binary: dcc-mcp-cli
     runs-on: ${{ matrix.os }}
     permissions:
       contents: write
@@ -245,6 +235,13 @@ jobs:
         with:
           toolchain: '1.95.0'
           targets: aarch64-apple-darwin  # needed for macOS universal2 lipo
+      - name: Pin Windows builds to the MSVC target
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $target = "x86_64-pc-windows-msvc"
+          rustup target add $target
+          "CARGO_BUILD_TARGET=$target" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - uses: loonghao/vx@v0.9.34
         with:
@@ -294,13 +291,11 @@ jobs:
         if: matrix.os == 'macos-latest'
         run: |
           vx just build-server-universal
-          vx just build-cli-universal
 
       - name: Build raw binary (Linux / Windows)
         if: matrix.os != 'macos-latest'
         run: |
           vx just build-server
-          vx just build-cli
         shell: bash
 
       - name: Stage raw binary (Linux / Windows)
@@ -308,11 +303,12 @@ jobs:
         env:
           MATRIX_BINARY: ${{ matrix.binary }}
           MATRIX_ARTIFACT_NAME: ${{ matrix.artifact_name }}
-          MATRIX_CLI_BINARY: ${{ matrix.cli_binary }}
-          MATRIX_CLI_ARTIFACT_NAME: ${{ matrix.cli_artifact_name }}
         run: |
-          cp "target/release/$MATRIX_BINARY" "$MATRIX_ARTIFACT_NAME"
-          cp "target/release/$MATRIX_CLI_BINARY" "$MATRIX_CLI_ARTIFACT_NAME"
+          build_dir="target/release"
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            build_dir="target/x86_64-pc-windows-msvc/release"
+          fi
+          cp "$build_dir/${{ matrix.binary }}" "${{ matrix.artifact_name }}"
         shell: bash
 
       - name: Create deployable server bundle
@@ -322,28 +318,19 @@ jobs:
           RELEASE_VERSION: ${{ needs.release-please.outputs.version }}
           MATRIX_PLATFORM: ${{ matrix.platform }}
           MATRIX_ARTIFACT_NAME: ${{ matrix.artifact_name }}
-          MATRIX_CLI_ARTIFACT_NAME: ${{ matrix.cli_artifact_name }}
         run: |
+          helper_args=()
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            helper_args=(
+              --capture-helper target/x86_64-pc-windows-msvc/release/dcc-mcp-capture-helper.exe
+              --ui-control-host target/x86_64-pc-windows-msvc/release/dcc-mcp-ui-control-host.exe
+            )
+          fi
           python scripts/release/build_server_bundle.py \
-            --version "$RELEASE_VERSION" \
-            --platform "$MATRIX_PLATFORM" \
-            --server-bin "$MATRIX_ARTIFACT_NAME" \
-            --cli-bin "$MATRIX_CLI_ARTIFACT_NAME" \
-            --out-dir .
-
-      - name: Create standalone CLI zip
-        id: cli-bundle
-        shell: bash
-        env:
-          RELEASE_VERSION: ${{ needs.release-please.outputs.version }}
-          MATRIX_PLATFORM: ${{ matrix.platform }}
-          MATRIX_CLI_ARTIFACT_NAME: ${{ matrix.cli_artifact_name }}
-        run: |
-          python scripts/release/build_standalone_bundle.py \
-            --version "$RELEASE_VERSION" \
-            --platform "$MATRIX_PLATFORM" \
-            --binary-name dcc-mcp-cli \
-            --binary-path "$MATRIX_CLI_ARTIFACT_NAME" \
+            --version "${{ needs.release-please.outputs.version }}" \
+            --platform "${{ matrix.platform }}" \
+            --server-bin "${{ matrix.artifact_name }}" \
+            "${helper_args[@]}" \
             --out-dir .
 
       - name: Generate update manifest
@@ -355,16 +342,24 @@ jobs:
           RELEASE_TAG: ${{ needs.release-please.outputs.tag_name }}
           GITHUB_REPOSITORY_SLUG: ${{ github.repository }}
           MATRIX_ARTIFACT_NAME: ${{ matrix.artifact_name }}
-          MATRIX_CLI_ARTIFACT_NAME: ${{ matrix.cli_artifact_name }}
         run: |
           python scripts/release/generate_update_manifest.py \
-            --version "$RELEASE_VERSION" \
-            --platform "$MATRIX_PLATFORM" \
-            --release-tag "$RELEASE_TAG" \
-            --repo "$GITHUB_REPOSITORY_SLUG" \
-            --server-bin "$MATRIX_ARTIFACT_NAME" \
-            --cli-bin "$MATRIX_CLI_ARTIFACT_NAME" \
+            --version "${{ needs.release-please.outputs.version }}" \
+            --platform "${{ matrix.platform }}" \
+            --release-tag "${{ needs.release-please.outputs.tag_name }}" \
+            --repo "${{ github.repository }}" \
+            --server-bin "${{ matrix.artifact_name }}" \
             --out-dir .
+
+      - name: Generate release checksums
+        id: release-checksums
+        shell: bash
+        run: |
+          python scripts/release/generate_asset_checksums.py \
+            --output "dcc-mcp-release-checksums-${{ matrix.platform }}.txt" \
+            --asset "${{ matrix.artifact_name }}" \
+            --asset "${{ steps.server-bundle.outputs.bundle_path }}" \
+            --asset "${{ steps.update-manifest.outputs.manifest_path }}"
 
       # ── PyPI wheel build ──────────────────────────────────────────
       # macOS / Windows reuse the same target/ directory the raw-binary
@@ -402,6 +397,14 @@ jobs:
           python -m pip install "maturin>=1.5,<2.0" "wheel>=0.46"
           maturin build --release --out wheels
 
+      - name: Inject Windows runtime hosts into server wheel
+        if: matrix.os == 'windows-latest'
+        shell: bash
+        run: >-
+          python scripts/release/inject_capture_helper.py
+          --helper target/x86_64-pc-windows-msvc/release/dcc-mcp-capture-helper.exe
+          --ui-control-host target/x86_64-pc-windows-msvc/release/dcc-mcp-ui-control-host.exe
+
       - name: Retag server binary wheel as Python-version independent
         shell: bash
         run: |
@@ -418,10 +421,12 @@ jobs:
           name: server-binary-${{ matrix.os }}
           path: |
             ${{ matrix.artifact_name }}
-            ${{ matrix.cli_artifact_name }}
             ${{ steps.server-bundle.outputs.bundle_path }}
-            ${{ steps.cli-bundle.outputs.bundle_path }}
             ${{ steps.update-manifest.outputs.manifest_path }}
+            dcc-mcp-release-checksums-${{ matrix.platform }}.txt
+            ${{ matrix.artifact_name }}.sha256
+            ${{ steps.server-bundle.outputs.bundle_path }}.sha256
+            ${{ steps.update-manifest.outputs.manifest_path }}.sha256
 
       - name: Upload server wheel artefact (for cross-job collection)
         uses: actions/upload-artifact@v4
@@ -443,10 +448,12 @@ jobs:
           fail_on_unmatched_files: true
           files: |
             ${{ matrix.artifact_name }}
-            ${{ matrix.cli_artifact_name }}
             ${{ steps.server-bundle.outputs.bundle_path }}
-            ${{ steps.cli-bundle.outputs.bundle_path }}
             ${{ steps.update-manifest.outputs.manifest_path }}
+            dcc-mcp-release-checksums-${{ matrix.platform }}.txt
+            ${{ matrix.artifact_name }}.sha256
+            ${{ steps.server-bundle.outputs.bundle_path }}.sha256
+            ${{ steps.update-manifest.outputs.manifest_path }}.sha256
             pkg/dcc-mcp-server-bin/wheels/*.whl
 
   # ── Build dcc-mcp-core-semantic companion wheels (issue #1395) ──
@@ -519,6 +526,13 @@ jobs:
         with:
           toolchain: '1.95.0'
           components: clippy, rustfmt
+      - name: Pin Windows semantic wheels to the MSVC target
+        if: startsWith(matrix.target, 'windows-')
+        shell: pwsh
+        run: |
+          $target = "x86_64-pc-windows-msvc"
+          rustup target add $target
+          "CARGO_BUILD_TARGET=$target" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Verify Windows uses the MSVC Rust target
         if: startsWith(matrix.target, 'windows-')
@@ -662,123 +676,14 @@ jobs:
           fail_on_unmatched_files: true
           files: pkg/dcc-mcp-core-semantic/wheels/*.whl
 
-  # ── Build the dcc-mcp-cli PyPI wrapper wheels (issue PIP-3593) ──
-  #
-  # `pkg/dcc-mcp-cli-bin` ships the compressed release archive instead of the
-  # raw executable so a release costs ~66 MB of the PyPI project budget rather
-  # than ~165 MB. The archive already built by `build-binaries` is embedded
-  # verbatim; the wheel unpacks it into the install environment's scripts
-  # directory on first use, which is what keeps
-  # `dcc-mcp-cli components ensure dcc-cua` working (the companion executable
-  # is installed as a sibling of `current_exe`).
-  #
-  # One runner builds all three platforms: nothing here compiles, so the only
-  # per-platform work is the PEP 600 tag derived from each archive.
-  build-cli-wheels:
-    needs: [release-please, build-binaries]
-    if: |
-      needs.release-please.outputs.release_created == 'true' &&
-      needs.build-binaries.result == 'success' &&
-      !(github.event_name == 'workflow_dispatch' && inputs.release_tag != '' && inputs.backfill_assets != true)
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          ref: ${{ needs.release-please.outputs.tag_name }}
-
-      - uses: actions/setup-python@v6
-        with:
-          python-version: '3.12'
-
-      - name: Install wheel build tooling
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install "build>=1.2" "hatchling>=1.25" "wheel>=0.46"
-
-      - name: Download release CLI archives
-        uses: actions/download-artifact@v8
-        with:
-          pattern: server-binary-*
-          path: dist-binaries
-          merge-multiple: true
-
-      - name: Extract generated third-party license texts
-        shell: bash
-        run: |
-          set -euo pipefail
-          python scripts/release/extract_third_party_licenses.py \
-            --output THIRD_PARTY_LICENSES.txt \
-            dist-binaries/dcc-mcp-cli-*.zip
-          python scripts/release/stage_package_notices.py
-
-      # hatchling names every build `dcc_mcp_cli-<version>-py3-none-any.whl`,
-      # so the three platforms must not share one output directory: the
-      # second build overwrites the first wheel, and `build_wheel()` then
-      # finds no *new* file and fails with "expected exactly one wrapper
-      # wheel, got []". Each platform therefore builds into its own
-      # directory, is retagged there (which renames it to its PEP 600 tag)
-      # and only then joins the shared directory, where the three names
-      # are distinct by construction.
-      - name: Build wrapper wheels
-        shell: bash
-        env:
-          RELEASE_VERSION: ${{ needs.release-please.outputs.version }}
-        run: |
-          set -euo pipefail
-          version="$RELEASE_VERSION"
-          mkdir -p "$PWD/dist-cli"
-          for platform in linux-x86_64 macos-universal2 windows-x86_64; do
-            out="$PWD/dist-cli-build/$platform"
-            python scripts/release/build_cli_wrapper_wheel.py \
-              --version "$version" \
-              --platform "$platform" \
-              --zip "dist-binaries/dcc-mcp-cli-$version-$platform.zip" \
-              --out-dir "$out"
-            python scripts/release/cli_wheel_tags.py retag --wheel-dir "$out"
-            mv "$out"/*.whl "$PWD/dist-cli/"
-          done
-
-      # Idempotent safety net: re-stamps the tag each wheel already carries,
-      # so a wheel that reached dist-cli untagged cannot slip through.
-      - name: Retag wrapper wheels
-        run: python scripts/release/cli_wheel_tags.py retag --wheel-dir dist-cli
-
-      - name: Validate wrapper wheels
-        env:
-          RELEASE_VERSION: ${{ needs.release-please.outputs.version }}
-        run: >-
-          python scripts/release/cli_wheel_tags.py validate
-          --wheel-dir dist-cli
-          --version "$RELEASE_VERSION"
-
-      - name: Upload wrapper wheel artefact
-        uses: actions/upload-artifact@v4
-        with:
-          name: cli-wheel-all
-          path: dist-cli/*.whl
-
-      - name: Upload to GitHub Release
-        uses: softprops/action-gh-release@v3
-        with:
-          # See the note in build-binaries: GITHUB_TOKEN is rejected on the
-          # release-update call that precedes every asset upload.
-          token: ${{ secrets.PERSONAL_ACCESS_TOKEN || github.token }}
-          tag_name: ${{ needs.release-please.outputs.tag_name }}
-          overwrite_files: ${{ github.event_name == 'workflow_dispatch' && inputs.backfill_assets == true }}
-          fail_on_unmatched_files: true
-          files: dist-cli/*.whl
-
   # ── Verify legal notices in every release archive before publication ──
   validate-release-notices:
-    needs: [release-please, build-wheels, build-binaries, build-semantic-wheels, build-cli-wheels]
+    needs: [release-please, build-wheels, build-binaries, build-semantic-wheels]
     if: |
       always() &&
       needs.build-wheels.result == 'success' &&
       needs.build-binaries.result == 'success' &&
-      needs.build-semantic-wheels.result == 'success' &&
-      needs.build-cli-wheels.result == 'success'
+      needs.build-semantic-wheels.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -1328,65 +1233,6 @@ jobs:
           print-hash: true
           skip-existing: true
 
-  # ── Publish dcc-mcp-cli to PyPI (issue PIP-3593) ──
-  publish-cli-pypi:
-    needs: [release-please, validate-release-version, build-cli-wheels, validate-release-notices]
-    if: |
-      needs.release-please.outputs.release_created == 'true' &&
-      needs.validate-release-version.result == 'success' &&
-      needs.build-cli-wheels.result == 'success' &&
-      needs.validate-release-notices.result == 'success'
-    runs-on: ubuntu-latest
-    environment:
-      name: pypi
-      url: https://pypi.org/p/dcc-mcp-cli
-    permissions:
-      id-token: write
-      actions: read
-      contents: read
-    steps:
-      - name: Download dcc-mcp-cli wheel artefacts
-        uses: actions/download-artifact@v8
-        with:
-          pattern: cli-wheel-all
-          path: dist-cli
-          merge-multiple: true
-
-      - name: List dcc-mcp-cli artefacts
-        run: ls -la dist-cli/
-
-      # Same PyPI total-size budget gate as publish-core-pypi - fail before
-      # upload instead of leaving a partially published release. The wrapper
-      # embeds a compressed archive precisely to keep this budget lasting.
-      - name: Checkout workflow compatibility tooling
-        uses: actions/checkout@v6
-        with:
-          ref: ${{ github.workflow_sha }}
-          path: .workflow-tools
-          sparse-checkout: |
-            scripts/ci
-          persist-credentials: false
-
-      - name: Check PyPI project size budget
-        shell: bash
-        run: >-
-          python .workflow-tools/scripts/ci/check_pypi_project_size.py
-          --package dcc-mcp-cli
-          --dist-dir dist-cli
-
-      # The PyPI project must have a Trusted Publisher for:
-      # Owner = dcc-mcp, Repo = dcc-mcp-core, Workflow = release.yml,
-      # Environment = pypi, Project = dcc-mcp-cli.
-      # `dcc-mcp-cli` is a new project: register a *pending* publisher so the
-      # first OIDC upload creates it, no API token involved.
-      - name: Upload dcc-mcp-cli to PyPI
-        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
-        with:
-          packages-dir: dist-cli
-          verbose: true
-          print-hash: true
-          skip-existing: true
-
   # ── Keep GitHub Release assets complete even if PyPI rejects one package ──
   publish-github-release-assets:
     needs:
@@ -1394,7 +1240,6 @@ jobs:
       - build-wheels
       - build-binaries
       - build-semantic-wheels
-      - build-cli-wheels
       - validate-release-notices
       - publish-core-pypi
       - publish-server-pypi
@@ -1405,7 +1250,6 @@ jobs:
       needs.build-wheels.result == 'success' &&
       needs.build-binaries.result == 'success' &&
       needs.build-semantic-wheels.result == 'success' &&
-      needs.build-cli-wheels.result == 'success' &&
       needs.validate-release-notices.result == 'success'
     runs-on: ubuntu-latest
     permissions:
@@ -1565,162 +1409,6 @@ jobs:
           --version "$RELEASE_VERSION"
           --payload release.json
 
-  # ── Publish to Windows Package Manager (WinGet) ──
-  # Runs after the release assets are verified so the manifest always points at
-  # installer URLs that are known to exist. Opens/updates a PR on
-  # microsoft/winget-pkgs via Komac (through vedantmgoyal9/winget-releaser).
-  #
-  # Komac only knows how to *update* a package that already has manifests in
-  # microsoft/winget-pkgs. A brand new identifier has to be introduced by
-  # `komac add`, and that first PR is merged by a winget-pkgs moderator on their
-  # own schedule. While it is pending, `komac update` fails with
-  # "Package ... does not exist in the winget-pkgs repository", which used to
-  # turn every release window red even though PyPI and GitHub Release were
-  # fine. The job therefore probes the winget-pkgs contents API first and skips
-  # cleanly (warning, not error) when the identifier is not onboarded yet; other
-  # probe results fail loudly so a broken probe cannot masquerade as a skip.
-  publish-winget:
-    needs: [release-please, publish-github-release-assets, verify-release-assets]
-    if: |
-      always() &&
-      needs.release-please.outputs.release_created == 'true' &&
-      needs.publish-github-release-assets.result == 'success' &&
-      needs.verify-release-assets.result == 'success'
-    runs-on: windows-latest
-    permissions:
-      contents: read
-    env:
-      WINGET_IDENTIFIER: DccMcp.DccMcpCli
-    steps:
-      - name: Check WinGet token
-        id: check_token
-        shell: bash
-        env:
-          WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
-        run: |
-          if [ -z "$WINGET_TOKEN" ]; then
-            echo "::warning::WINGET_TOKEN not set, skipping WinGet publish"
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "skip=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Derive version from tag
-        if: steps.check_token.outputs.skip != 'true'
-        id: version
-        shell: bash
-        env:
-          RELEASE_TAG: ${{ needs.release-please.outputs.tag_name }}
-        run: |
-          TAG="$RELEASE_TAG"
-          # Strip the release-please tag prefix: v0.20.36 -> 0.20.36
-          VERSION="${TAG#v}"
-          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-          echo "Publishing to WinGet: tag=${TAG}, version=${VERSION}"
-
-      # ── Is the package identifier onboarded in microsoft/winget-pkgs? ──
-      # winget-pkgs stores manifests at
-      # manifests/<lowercased first letter of the identifier>/<Publisher>/<Package>,
-      # i.e. the first letter of the *publisher*, not of the package name:
-      # DccMcp.DccMcpCli -> manifests/d/DccMcp/DccMcpCli.
-      #   HTTP 200 -> onboarded, Komac can open an update PR.
-      #   HTTP 404 -> not onboarded yet; skip cleanly (see job header).
-      #   anything else -> fail, so an indeterminate probe never gets mistaken
-      #                    for "not onboarded" and silently skipped forever.
-      - name: Check WinGet package onboarding
-        if: steps.check_token.outputs.skip != 'true'
-        id: onboarding
-        shell: bash
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-
-          IDENTIFIER="${WINGET_IDENTIFIER}"
-          if [ "${IDENTIFIER#*.}" = "${IDENTIFIER}" ]; then
-            echo "::error::WINGET_IDENTIFIER must look like 'Publisher.Package', got '${IDENTIFIER}'."
-            exit 1
-          fi
-          PUBLISHER="${IDENTIFIER%%.*}"
-          PACKAGE="${IDENTIFIER#*.}"
-          # First letter of the identifier (= first letter of the publisher).
-          # winget-pkgs keeps digit-named publishers under a single "0-9" folder.
-          FIRST_LETTER="$(printf '%s' "${IDENTIFIER:0:1}" | tr '[:upper:]' '[:lower:]')"
-          case "${FIRST_LETTER}" in
-            [0-9]) FIRST_LETTER="0-9" ;;
-          esac
-          MANIFEST_PATH="manifests/${FIRST_LETTER}/${PUBLISHER}/${PACKAGE}"
-          API_URL="https://api.github.com/repos/microsoft/winget-pkgs/contents/${MANIFEST_PATH}"
-          echo "WinGet package:  ${IDENTIFIER}"
-          echo "Manifest path:   ${MANIFEST_PATH}"
-
-          http_code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 \
-            --retry 3 --retry-delay 5 --retry-connrefused \
-            -H 'Accept: application/vnd.github+json' \
-            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
-            "${API_URL}")"
-
-          # The job's GITHUB_TOKEN is scoped to this repository and may not be
-          # accepted for a foreign one; fall back to the unauthenticated API
-          # (winget-pkgs is public) before reporting an indeterminate result.
-          if [ "${http_code}" = "401" ] || [ "${http_code}" = "403" ]; then
-            echo "Authenticated probe returned HTTP ${http_code}; retrying unauthenticated."
-            http_code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 \
-              --retry 3 --retry-delay 5 --retry-connrefused \
-              -H 'Accept: application/vnd.github+json' \
-              "${API_URL}")"
-          fi
-
-          echo "winget-pkgs contents API: HTTP ${http_code}"
-
-          case "${http_code}" in
-            200)
-              echo "onboarded=true" >> "$GITHUB_OUTPUT"
-              echo "${IDENTIFIER} already has manifests in microsoft/winget-pkgs; Komac can update them."
-              ;;
-            404)
-              echo "onboarded=false" >> "$GITHUB_OUTPUT"
-              ;;
-            *)
-              echo "::error::Cannot determine WinGet onboarding state for ${IDENTIFIER} (HTTP ${http_code}). Refusing to guess; leaving the job failed so this stays visible."
-              exit 1
-              ;;
-          esac
-
-      - name: Report pending WinGet onboarding
-        if: steps.onboarding.outputs.onboarded == 'false'
-        shell: bash
-        run: |
-          echo "::warning::${WINGET_IDENTIFIER} has no manifests in microsoft/winget-pkgs yet, so Komac cannot open an update PR for this release window. Skipping WinGet publication: the first version must be introduced with 'komac add' and merged by a winget-pkgs moderator. This is a one-time prerequisite, not a release failure - PyPI and GitHub Release are unaffected."
-
-      - name: Publish to WinGet
-        if: steps.check_token.outputs.skip != 'true' && steps.onboarding.outputs.onboarded == 'true'
-        # Pinned fork of vedantmgoyal9/winget-releaser v2
-        # (4ffc7888bffd451b357355dc214d43bb9f23917e), which reaches Komac through
-        # cargo-bins/cargo-binstall@main - a mutable branch ref that also pulls
-        # the newest Komac release at run time. Neither end is reviewable from
-        # here, and this step holds a token that can open pull requests against
-        # microsoft/winget-pkgs, so the fork installs one pinned Komac build and
-        # verifies its SHA256 instead. Bump by moving the fork, not the tag.
-        uses: dcc-mcp/winget-releaser@d1b420769e4f42cdaf1990aee944be5076a524ca # v2
-        with:
-          identifier: ${{ env.WINGET_IDENTIFIER }}
-          # Default is github.repository_owner (the dcc-mcp org), but Komac pushes
-          # its working branch to a fork owned by the account behind WINGET_TOKEN.
-          # That fork is under the personal account, so it must be named explicitly.
-          fork-user: loonghao
-          release-tag: ${{ steps.version.outputs.tag }}
-          version: ${{ steps.version.outputs.version }}
-          # Only the unversioned portable zip for the CLI. Intentionally excludes
-          # dcc-mcp-server and dcc-cua: only dcc-mcp-cli is published to WinGet,
-          # and dcc-cua is installed on demand by `dcc-mcp-cli components ensure`
-          # beside the real executable (see crates/dcc-mcp-cli/src/application/current_exe.rs).
-          installers-regex: 'dcc-mcp-cli-.*-windows-x86_64\.zip$'
-          # Do NOT set max-versions-to-keep: it can misidentify the highest
-          # version as "old" and try to delete it (microsoft/winget-pkgs#340410).
-          token: ${{ secrets.WINGET_TOKEN }}
-
   # ── Aggregate release publication status for branch protection / humans ──
   publish:
     needs:
@@ -1728,11 +1416,9 @@ jobs:
       - publish-core-pypi
       - publish-server-pypi
       - publish-semantic-pypi
-      - publish-cli-pypi
       - publish-github-release-assets
       - validate-release-notices
       - verify-release-assets
-      - publish-winget
     if: always() && needs.release-please.outputs.release_created == 'true'
     runs-on: ubuntu-latest
     permissions:
@@ -1743,31 +1429,25 @@ jobs:
           RESULT_CORE_PYPI: ${{ needs.publish-core-pypi.result }}
           RESULT_SERVER_PYPI: ${{ needs.publish-server-pypi.result }}
           RESULT_SEMANTIC_PYPI: ${{ needs.publish-semantic-pypi.result }}
-          RESULT_CLI_PYPI: ${{ needs.publish-cli-pypi.result }}
           RESULT_RELEASE_ASSETS: ${{ needs.publish-github-release-assets.result }}
           RESULT_RELEASE_NOTICES: ${{ needs.validate-release-notices.result }}
           RESULT_ASSETS_VERIFIED: ${{ needs.verify-release-assets.result }}
-          RESULT_WINGET: ${{ needs.publish-winget.result }}
           CORE_BACKFILL: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag != '' && inputs.backfill_assets != true }}
         run: |
           core="$RESULT_CORE_PYPI"
           server="$RESULT_SERVER_PYPI"
           semantic="$RESULT_SEMANTIC_PYPI"
-          cli="$RESULT_CLI_PYPI"
           release_assets="$RESULT_RELEASE_ASSETS"
           release_notices="$RESULT_RELEASE_NOTICES"
           assets_verified="$RESULT_ASSETS_VERIFIED"
-          winget="$RESULT_WINGET"
           core_backfill="$CORE_BACKFILL"
 
           echo "PyPI dcc-mcp-core: ${core}"
           echo "PyPI dcc-mcp-server: ${server}"
           echo "PyPI dcc-mcp-core-semantic: ${semantic}"
-          echo "PyPI dcc-mcp-cli: ${cli}"
           echo "GitHub Release assets: ${release_assets}"
           echo "Release archive notices: ${release_notices}"
           echo "Release asset verification: ${assets_verified}"
-          echo "WinGet manifest PR: ${winget}"
           echo "Core-only immutable backfill: ${core_backfill}"
 
           failed=0
@@ -1776,19 +1456,17 @@ jobs:
               echo "::error::Core PyPI backfill failed (result=${core})."
               failed=1
             fi
-            if [ "$server" != "skipped" ] || [ "$semantic" != "skipped" ] || [ "$cli" != "skipped" ] || [ "$release_assets" != "skipped" ]; then
+            if [ "$server" != "skipped" ] || [ "$semantic" != "skipped" ] || [ "$release_assets" != "skipped" ]; then
               echo "::error::Core-only backfill unexpectedly ran another publication route."
               failed=1
             fi
-            # A green core-only run must not read as "all four routes are current":
-            # the other three are skipped by design here, so name them and give the
-            # command that republishes them.
+            # A green core-only run must not read as every route being current.
             if [ "$failed" -eq 0 ]; then
-              echo "::warning::Core-only backfill published dcc-mcp-core only; dcc-mcp-server, dcc-mcp-core-semantic and dcc-mcp-cli were NOT republished and stay at their previous version. Re-run with the same release_tag and backfill_assets=true to publish all four routes."
+              echo "::warning::Core-only backfill published dcc-mcp-core only; dcc-mcp-server and dcc-mcp-core-semantic were NOT republished and stay at their previous version. Re-run with the same release_tag and backfill_assets=true to publish all server routes."
             fi
           else
-            if [ "$core" != "success" ] || [ "$server" != "success" ] || [ "$semantic" != "success" ] || [ "$cli" != "success" ]; then
-              echo "::error::PyPI upload failed (core=${core} server=${server} semantic=${semantic} cli=${cli})."
+            if [ "$core" != "success" ] || [ "$server" != "success" ] || [ "$semantic" != "success" ]; then
+              echo "::error::PyPI upload failed (core=${core} server=${server} semantic=${semantic})."
               failed=1
             fi
             if [ "$release_assets" != "success" ]; then
@@ -1802,14 +1480,6 @@ jobs:
             if [ "$release_notices" != "success" ]; then
               echo "::error::Release archive notice validation failed (result=${release_notices})."
               failed=1
-            fi
-            # WinGet is best-effort and must never fail a release: winget-pkgs
-            # moderation is asynchronous, and the job self-skips when the token
-            # is unset. Only 'failure' is surfaced, and only as a warning.
-            if [ "$winget" = "failure" ]; then
-              echo "::warning::WinGet manifest PR did not open (result=${winget}). The "
-              echo "::warning::GitHub Release and PyPI routes are unaffected; publish "
-              echo "::warning::the manifest manually or re-run this job."
             fi
           fi
           exit "$failed"
@@ -1835,11 +1505,9 @@ jobs:
             '^dcc_mcp_server-.*\.whl$'
             '^dcc_mcp_core_semantic-.*\.whl$'
             '^dcc-mcp-server-'
-            '^dcc-mcp-cli-'
             '^dcc-mcp-server-[0-9A-Za-z.+-]+-(linux-x86_64|windows-x86_64|macos-universal2)\.zip$'
-            '^dcc-mcp-cli-[0-9A-Za-z.+-]+-(linux-x86_64|windows-x86_64|macos-universal2)\.zip$'
             '^dcc-mcp-update-manifest-(linux-x86_64|windows-x86_64|macos-universal2)\.json$'
-            '^dcc-mcp-update-manifest-(linux-x86_64|windows-x86_64|macos-universal2)\.sigstore\.json$'
+            '^dcc-mcp-release-checksums-(linux-x86_64|windows-x86_64|macos-universal2)\.txt$'
           )
 
           release_json=""

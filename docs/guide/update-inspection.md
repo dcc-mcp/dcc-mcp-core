@@ -1,6 +1,6 @@
 # Read-only update inspection
 
-`dcc-mcp-cli --output json update inspect` reports version observations and
+`dccmcp --output json update inspect` reports version observations and
 official release evidence without applying or staging an update, starting a
 gateway, refreshing marketplace state, or changing installation pins. Use
 `--offline` to avoid network requests.

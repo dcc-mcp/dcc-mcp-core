@@ -56,4 +56,4 @@ Package the skill tree with the existing OpenClaw-compatible packager.
 python scripts/package_openclaw_skill.py skills/dcc-mcp dist/skills
 ```
 
-CI should validate the manifest, verify the `SKILL.md` entrypoint, and test both `dccmcp` and `dcc-mcp-cli` command names. A package version must match the release version carried by the workspace and skill metadata.
+CI should validate the manifest, verify the `SKILL.md` entrypoint, and test both `dccmcp` and `dcc-mcp-cli` command names. A package version must match the standalone CLI release and the skill metadata.

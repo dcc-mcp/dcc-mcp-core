@@ -1,6 +1,6 @@
 # Adapter 启动计划与就绪契约
 
-这是 `dcc-mcp-cli start-instance` 背后的 adapter 作者契约。如果你维护一个
+这是 `dccmcp start-instance` 背后的 adapter 作者契约。如果你维护一个
 DCC adapter，并希望 agent 能从「没有实例在运行」直接推进到「typed session
 就绪」，而不需要人工打开宿主，请读这一篇。
 
@@ -24,10 +24,10 @@ Core 从不自行拼出 DCC 专属命令行。没有启动计划时，操作会�
 ## 零实例缺口
 
 即使某个 DCC 的 adapter 已安装并针对精确项目生成了 receipt，只要没有宿主
-进程在跑，`dcc-mcp-cli list` 就会报告 `total: 0`，agent 此时没有任何结构化
+进程在跑，`dccmcp list` 就会报告 `total: 0`，agent 此时没有任何结构化
 的前进路径。
 
-`dcc-mcp-cli dcc-types --dcc-type <dcc> --project <path>` 在这种状态下现在会
+`dccmcp dcc-types --dcc-type <dcc> --project <path>` 在这种状态下现在会
 推荐 `start-instance` —— 但**前提是该 DCC 类型与项目能解析出一个经过校验的
 启动计划**。在你的 adapter 发布计划之前，推荐结果会退回 `install`，缺口依然
 存在。
@@ -389,21 +389,21 @@ Core 为每个 operation 在 `<registry_dir>/start-instance/<operation_id>.json`
 
 ```bash
 # 只解析并报告计划，不派生任何进程。
-dcc-mcp-cli start-instance --dcc-type unity --project /abs/path/MyProject --dry-run
+dccmcp start-instance --dcc-type unity --project /abs/path/MyProject --dry-run
 
 # 启动并等待终态就绪。
-dcc-mcp-cli start-instance --dcc-type unity --project /abs/path/MyProject --wait-ready --yes
+dccmcp start-instance --dcc-type unity --project /abs/path/MyProject --wait-ready --yes
 
 # 收紧就绪门禁，并给慢宿主更长时间。
-dcc-mcp-cli start-instance --dcc-type unity --project /abs/path/MyProject \
+dccmcp start-instance --dcc-type unity --project /abs/path/MyProject \
   --wait-ready --require skill_catalog,host_execution_bridge --timeout-secs 600 --yes
 
 # 多个实例声明同一项目时做消歧。
-dcc-mcp-cli start-instance --dcc-type unity --project /abs/path/MyProject \
+dccmcp start-instance --dcc-type unity --project /abs/path/MyProject \
   --instance-id 3f2a1c9e --wait-ready --yes
 
 # 只停止该 operation 自己启动并拥有的实例。
-dcc-mcp-cli stop-instance --operation-id <operation-id>
+dccmcp stop-instance --operation-id <operation-id>
 ```
 
 | 参数 | 作用 |
@@ -441,7 +441,7 @@ dcc-mcp-cli stop-instance --operation-id <operation-id>
       `dispatcher`，且只在真的成立时才置为 `true`。
 - [ ] 长耗时启动状态通过宿主进度 key 上报，并理解它们仅供诊断。
 - [ ] 阻塞状况用结构化 key 发布，而不是散文式 `failure_reason`，且使用整词。
-- [ ] `dcc-mcp-cli start-instance --dry-run` 能在真实项目上解析出计划。
+- [ ] `dccmcp start-instance --dry-run` 能在真实项目上解析出计划。
 - [ ] 第二次相同的 `start-instance` 返回 `reused: true` 与
       `converged_on_operation_id`，而不是再启动一个宿主。
 

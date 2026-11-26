@@ -78,7 +78,7 @@ dcc-mcp-server --admin-path /dcc-admin
 
 ### CLI 接口
 
-`dcc-mcp-cli ui-control` 子命令通过 Shell 暴露相同的能力：
+`dccmcp ui-control` 子命令通过 Shell 暴露相同的能力：
 
 ```bash
 dcc-mcp-cli ui-control snapshot --instance-id <id> --json '{"session_id":"ui","process_id":1234}'

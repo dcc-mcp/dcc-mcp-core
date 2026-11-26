@@ -19,13 +19,8 @@ metadata:
   dcc-mcp:
     dcc: python
     layer: infrastructure
-    recall-context:
-      app_type: python
-      domain: dcc-control
-      workflow_stage: operation
-      task_category: mutate
     compatibility: Cross-platform Windows/macOS/Linux. Prefers dccmcp on PATH; can download release asset from GitHub; local profile needs no gateway env. DCC_MCP_BASE_URL is optional for remote/legacy gateway REST fallback.
-    version: "0.21.0"
+    version: "0.21.1"  # x-release-please-version
     search-hint: "dcc control operate UI control menu dialog window button click keyboard Maya Blender Houdini Photoshop 3ds Max Nuke Unreal Godot RenderDoc Substance connect create edit render automate cli gateway stats 操作 控制 界面 菜单 弹窗 窗口 按钮 点击 键盘"
     tags: "dcc, dcc-ui-control, ui-control, maya, blender, houdini, photoshop, nuke, unreal, godot, renderdoc, cli, gateway, clawhub, openclaw"
   openclaw:
@@ -52,8 +47,8 @@ Existing installations can use the compatibility alias `dcc-mcp-cli`. These
 commands remain supported during migration.
 
 ```bash
-dcc-mcp-cli dcc-types
-dcc-mcp-cli stats --range 24h --dcc-type maya --session-id task-42
+dccmcp dcc-types
+dccmcp stats --range 24h --dcc-type maya --session-id task-42
 ```
 
 Use this skill whenever the user asks to operate a supported DCC application.
@@ -157,12 +152,14 @@ latest official release:
 
 ```bash
 # Linux/macOS
-curl -fsSL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.sh -o install-cli.sh
-sh install-cli.sh
+curl -fL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-cli/main/scripts/install-cli.sh -o install-cli.sh
+cat install-cli.sh
+sh ./install-cli.sh
 
 # Windows PowerShell
-Invoke-WebRequest https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.ps1 -OutFile install-cli.ps1
-& .\\install-cli.ps1
+Invoke-WebRequest https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-cli/main/scripts/install-cli.ps1 -OutFile .\install-cli.ps1
+Get-Content -Raw .\install-cli.ps1
+& .\install-cli.ps1
 ```
 
 After installation, use `dccmcp update` for the normal self-update flow. It

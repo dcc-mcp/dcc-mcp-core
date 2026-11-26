@@ -1,7 +1,7 @@
-# Marketplace: Skill Package Catalog & Installer
+# Marketplace: Typed Package Catalog
 
 The marketplace is a CLI-first discovery and installation system for official and
-community skill packages. It resolves human-readable names from one or more
+community packages. It resolves human-readable names from one or more
 catalog sources, downloads or clones the matching package, and registers it so
 the DCC adapter discovers it on the next restart or `reload_skill_paths` call.
 
@@ -76,18 +76,97 @@ Set `DCC_MCP_MARKETPLACE_NO_DEFAULT_SOURCES=1` to disable the built-in source.
 |-------------------------------------------|------------------------------------------------|
 | `marketplace add <source>`                | Register a marketplace source                  |
 | `marketplace list`                        | List configured sources                        |
-| `marketplace search --query <q>`          | Search entries across all sources              |
+| `marketplace search --query <q>`           | Fuzzy-rank entries across all sources; current builds also accept positional query words |
 | `marketplace inspect <name>`              | Show full entry metadata                       |
-| `marketplace install <name> --dcc <dcc>`  | Install a skill package                        |
+| `marketplace install <name> --dcc <dcc> --reload` | Install a plugin, bundle, or Skill and refresh running adapters |
+| `marketplace install <name> --target <kind:id>` | Install a generic package such as a CUA Profile |
 | `marketplace list-installed --dcc <dcc>`  | List installed packages                        |
-| `marketplace uninstall <name> --dcc <dcc>`| Remove an installed package                    |
+| `marketplace list-installed --target <kind:id>` | List packages for an application target |
+| `marketplace uninstall <name> [--dcc <dcc>] [--reload]`| Remove an installed package and optionally refresh the adapter |
 | `marketplace outdated [name] --dcc <dcc>` | Check for newer versions                       |
 | `marketplace update [name] --all`         | Upgrade installed packages                     |
-| `marketplace add-repo <repo> [--dcc]`     | Install directly from a GitHub repo            |
+| `marketplace add-repo <repo> --commit <oid> [--dcc]` | Install an immutable Git commit directly |
 | `marketplace pack <path> --out dist/`     | Build a zip package and SHA-256 digest         |
 | `marketplace publish <path> --catalog <file>` | Upsert a catalog entry for a package       |
 
 Full argument reference: [cli-reference.md](cli-reference.md#marketplace).
+
+### One Install for Every Declared Host
+
+An entry that declares several hosts — `dcc: ["maya", "blender", "houdini"]` —
+ships a single tree that all of those hosts can load, so `marketplace install`
+writes it **once**. Both of these install the same package:
+
+```bash
+# No host given, or the explicit shared-install spelling.
+dccmcp marketplace install dcc-asset-polyhaven
+dccmcp marketplace install dcc-asset-polyhaven --dcc all
+```
+
+| Entry declares          | `--dcc`                          | Landing spot                  |
+|-------------------------|----------------------------------|-------------------------------|
+| One host (`["maya"]`)   | omitted, or `maya`               | `marketplace/maya/<name>/`    |
+| Several hosts           | omitted, `all`, or `any`         | `marketplace/any/<name>/`     |
+| Host-neutral (`["any"]`)| omitted, `all`, `any`, or a host | `marketplace/any/<name>/` |
+
+The shared `any` directory is already part of every host's skill search path,
+so one copy is found by all of them. Shared marketplace roots are searched
+before host-specific roots, which keeps one canonical multi-host version from
+being shadowed by an older per-host copy. `--dcc all` on an entry that declares
+a single concrete host is rejected: such an entry is host-specific and keeps
+landing in its own directory.
+
+Because a host really does load shared packages, `marketplace list-installed
+--dcc <host>` reports them and `marketplace uninstall <name> --dcc <host>`
+removes them.
+
+Packages installed before this behaviour existed left one copy per host behind.
+Installing the shared copy reports those paths in the install JSON as
+`superseded`; they remain duplicate files and keep costing disk until they are
+removed:
+
+```bash
+dccmcp marketplace uninstall dcc-asset-polyhaven --dcc maya
+```
+
+## Package Shapes
+
+The install command accepts all existing single-Skill packages and bundles.
+It also recognizes [Agent Plugins 1.0](https://agent-plugins.org/specification)
+when the package has a root `plugin.json`. Agent Plugin Skills are discovered
+only from immediate `skills/<name>/SKILL.md` children; the manifest schema,
+plugin name, and resolved path containment are validated before install.
+
+`package.format: agent-plugin` advertises that portable layout.
+`package.format: skill-bundle` advertises the existing DCC-MCP layout with
+multiple `source.skillRoots`. In both cases `package.skills` provides the
+component names shown by the marketplace UI. DCC-MCP currently installs Skill
+components and ignores optional Agent Plugin `mcp.json` because DCC adapters
+already own the runtime MCP connection.
+
+Catalog v2 also supports generic `targets` and typed `components`. Target kinds
+are `dcc`, `application`, `game`, and `web`; package formats are `skill`,
+`skill-bundle`, `agent-plugin`, `cua-profile`, and `composite`. A CUA Profile
+entry has one `cua-profile` component with a package-relative root:
+
+```json
+{
+  "name": "the-bazaar-profile",
+  "description": "The Bazaar semantic profile",
+  "targets": [{"kind": "game", "id": "the-bazaar"}],
+  "package": {
+    "format": "cua-profile",
+    "components": [
+      {"kind": "cua-profile", "id": "the-bazaar", "root": "."}
+    ]
+  }
+}
+```
+
+The Marketplace delegates Profile validation, installation, and removal to
+`dcc-cua profile validate|install|uninstall` with exact process arguments. Core
+does not parse the Profile schema. `DCC_MCP_CUA_BINARY` may select an explicit
+binary; otherwise the CLI checks its sibling directory and then `PATH`.
 
 ## Installation Types
 
@@ -102,15 +181,17 @@ backward-compatible input alias and should not be used for new entries.
 
 ### Git (`install.type: git`)
 
-Clones the repository on install, then uses `git fetch && git checkout <ref>`
-on subsequent updates. Best for actively developed skill packages.
+Requires a full 40-character commit object ID, fetches that exact object, checks
+it out detached, and verifies `HEAD` before installation. Branches, tags, short
+object IDs, and missing refs fail before Git starts. Updates reinstall the next
+catalog-pinned commit through the same staging boundary.
 
 ```yaml
 - name: dcc-mcp-maya-skills
   install:
     type: git
     url: "https://github.com/example/dcc-mcp-maya-skills.git"
-    ref: "v1.2.0"
+    ref: "0123456789abcdef0123456789abcdef01234567"
 ```
 
 ### Zip (`install.type: zip`)
@@ -124,7 +205,7 @@ one top-level directory, which is flattened automatically.
   install:
     type: zip
     url: "https://example.com/packages/hunyuan-v2.zip"
-    sha256: "a1b2c3d4e5f6..."
+    sha256: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 ```
 
 ### Path (`install.type: path`)
@@ -154,8 +235,21 @@ dccmcp marketplace publish . \
   --sha256 sha256:<digest>
 ```
 
+Publish a Profile package with explicit typed metadata:
+
+```bash
+dccmcp marketplace publish . \
+  --catalog ../marketplace/marketplace.json \
+  --install-url https://example.com/the-bazaar-profile.zip \
+  --name the-bazaar-profile \
+  --description "The Bazaar semantic profile" \
+  --target game:the-bazaar \
+  --format cua-profile \
+  --component cua-profile:the-bazaar=.
+```
+
 This is the recommended path for stable packages. Development packages can
-still use `install.type: git` entries.
+still use `install.type: git`, but must publish the exact commit being tested.
 
 Minimal GitHub Actions shape for package repositories:
 
@@ -182,10 +276,10 @@ jobs:
 
 ## Direct GitHub Install (`add-repo`)
 
-Inspired by `npx skills`, the `marketplace add-repo` command installs a skill
+Inspired by `npx skills`, the `marketplace add-repo` command installs a Skill or Agent Plugin
 directly from a GitHub repository without requiring a `marketplace.json` catalog
-entry. It clones the repo, discovers `SKILL.md` files, and copies the matching
-skill to the marketplace install root.
+entry. It clones the repo, validates a root `plugin.json` when present, and
+installs either the complete plugin or the matching Skill.
 
 ### Usage
 
@@ -245,7 +339,7 @@ The `dcc` field (under `metadata.dcc-mcp.dcc`) is optional but recommended; use
 |-------------------------|------------------------------|---------------------------------|
 | Requires catalog entry  | Yes                          | No                              |
 | Source resolution       | Via sources.json / --source  | Direct GitHub clone             |
-| Version tracking        | Catalog version + git ref    | HEAD of cloned branch           |
+| Version tracking        | Catalog version + commit OID | Explicit `--commit` OID         |
 | Update mechanism        | Catalog-driven update check  | Re-clone (future)               |
 | SKILL.md discovery      | Via catalog entry metadata   | Filesystem scan                 |
 
@@ -261,7 +355,9 @@ Installed packages land under:
 │   └── dcc-cross-dcc-skill/
 ├── maya/
 │   ├── dcc-mcp-maya-skills/  # installed git clone
-│   └── my-custom-skill/      # installed path copy
+│   ├── my-custom-skill/      # installed path copy
+│   └── .packages/
+│       └── rig-plugin/       # one manifest for unified bundle uninstall
 └── blender/
     └── dcc-blender-skills/
 ```
@@ -331,8 +427,11 @@ falling back to the local `dcc-mcp-catalog.yml` when offline. Set
   install:
     type: git                        # git | zip | path
     url: "https://github.com/..."
-    ref: "v1.2.0"                    # tag/branch/commit (git type)
-    sha256: "a1b2c3..."              # content hash (zip type)
+    ref: "0123456789abcdef0123456789abcdef01234567" # full commit OID (git)
+    sha256: "sha256:<64-hex-digest>" # mandatory content hash (zip)
+  package:
+    format: agent-plugin              # agent-plugin | skill-bundle
+    skills: [maya-rig, rig-review]    # displayed package components
   maintainer: "team@example.com"     # optional contact
 ```
 
@@ -354,7 +453,7 @@ displays the Browse tab by default.
    tags. Use the DCC type Chip row to filter by application type. Search and
    DCC filter can be combined.
 2. **Inspect**: click any package card to open the detail modal, which shows
-   full metadata including version, DCC type, tags, maintainer, project URL,
+   full metadata including version, included Skills, DCC type, tags, maintainer, project URL,
    source, install type, and `min_core_version` compatibility information.
 3. **Install**: click the **Install** button on a card or in the detail modal.
    On success, an inline notice appears with a **View in Skills** deep link
@@ -383,13 +482,13 @@ future phase.
 | Aspect | CLI | Admin UI |
 |--------|-----|----------|
 | Catalog search | `marketplace search --query <q>` | Browse tab with search + DCC filter |
-| Install | `marketplace install <name> --dcc <dcc>` | Install button on card or detail modal |
-| Uninstall | `marketplace uninstall <name> --dcc <dcc>` | Uninstall button in Installed tab |
+| Install | `marketplace install <name> --dcc <dcc> --reload` | Install button on card or detail modal |
+| Uninstall | `marketplace uninstall <name> [--dcc <dcc>] [--reload]` | Uninstall button in Installed tab |
 | List installed | `marketplace list-installed --dcc <dcc>` | Installed tab |
 | Add source | `marketplace add <source>` | Source management in panel |
-| Direct GitHub install | `marketplace add-repo <repo> --dcc <dcc>` | Admin API (planned) |
+| Direct GitHub install | `marketplace add-repo <repo> --commit <oid> --dcc <dcc>` | Admin API (planned) |
 | Update | `marketplace update [name] --all` | Admin API (`POST /admin/api/marketplace/update`) |
-| Live adapter refresh | `reload-skills --dcc-type <dcc>` after install/update/uninstall | Automatic when the backend reports `reload_required` |
+| Live adapter refresh | Bundled with install `--reload`; standalone after update/uninstall | Automatic when the backend reports `reload_required` |
 
 Both interfaces share the same installed package state, but live adapters only
 see newly installed CLI packages after startup or an explicit

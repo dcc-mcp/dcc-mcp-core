@@ -21,8 +21,8 @@ import-light sidecar, readiness, process, and lock-classification primitives.
 The universal front door is plan-first:
 
 ```bash
-dcc-mcp-cli install --dcc-type <dcc>
-dcc-mcp-cli install --dcc-type <dcc> --execute --json
+dccmcp install --dcc-type <dcc>
+dccmcp install --dcc-type <dcc> --execute --json
 ```
 
 An adapter that owns host-specific installation behavior MUST expose one

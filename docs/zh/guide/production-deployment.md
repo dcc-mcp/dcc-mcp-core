@@ -50,10 +50,12 @@ cross build --release --bin dcc-mcp-server --target x86_64-unknown-linux-gnu
 GitHub Release 会附带可直接解压部署的
 `dcc-mcp-server-<version>-<platform>.zip`，例如
 `dcc-mcp-server-0.18.12-linux-x86_64.zip`。每个 zip 根目录包含
-`dcc-mcp-server` 和 `dcc-mcp-cli` 两个二进制（Windows 上带 `.exe`）。
+`dcc-mcp-server` 以及声明的 server runtime helper（Windows 上带 `.exe`）。
 
-同时还会发布仅含 CLI 的 ZIP 包（`dcc-mcp-cli-<version>-<platform>.zip`），
-供仅需 CLI 二进制的环境使用。原生应用控制由
+仅含 CLI 的 ZIP 包（`dccmcp-<version>-<platform>.zip`）由
+[独立 CLI Release](https://github.com/dcc-mcp/dcc-mcp-cli/releases) 发布，
+兼容包 `dcc-mcp-cli-<version>-<platform>.zip` 也在那里发布。WinGet 和
+Homebrew 的自动发布任务同样由 CLI 仓库负责。原生应用控制由
 `dcc-mcp/dcc-cua` 项目单独发布为 `dcc-cua`；Core 运行时校验其
 machine manifest，但不再打包或更新它。manifest 必须声明
 `runtime.separate_driver_required=false`，因此部署不会再添加独立的 `cua-driver`

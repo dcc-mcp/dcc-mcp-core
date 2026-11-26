@@ -25,7 +25,7 @@ hero:
 features:
   - icon: 🤖
     title: Agent 开箱即用
-    details: 安装公开 dcc-mcp Skill，再用 dcc-mcp-cli 完成实例盘点、能力搜索、契约检查与 typed tool 调用。
+    details: 安装公开 dcc-mcp Skill，再用 dccmcp 完成实例盘点、能力搜索、契约检查与 typed tool 调用。
   - icon: 🎯
     title: 动态能力路由
     details: Agent 通过一个 gateway search、describe、call 工具，不再把所有后端工具塞进上下文。

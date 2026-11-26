@@ -33,7 +33,7 @@ from pathlib import Path
 import re
 import sys
 
-DEFAULT_EXPECTED_COUNT = 33
+DEFAULT_EXPECTED_COUNT = 27
 
 _PLATFORMS = ("linux-x86_64", "macos-universal2", "windows-x86_64")
 _PLATFORM_ALTERNATION = "|".join(_PLATFORMS)
@@ -71,12 +71,11 @@ def required_asset_groups(version: str) -> tuple:
         ("semantic-py37", rf"^dcc_mcp_core_semantic-{escaped}-cp37-cp37m-\S+\.whl$", 2),
         ("semantic-abi3", rf"^dcc_mcp_core_semantic-{escaped}-cp38-abi3-\S+\.whl$", 3),
         ("server-wheel", rf"^dcc_mcp_server-{escaped}-py3-none-\S+\.whl$", 3),
-        # Standalone server / CLI binaries, their versioned bundles, and the
-        # update manifests (plus one Sigstore attestation per manifest).
+        # Standalone server binaries, their versioned bundles, and the update
+        # manifests (plus one Sigstore attestation per manifest). The CLI is
+        # released independently from dcc-mcp/dcc-mcp-cli.
         ("server-binary", rf"^dcc-mcp-server-({_PLATFORM_ALTERNATION})(\.exe)?$", 3),
-        ("cli-binary", rf"^dcc-mcp-cli-({_PLATFORM_ALTERNATION})(\.exe)?$", 3),
         ("server-bundle", _platform_pattern("dcc-mcp-server", escaped, r"\.zip"), 3),
-        ("cli-bundle", _platform_pattern("dcc-mcp-cli", escaped, r"\.zip"), 3),
         ("update-manifest", _platform_pattern("dcc-mcp-update-manifest", "", r"\.json"), 3),
         (
             "update-manifest-attestation",

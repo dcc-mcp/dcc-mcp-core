@@ -335,7 +335,7 @@ JSON type, so an `int` stays an `int` and nested containers survive the
 handle; they land in the registry row on the next heartbeat tick (≤ 5 s) and
 are then visible to the `list_dcc_instances` MCP tool, to the gateway HTTP
 `/instances` listing, and to :class:`ServiceEntry` consumers such as
-`dcc-mcp-cli`.
+`dccmcp`.
 
 ```python
 from dcc_mcp_core import McpHttpConfig

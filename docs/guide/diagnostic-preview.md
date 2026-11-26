@@ -5,8 +5,8 @@ Older binaries can activate a staged update before argument parsing; do not
 probe them with help, version, or preview commands to establish safety.
 
 ```bash
-dcc-mcp-cli --output json feedback bundle reviewed-finding.json
-dcc-mcp-cli --output json feedback file reviewed-finding.json
+dccmcp --output json feedback bundle reviewed-finding.json
+dccmcp --output json feedback file reviewed-finding.json
 ```
 
 Both preview paths finish before legacy updater activation, profile/gateway

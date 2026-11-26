@@ -2,7 +2,7 @@
 
 Agent feedback and rationale utilities for DCC-MCP servers (issues #433, #434).
 
-Three complementary features: **Rationale capture** — agents include `_meta.dcc.rationale` in `tools/call` requests to explain why they are invoking a tool. **Gateway feedback** — `POST /v1/feedback` and `dcc-mcp-cli feedback` remain available with zero live DCC instances. **Compatibility forwarder** — `dcc_feedback__report` remains available on live adapters and forwards through the same gateway contract.
+Three complementary features: **Rationale capture** — agents include `_meta.dcc.rationale` in `tools/call` requests to explain why they are invoking a tool. **Gateway feedback** — `POST /v1/feedback` and `dccmcp feedback` remain available with zero live DCC instances. **Compatibility forwarder** — `dcc_feedback__report` remains available on live adapters and forwards through the same gateway contract.
 
 **Exported symbols:** `FINDING_V1_SCHEMA_VERSION`, `FindingRuntimeContext`, `FindingValidationError`, `build_finding_v1`, `finding_fingerprint`, `finding_v1_json_schema`, `clear_feedback`, `extract_rationale`, `get_feedback_entries`, `make_rationale_meta`, `register_feedback_tool`
 
@@ -34,9 +34,9 @@ Resolve a validated Finding v1 file to its owning public issue tracker without
 starting or contacting a gateway:
 
 ```bash
-dcc-mcp-cli feedback route finding.json --json
+dccmcp feedback route finding.json --json
 # Use a reviewed catalog instead of the bundled public catalog:
-dcc-mcp-cli feedback route finding.json --catalog catalog.yml --json
+dccmcp feedback route finding.json --catalog catalog.yml --json
 ```
 
 The command is read-only: it returns `repo`, `issues_url`, and a stable
@@ -74,11 +74,11 @@ After reviewing a Finding and setting `redaction_status.mode="public-safe"`
 with every exclusion flag true, assemble its bounded diagnostic evidence:
 
 ```bash
-dcc-mcp-cli feedback bundle finding.json --json
+dccmcp feedback bundle finding.json --json
 # Include the terminal JSON emitted by install --execute --json:
-dcc-mcp-cli feedback bundle finding.json --install-report install-report.json --json
+dccmcp feedback bundle finding.json --install-report install-report.json --json
 # Override discovery when the PID or log root is not in the finding:
-dcc-mcp-cli feedback bundle finding.json --dcc-pid 4321 --log-dir /safe/log/root --json
+dccmcp feedback bundle finding.json --dcc-pid 4321 --log-dir /safe/log/root --json
 ```
 
 `feedback bundle` is read-only and does not auto-start a Gateway. It combines
@@ -117,7 +117,7 @@ Plan an issue operation from a reviewed public-safe Finding without starting a
 Gateway:
 
 ```bash
-dcc-mcp-cli feedback file finding.json --json
+dccmcp feedback file finding.json --json
 # After reviewing the returned next_step and obtaining user authorization,
 # execute next_step.argv exactly. Do not reconstruct or shorten it.
 ```
@@ -184,9 +184,9 @@ Shell-capable agents use the published `dcc-mcp` Skill and existing CLI
 surfaces:
 
 ```bash
-dcc-mcp-cli doctor
-dcc-mcp-cli stats --range 24h --status failure --session-id <session-id>
-dcc-mcp-cli feedback \
+dccmcp doctor
+dccmcp stats --range 24h --status failure --session-id <session-id>
+dccmcp feedback \
   --tool-name tool_that_failed \
   --intent "goal" \
   --attempt "sanitized attempt" \
@@ -222,11 +222,11 @@ but never replaces the original startup exception, and no external tracker I/O
 is performed.
 
 ```bash
-dcc-mcp-cli feedback list --range 7d --dcc maya --severity blocked --json
-dcc-mcp-cli feedback export --range all --dcc maya --json
-dcc-mcp-cli feedback route finding.json --json
-dcc-mcp-cli feedback bundle reviewed-finding.json --json
-dcc-mcp-cli feedback file reviewed-finding.json --json
+dccmcp feedback list --range 7d --dcc maya --severity blocked --json
+dccmcp feedback export --range all --dcc maya --json
+dccmcp feedback route finding.json --json
+dccmcp feedback bundle reviewed-finding.json --json
+dccmcp feedback file reviewed-finding.json --json
 ```
 
 Both commands call `GET /admin/api/feedback`. `list` defaults to 100 rows and

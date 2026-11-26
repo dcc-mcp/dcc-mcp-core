@@ -15,10 +15,9 @@ chrome, native dialogs, canvas-only content, and non-browser applications.
 
 ## Standalone CUA setup
 
-The official `dcc-mcp-cli` installer also reconciles the independently released
-`dcc-cua` companion. Inspect or repair it explicitly with
-`dcc-mcp-cli components status dcc-cua` and
-`dcc-mcp-cli components ensure dcc-cua --yes`. Core probes
+The independently released `dcc-cua` companion is accessed through the
+forwarding command `dccmcp cua --`. Inspect or ensure its Host explicitly with
+`dccmcp cua -- manifest` and `dccmcp cua -- host-ensure`. Core probes
 `DCC_MCP_INSTALL_DIR`, the standard dcc-mcp bin directory, versioned standalone
 installs, and `PATH`. Set `DCC_MCP_CUA_BINARY` to an absolute executable path
 only for a custom layout.
@@ -60,8 +59,8 @@ Escape broadcast.
 4. `ui_control__wait_for` or another snapshot
 5. `ui_control__stop_computer_use`
 
-After `dcc-mcp-cli load-skill ui-control`, local
-`dcc-mcp-cli search --query "ui control snapshot"` includes loaded
+After `dccmcp load-skill ui-control`, local
+`dccmcp search --query "ui control snapshot"` includes loaded
 `ui_control__*` tool slugs; the load response remains an immediate compact
 schema shortcut.
 

@@ -89,7 +89,7 @@ patterns, and verification requirements.
 
 ### CLI Interface
 
-The `dcc-mcp-cli ui-control` subcommand exposes the same capabilities through
+The `dccmcp ui-control` subcommand exposes the same capabilities through
 the shell:
 
 ```bash

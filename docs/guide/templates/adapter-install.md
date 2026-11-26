@@ -49,8 +49,8 @@ selects the exact host version and its matching profile/project layout.
 Inspect the universal Core plan first:
 
 ```bash
-dcc-mcp-cli install --dcc-type {dcc}
-dcc-mcp-cli install --dcc-type {dcc} --execute --json
+dccmcp install --dcc-type {dcc}
+dccmcp install --dcc-type {dcc} --execute --json
 ```
 
 When this adapter owns host-specific lifecycle execution, use its standard
@@ -236,8 +236,8 @@ visible alongside the original startup error.
 For shared runtime diagnosis, preserve the failed result and run:
 
 ```bash
-dcc-mcp-cli doctor
-dcc-mcp-cli list
+dccmcp doctor
+dccmcp list
 ```
 
 Catalog `instructions_url` for this runbook:

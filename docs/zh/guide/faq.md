@@ -87,7 +87,7 @@ npx --yes clawhub@0.23.1 install @loonghao/dcc-mcp
 ```
 
 安装后开启新的 agent turn。`dcc-mcp` 会指导 Agent 按
-`dcc-mcp-cli list -> search -> describe/load-skill -> call` 执行。
+`dccmcp list -> search -> describe/load-skill -> call` 执行。
 
 ## Actions
 
@@ -331,7 +331,7 @@ handle = server.start()
 print(handle.is_gateway)  # 如果此进程赢得了 Gateway 端口则为 True
 ```
 
-具备 shell 能力的 Agent 使用 `dcc-mcp` Skill 和 `dcc-mcp-cli`，local profile
+具备 shell 能力的 Agent 使用 `dcc-mcp` Skill 和 `dccmcp`，local profile
 会自动发现已注册实例。只有 MCP-only 客户端才连接
 `http://localhost:9765/mcp`；需要指定 DCC 进程时读取
 `gateway://instances` 资源，每条记录已经携带 `mcp_url`。
@@ -385,9 +385,9 @@ cfg.init()
 Agent 应先完成自查，再创建 issue：
 
 1. 保留失败调用的 `request_id`；启动/readiness 问题运行
-   `dcc-mcp-cli doctor`，任务范围证据运行
-   `dcc-mcp-cli stats --status failure --session-id <id>`。
-2. 运行 `dcc-mcp-cli feedback`，把结构化反馈记录到 Gateway；崩溃类故障附带
+   `dccmcp doctor`，任务范围证据运行
+   `dccmcp stats --status failure --session-id <id>`。
+2. 运行 `dccmcp feedback`，把结构化反馈记录到 Gateway；崩溃类故障附带
    最后已知的 instance/request/job id。DCC 退出后该路径仍可用。
 3. gateway 路径失败时获取 public-safe
    `/v1/debug/issue-reports/<request_id>`；它包含建议 title/body，未经人工审查

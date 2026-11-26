@@ -41,15 +41,15 @@ returned load/describe/call step, then invoke the typed tool.
 
 | Scenario | Recommended Path | How it works |
 |----------|-----------------|--------------|
-| AI agent (OpenClaw, Hermes, Codex CLI, custom agent runtime) | **CLI+REST** | One `dcc-mcp` skill → shell `dcc-mcp-cli` → gateway `POST /v1/{search,describe,call}` |
+| AI agent (OpenClaw, Hermes, Codex CLI, custom agent runtime) | **CLI+REST** | One `dcc-mcp` skill → shell `dccmcp` → gateway `POST /v1/{search,describe,call}` |
 | IDE user (Cursor, Claude Desktop, VS Code) | **IDE MCP** | Manual `mcp_servers.json` / `claude_desktop_config.json` → gateway MCP tools (`search`/`describe`/`call`) |
-| CI/CD / automation script | **CLI+REST** | `dcc-mcp-cli health/list/smoke/search/call/load-skill` — scriptable, auditable |
-| Troubleshooting / operations | **CLI+REST** | `dcc-mcp-cli` with structured output and exit codes |
+| CI/CD / automation script | **CLI+REST** | `dccmcp health/list/smoke/search/call/load-skill` — scriptable, auditable |
+| Troubleshooting / operations | **CLI+REST** | `dccmcp` with structured output and exit codes |
 | Studio / team integration | **CLI+REST** | Fork `dcc-mcp` skill → one skill controls all DCCs, no per-DCC MCP server config |
 | GUI artist using DCC plugin directly | **IDE MCP** | DCC's built-in MCP plugin exposes tools directly to the IDE |
 
 **Core principle:**
-- **AI agents** start with `dcc-mcp` skill + `dcc-mcp-cli` CLI. The CLI handles gateway lifecycle (ensure, health, start); `search` returns the exact next load, describe, or call step.
+- **AI agents** start with `dcc-mcp` skill + `dccmcp` CLI. The CLI handles gateway lifecycle (ensure, health, start); `search` returns the exact next load, describe, or call step.
 - **Human IDE users** continue using MCP configuration. The gateway serves both paths simultaneously.
 - **CLI-first does not deprecate MCP** — the gateway always exposes both MCP and REST side by side.
 
@@ -67,7 +67,7 @@ Install only the Skill matching the task. OpenClaw uses
 Start a new agent turn after installation.
 
 **CLI availability and updates:**
-- If `dcc-mcp-cli` is missing, obtain user consent before running an official
+- If `dccmcp` is missing, obtain user consent before running an official
   installer. Prefer the verified helper bundled with the installed `dcc-mcp`
   Skill; otherwise inspect `scripts/install-cli.sh` or `scripts/install-cli.ps1`
   before running the local file.
@@ -75,11 +75,11 @@ Start a new agent turn after installation.
   most once per 24 hours; failures retry after one hour and never block the
   current command. When output contains `cli_update.version_status` set to
   `update_available`, report the current/latest versions, then run
-  `dcc-mcp-cli update`. It checks, downloads, and stages the latest CLI for the
+  `dccmcp update`. It checks, downloads, and stages the latest CLI for the
   next launch in one step with no separate confirmation flag, and re-verifies
   its mandatory SHA-256 before replacement. Legacy unsigned staging is
   quarantined. It does not replace or restart a running `dcc-mcp-server` or DCC
-  host. Use `dcc-mcp-cli update check` for an immediate structured status
+  host. Use `dccmcp update check` for an immediate structured status
   refresh.
 
 ## Response Language
@@ -164,7 +164,7 @@ vendor requires a genuine divergence.
 | Conceptual docs | [`docs/guide/INDEX.md`](docs/guide/INDEX.md) + `docs/api/` | Building a new adapter or skill — see INDEX.md for topic list |
 | Skill authoring | [`dcc-mcp-skills-creator` on ClawHub](https://clawhub.ai/loonghao/skills/dcc-mcp-skills-creator) | Creating or modifying DCC-specific Skills |
 | Adapter developer guidance | [`dcc-mcp-creator` on ClawHub](https://clawhub.ai/loonghao/skills/dcc-mcp-creator) | Before creating or changing DCC adapter server/runtime wiring, dispatcher bridges, readiness, resources, gateway behavior, or core-escalation plans |
-| CLI + marketplace operations | [`dcc-mcp` on ClawHub](https://clawhub.ai/loonghao/skills/dcc-mcp) | Agents doing DCC control via `dcc-mcp-cli` — gateway ensure, inventory, search, describe, call, marketplace install/update |
+| CLI + marketplace operations | [`dcc-mcp` on ClawHub](https://clawhub.ai/loonghao/skills/dcc-mcp) | Agents doing DCC control via `dccmcp` — gateway ensure, inventory, search, describe, call, marketplace install/update |
 | Marketplace extension publishing | [`skills/marketplace-publish-extension/SKILL.md`](skills/marketplace-publish-extension/SKILL.md) | Before publishing a new skill package to the DCC-MCP marketplace |
 | Marketplace extension creation | [`skills/marketplace-create-extension/SKILL.md`](skills/marketplace-create-extension/SKILL.md) | Before creating a new marketplace extension package |
 | Gateway REST regressions (VRS) | [`tests/vrs/README.md`](tests/vrs/README.md) + `scripts/vrs_replay.py` | After gateway `/v1/*` or live-adapter bugs — add a JSONL trace per regression |
@@ -183,7 +183,7 @@ Repeating work in a DCC host has one normative entry point:
    `params` object with values matching the schema derived from the script's typed
    `def main(...)` signature. Do not rewrite or re-materialize unchanged code. There
    is no dedicated CLI flag or params-file option for params-only reuse; the general
-   `dcc-mcp-cli call --json-file` command can pass a large argument object but does
+   `dccmcp call --json-file` command can pass a large argument object but does
    not create a reusable script identity.
 3. **Repeat a multi-step procedure → `workflows_run`.** After the same sequence succeeds
    twice, promote it to a workflow spec with stable `idempotency_key` values and poll with
@@ -225,14 +225,14 @@ Repeating work in a DCC host has one normative entry point:
 **The default path for AI agents is CLI+REST through the gateway.** The per-DCC MCP server path is for IDE users and legacy setups.
 
 ```
-Gateway CLI+REST (agent default — use dcc-mcp skill + dcc-mcp-cli):
-Support check (only when unclear): `dcc-mcp-cli dcc-types` lists canonical adapter-backed identifiers from the release catalog without starting a gateway. For one target, use `dcc-mcp-cli --output json dcc-types --dcc-type <dcc>` to keep catalog support, local registration, readiness, and later capability evidence separate; `live_instances: 0` means an observed empty local registry while `null` means the observation is unavailable, and neither is proof that the adapter, installation, or project-local host is absent. Use `list` for full live-session inventory.
-1. Discover: `dcc-mcp-cli search --query "keyword" --dcc-type maya` or `POST /v1/search` → get `tool_slug`; names/summaries are tokenized, so underscores are optional (`create_sphere` and `sphere` both work).
+Gateway CLI+REST (agent default — use dcc-mcp skill + dccmcp):
+Support check (only when unclear): `dccmcp dcc-types` lists canonical adapter-backed identifiers from the release catalog without starting a gateway. For one target, use `dccmcp --output json dcc-types --dcc-type <dcc>` to keep catalog support, local registration, readiness, and later capability evidence separate; `live_instances: 0` means an observed empty local registry while `null` means the observation is unavailable, and neither is proof that the adapter, installation, or project-local host is absent. Use `list` for full live-session inventory.
+1. Discover: `dccmcp search --query "keyword" --dcc-type maya` or `POST /v1/search` → get `tool_slug`; names/summaries are tokenized, so underscores are optional (`create_sphere` and `sphere` both work).
 2. Follow `next_step`: a no-schema hit calls directly only when search also carries safety hints; otherwise perform the returned targeted `load_skill` or `describe`. A correlated load may inline `compact_schema` with safety/execution hints and point straight to `call`.
-3. Execute: `dcc-mcp-cli call <slug> --json '{"radius": 2.0}'` or `POST /v1/call`.
-4. Batch execute: `dcc-mcp-cli call --batch --steps '<json-array>'` or `POST /v1/call_batch` for ordered batches (max 25).
-5. Package as a skill: fork or extend `dcc-mcp` to reuse `dcc-mcp-cli` calls as structured MCP tools.
-6. Review reusable friction only after acceptance: query narrowly scoped `dcc-mcp-cli stats`, then use the `review_skill_improvement` prompt from `dcc-mcp-skills-creator`; zero calls means no evidence, and review never expands edit/publish authority.
+3. Execute: `dccmcp call <slug> --json '{"radius": 2.0}'` or `POST /v1/call`.
+4. Batch execute: `dccmcp call --batch --steps '<json-array>'` or `POST /v1/call_batch` for ordered batches (max 25).
+5. Package as a skill: fork or extend `dcc-mcp` to reuse `dccmcp` calls as structured MCP tools.
+6. Review reusable friction only after acceptance: query narrowly scoped `dccmcp stats`, then use the `review_skill_improvement` prompt from `dcc-mcp-skills-creator`; zero calls means no evidence, and review never expands edit/publish authority.
 7. On failure, preserve `request_id`; use `doctor`, failure-filtered `stats`, and the CLI-discovered `dcc_feedback__report`. Use public-safe `/v1/debug/issue-reports/{request_id}` for a reviewed bug report; never publish raw evidence or create an external issue without user authorization.
 8. The gateway never fans out per-tool backend tools into `tools/list`; the advertised gateway MCP surface is read-only discovery (`search`, `describe`) only.
 9. Use `ui-control` Computer Use only when a structured DCC skill/script/API is unsupported, missing, or cannot reach the required semantic UI. Never switch to another UI/input path after a policy, authorization, authentication, security, confirmation, desktop-availability, or user-interruption failure. The adapter/operator must bind native input to its DCC with `DCC_MCP_UI_CONTROL_PROCESS_ID` or `DCC_MCP_UI_CONTROL_WINDOW_HANDLE`; requests may only narrow that trusted scope. Use `snapshot` → one `act` → `snapshot`, then `stop_computer_use` on every exit path.

@@ -2,14 +2,15 @@
 
 **DCC-MCP-Core** is a Rust-first library (with Python bindings) that exposes capabilities inside DCC (Digital Content Creation) tools — Maya, Blender, Houdini, Photoshop, ZBrush, Unreal, Unity, Figma, and custom studio hosts — through a **layered surface**:
 
-- **AI assistants** → a small, static **MCP** discovery set (`search`, `describe`) via the gateway, plus REST `/v1/*` for execution.
+- **Shell-capable AI agents** → the published `dcc-mcp` Skill plus `dccmcp` for `search → describe → call`.
+- **MCP-only IDE clients** → the gateway's small, static MCP workflow (`search`, `describe`, `load_skill`, `call`).
 - **Traditional callers** (cURL, CI, any HTTP client) → a full **`/v1/*` REST API** on every per-DCC server and on the gateway facade.
 
-The core is Rust, compiled to a Python extension via [PyO3](https://pyo3.rs/) + [maturin](https://github.com/PyO3/maturin). It has no third-party Python library runtime dependencies; the companion `dcc-mcp-server` wheel supplies the packaged gateway daemon binary.
+The core is Rust, compiled to a Python extension via [PyO3](https://pyo3.rs/) + [maturin](https://github.com/PyO3/maturin). Python 3.8+ uses standard-library typing objects directly; Python 3.7 uses a bounded internal compatibility subset without installing or importing a typing backport. The companion `dcc-mcp-server` wheel supplies the packaged gateway daemon binary.
 
 ---
 
-## Core workflow (2026-05 refresh)
+## Core workflow (2026-07 refresh)
 
 ```mermaid
 flowchart LR
@@ -29,11 +30,12 @@ flowchart LR
       PERDCC --> GW
     end
 
-    AGENT([AI assistant]):::client
+    AGENT([Shell-capable agent + dcc-mcp Skill]):::client
+    IDE([MCP-only IDE client]):::client
     TRAD([cURL / CI / traditional backends]):::client
 
-    AGENT -->|MCP: search<br/>describe| GW
-    AGENT -->|REST: POST /v1/call| GW
+    AGENT -->|dcc-mcp-cli: search<br/>describe / call| GW
+    IDE -->|MCP: search<br/>describe / load_skill / call| GW
     TRAD -->|REST: POST /v1/search<br/>/describe /call| GW
     TRAD -.->|direct REST to per-DCC| PERDCC
     GW -->|/v1/call routes to owning DCC| PERDCC
@@ -91,7 +93,6 @@ dcc-mcp-core/
 │   ├── dcc-mcp-workflow/            # YAML declarative workflows
 │   ├── dcc-mcp-scheduler/           # cron / timers
 │   ├── dcc-mcp-artefact/            # file/data hand-off between tools
-│   ├── dcc-mcp-app-ui/              # DCC-agnostic app_ui contract types
 │   ├── dcc-mcp-http-types/          # pure HTTP wire/config/value types, McpHttpConfig (#852)
 │   ├── dcc-mcp-http-server/         # reusable HTTP runtime support (#852)
 │   ├── dcc-mcp-http-py/             # PyO3 binding boundary for HTTP APIs (#852)
@@ -117,7 +118,7 @@ dcc-mcp-core/
     └── dcc_mcp_core/
         ├── __init__.py              # public API re-exports from _core
         ├── constants.py             # METADATA_*, LAYER_*, CATEGORY_* (#487)
-        ├── result_envelope.py       # ToolResult factories (#487)
+        ├── result_envelope.py       # dependency-light ToolResultEnvelope builder
         ├── _server/                 # DccServerBase collaborators (#486)
         └── _core.pyi                # type stubs for every public API
 ```
@@ -180,7 +181,7 @@ Full symbol listing lives in the [API reference](/api/actions).
 |---|---|---|
 | **Gateway REST defaults to compact TOON** | `/v1/search`, `/v1/describe`, `/v1/call`, direct instance describe/call, and `/v1/call_batch` return `application/toon` unless the request opts out | Send `Accept: application/json` or body `response_format: "json"` for legacy JSON; operators can temporarily set `DCC_MCP_GATEWAY_RESPONSE_FORMAT=json` during client migrations |
 | **Gateway MCP surface converged** | `GatewayToolExposure` enum, `tool_exposure` / `publishes_backend_tools` config, `--gateway-tool-exposure` CLI flag all removed | Drop the code/config/env var; the gateway has a single (minimal) surface now |
-| **Gateway wrapper payloads are strict** | MCP `call`, hidden `call_tool` / `call_tools`, `/v1/call`, and `/v1/call_batch` normalize through `dcc-mcp-wire`; backend fields at the wrapper top level are ignored/rejected | Send `{tool_slug, arguments?, meta?}` or `{calls:[...]}` and put tool input inside `arguments`; use `normalize_tool_arguments()` in Python host wrappers |
+| **Gateway wrapper payloads are strict** | MCP `call`, hidden `call_tool` / `call_tools`, `/v1/call`, and `/v1/call_batch` normalize through `dcc-mcp-wire`; backend fields at the wrapper top level are ignored/rejected | Send `{tool_slug, arguments?, meta?}` or `{calls:[...]}` and put tool input inside `arguments`; use `dcc_mcp_core.wire.normalize_tool_arguments()` in Python wrappers |
 | **Gateway prompt names are cursor-safe** | Aggregated prompt names use `i_<id8>__<escaped>` instead of raw backend names | Store the returned prompt name exactly as listed; do not reconstruct it from DCC/tool names |
 | **Flat-form SKILL.md parser dropped** | `metadata: { "dcc-mcp.dcc": ... }` no longer populates typed fields | Use the nested form: `metadata: { dcc-mcp: { dcc: ... } }` |
 | **`register_dcc_api_docs` / `DccApiDoc*` removed** | Related Python API is gone | Use `register_docs_resource()` instead |

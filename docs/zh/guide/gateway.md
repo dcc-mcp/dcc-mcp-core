@@ -434,7 +434,7 @@ JSON-RPC `-32000` 错误，标识后端和 `job_id`。作业本身不会被
 
 如果是 **Gateway 进程**重启、但后端仍持有 Job，请用同一
 instance-scoped `jobs_get_status` slug 和同一 `job_id` 重连轮询。
-`dcc-mcp-cli call --wait` 会在总等待超时内自动重试连接中断以及
+`dccmcp call --wait` 会在总等待超时内自动重试连接中断以及
 404、429、502、503、504，输出 `control_plane_reconnecting`，且绝不
 重新提交原工具。恢复后最终 payload 带 `wait_recovery`。410 表示拥有
 Job 的 DCC/sidecar 已退出，CLI 会返回 `tracking_status=owner_exited`，
