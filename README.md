@@ -85,12 +85,17 @@ powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/dcc
 Keep an official build current through the release manifest:
 
 ~~~bash
+dccmcp update
 dccmcp update check
 dccmcp update apply
+dccmcp --auto-update list
 ~~~
 
-`update apply` downloads and stages the latest CLI for the next launch. It does
-not update a running `dcc-mcp-server`; update that server in its own environment.
+`dccmcp update` checks, downloads, verifies, and stages the latest CLI for the
+next launch. Set `DCC_MCP_CLI_AUTO_UPDATE=true` to enable the same best-effort
+behavior before ordinary commands. Update failures are warnings in automatic
+mode. These commands do not update a running `dcc-mcp-server`; update that
+server in its own environment.
 
 Then discover a live capability before calling it:
 

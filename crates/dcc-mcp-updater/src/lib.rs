@@ -262,6 +262,12 @@ impl Updater {
         Ok(())
     }
 
+    /// Return whether a verified update is waiting to be applied on launch.
+    pub fn has_staged_update(binary_name: &str) -> Result<bool, UpdateError> {
+        let dir = staging_dir(binary_name)?;
+        Ok(dir.join("pending.marker").is_file() && dir.join("pending.bin").is_file())
+    }
+
     /// Apply a previously staged update by swapping the current binary.
     ///
     /// To be called at startup BEFORE the main application logic runs.

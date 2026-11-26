@@ -34,13 +34,23 @@ powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/dcc
 
 Keep an official build current through the release manifest:
 
-```bash
+# Normal self-update: check, download, verify, and stage for the next launch.
+dccmcp update
+
+# Read-only check or explicit staging.
 dccmcp update check
 dccmcp update apply
+
+# Best-effort update before an ordinary command.
+dccmcp --auto-update list
 ```
 
-`update apply` downloads and stages the latest CLI for the next launch. It does
-not update a running `dcc-mcp-server`; update that server in its own environment.
+`dccmcp update` without a subcommand performs the normal self-update flow. It
+downloads the platform asset, verifies SHA-256, and stages the binary for the
+next launch. A staged update is reused. Set `DCC_MCP_CLI_AUTO_UPDATE=true` to
+enable the same best-effort behavior for ordinary commands. Automatic update
+failures are warnings and do not block the current command. This does not
+update a running `dcc-mcp-server`; update that server in its own environment.
 The standalone installers verify release `.sha256` sidecars before replacing a
 binary. Keep `DCC_MCP_ALLOW_UNSIGNED_DOWNLOADS` unset for normal installs.
 

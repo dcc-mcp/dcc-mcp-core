@@ -126,9 +126,11 @@ dccmcp reload-skills --dcc-type maya
 dccmcp marketplace update --all
 dccmcp marketplace pack path/to/skill --out dist/
 dccmcp marketplace publish path/to/skill --catalog marketplace.json --install-url https://example.com/skill.zip --sha256 sha256:<digest>
+dccmcp update
 dccmcp update check
 dccmcp update check --binary dcc-mcp-server --current-version 0.18.16
 dccmcp update apply
+dccmcp --auto-update list
 dccmcp gateway daemon start
 dccmcp gateway daemon restart
 dccmcp gateway daemon stop
@@ -156,8 +158,10 @@ dccmcp lint path/to/skills
 | `marketplace search/install/update/...` | marketplace catalog + local installed state | 搜索、安装、卸载和更新本地 marketplace skill 包。 |
 | `marketplace pack <path> [--out <path>]` | local filesystem + zip | 生成 marketplace 发布 ZIP 并输出 SHA-256 摘要。 |
 | `marketplace publish <path> --catalog <file> --install-url <url>` | local marketplace catalog file | 根据 `SKILL.md` 元数据和 CLI 覆盖字段创建或更新 `marketplace.json` 条目。 |
-| `update check [--binary <name>] [--current-version <version>]` | `GET /v1/update/check` | 检查 gateway update manifest。默认检查 CLI 自身；检查 Admin 面板里的实例版本时，传 `--binary dcc-mcp-server` 和对应 server 版本。 |
-| `update apply` | `GET /v1/update/check` + download URL | 下载并暂存 CLI binary，下一次 CLI 启动时应用。它不会更新正在运行的 server 实例；server 请用 Admin 实例页升级按钮，或在 server 环境里运行 `dcc-mcp-server update apply`。 |
+| `update` | `GET /v1/update/check` + download URL + SHA-256 校验 | 检查、下载、校验并暂存 CLI binary，下一次 CLI 启动时应用。已有暂存更新时不会重复下载。 |
+| `update check [--binary <name>] [--current-version <version>]` | `GET /v1/update/check` | 只读检查 gateway update manifest。默认检查 CLI 自身；检查 Admin 面板里的实例版本时，传 `--binary dcc-mcp-server` 和对应 server 版本。 |
+| `update apply` | `GET /v1/update/check` + download URL | 显式下载并暂存 CLI binary，下一次 CLI 启动时应用。它不会更新正在运行的 server 实例；server 请用 Admin 实例页升级按钮，或在 server 环境里运行 `dcc-mcp-server update apply`。 |
+| `--auto-update <command>` | 同上 | 在普通命令前尽力检查和暂存更新。可设置 `DCC_MCP_CLI_AUTO_UPDATE=true` 或传入该 flag。失败只输出 warning，不改变当前命令结果。 |
 | `gateway register <url> --name <profile>` | local profile config | 保存命名远程 gateway profile。 |
 | `gateway list` | local profile config | 显示已配置的远程 profile 和当前 local/remote 选择。 |
 | `gateway set <profile\|local>` | local profile config | 选择当前 gateway profile。 |
@@ -201,9 +205,9 @@ adapter 启动时，或下一次
 
 `dccmcp update` 面向由 gateway update manifest 暴露的二进制更新；
 manifest 通过 `DCC_MCP_UPDATE_MANIFEST_URL`（或
-`GatewayConfig.update_manifest_url`）配置。`update check` 只读取
-`/v1/update/check`，适合人和 agent 使用；CLI 会在请求前默认确保本机 gateway
-存在。`update apply` 只暂存 CLI binary。对于 server 实例，优先使用 Admin
+`GatewayConfig.update_manifest_url`）配置。无子命令的 `update` 会检查、下载、
+校验 SHA-256 并暂存 CLI binary；`update check` 只读取 `/v1/update/check`，
+适合人和 agent 使用。CLI 会在请求前默认确保本机 gateway 存在。对于 server 实例，优先使用 Admin
 实例页的升级按钮：它调用 `POST /admin/api/instances/{instance_id}/update`，
 并以需要重启的状态暂存 `dcc-mcp-server`。如果你就在 server 所在环境操作，
 则使用 `dcc-mcp-server update apply`。
@@ -218,9 +222,11 @@ manifest 通过 `DCC_MCP_UPDATE_MANIFEST_URL`（或
 
 | 平台 | 资产 |
 |---|---|
-| Linux x86_64 | `dcc-mcp-cli-linux-x86_64` |
-| Windows x86_64 | `dcc-mcp-cli-windows-x86_64.exe` |
-| macOS universal2 | `dcc-mcp-cli-macos-universal2` |
+| Linux x86_64 | `dccmcp-linux-x86_64` |
+| Windows x86_64 | `dccmcp-windows-x86_64.exe` |
+| macOS universal2 | `dccmcp-macos-universal2` |
+
+兼容资产仍以 `dcc-mcp-cli-*` 命名，并使用相同的平台后缀。
 
 默认安装位置：Linux/macOS 为 `~/.local/bin`，Windows 为
 `%LOCALAPPDATA%\dcc-mcp\bin`。可用 `DCC_MCP_INSTALL_DIR` 或

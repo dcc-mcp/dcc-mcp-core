@@ -43,8 +43,10 @@ REST 客户端通过 `/v1/search`、`/v1/describe` 和 `/v1/call` 使用相同�
 
 ## DCC UI Control 回退
 
-**DCC UI Control** 是对外统一的跨平台能力名。Shell Agent 使用
-`dccmcp ui-control`；`app_ui__*` 仅作为 MCP 原生客户端和现有适配器的兼容工具命名。
+**DCC UI Control** 是对外统一的跨平台能力名。DCCMCP 是控制面，
+`dcc-cua` 是该稳定 `dccmcp ui-control` 路由背后的项目自有执行能力层。
+DCC-CUA host 负责准确窗口绑定、截图、UI Automation、原生输入、可见安全提示、
+用户中断和审计记录。`app_ui__*` 继续作为 MCP 原生客户端和现有适配器的兼容工具名。
 不要把这项 DCC 范围内的能力称为通用 Computer Use。
 
 CLI 契约不绑定平台：
@@ -54,6 +56,11 @@ dccmcp ui-control snapshot --instance-id <id> --json '{"session_id":"ui","proces
 dccmcp ui-control act --instance-id <id> --json '{"session_id":"ui","control_id":"ok","action":"click","snapshot_id":"<snapshot_id>"}'
 dccmcp ui-control stop --instance-id <id> --json '{"session_id":"ui"}'
 ```
+
+第一次 snapshot 或输入动作之前，DCC-CUA host 必须报告
+`provider=dcc-cua`、运行时版本以及准确的目标 PID 和 HWND。CLI 负责参数校验和路由，
+不直接实现桌面输入。即使用户明确要求通过项目能力控制浏览器或其他非 DCC 应用，
+仍必须使用项目自有的 `ui-control` 路由和同一套绑定契约。
 
 当前 Windows 提供原生范围窗口覆盖层和输入参考后端。macOS/Linux 适配器应保持同一
 CLI 和工具契约，并分别使用平台 API 实现截图、可访问性、安全提示和用户中断。
@@ -71,6 +78,11 @@ CLI 和工具契约，并分别使用平台 API 实现截图、可访问性、�
 3. 使用最新的 `snapshot_id` 执行且只执行一次 `app_ui__act`。
 4. 操作后立即重新调用 `app_ui__snapshot`。绝不复用旧截图中的坐标、控件 ID 或 observation ID。
 5. 每次只执行一个操作并重复观察；无论成功、失败、取消还是放弃，都必须调用 `app_ui__stop_computer_use`。
+
+完整生命周期固定为 `snapshot -> find -> one act -> snapshot -> stop`。
+遇到 `policy_disabled`、`permission_denied`、`authentication`、`confirmation`、
+`desktop_unavailable` 或 `user_interrupted` 时必须停止工作流。不得切换到通用
+Computer Use provider，不得在 `Ctrl+Alt+Esc` 后重试，也不得更换目标 session。
 
 可见角标、底部胶囊和鼠标效果属于适配器宿主的交互式 Windows 登录会话。如果用户按下 `Ctrl+Alt+Esc` 并收到 `user_interrupted`，请立即停止。普通 `Esc` 仍会发送给目标 DCC，用于取消工具或关闭对话框。不要重试、改变 `session_id` 或启动新会话。只有用户明确要求恢复后，才能设置 `resume_computer_use=true`。
 

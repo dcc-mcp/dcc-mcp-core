@@ -62,10 +62,13 @@ REST clients use the same sequence through `/v1/search`, `/v1/describe`, and
 
 ## DCC UI Control Fallback
 
-**DCC UI Control** is the public cross-platform capability name. Shell agents
-use `dccmcp ui-control`; `app_ui__*` remains the compatibility tool
-namespace for MCP-native clients and existing adapters. Do not use the generic
-name “Computer Use” for this DCC-scoped feature.
+**DCC UI Control** is the public cross-platform capability name. DCCMCP is the
+control-plane layer and `dcc-cua` is the project-owned execution layer behind
+the stable `dccmcp ui-control` route. The DCC-CUA host owns exact-window
+binding, screenshots, UI Automation, native input, visible safety effects,
+user interruption, and audit records. The `app_ui__*` names remain the
+compatibility tool namespace for MCP-native clients and existing adapters. Do
+not use the generic name “Computer Use” for this DCC-scoped feature.
 
 The CLI contract is platform-neutral:
 
@@ -74,6 +77,12 @@ dccmcp ui-control snapshot --instance-id <id> --json '{"session_id":"ui","proces
 dccmcp ui-control act --instance-id <id> --json '{"session_id":"ui","control_id":"ok","action":"click","snapshot_id":"<snapshot_id>"}'
 dccmcp ui-control stop --instance-id <id> --json '{"session_id":"ui"}'
 ```
+
+Before the first snapshot or input action, the DCC-CUA host must report
+`provider=dcc-cua`, its runtime version, and the exact target PID and HWND.
+The CLI validates and routes these parameters. It does not implement desktop
+input. An explicit DCC-CUA request for a browser or another non-DCC application
+still uses this project-owned `ui-control` route and the same binding contract.
 
 Windows supplies an isolated, per-logon-session
 `dcc-mcp-ui-control-host.exe`. The adapter is a versioned named-pipe proxy; the
@@ -116,6 +125,12 @@ Use this loop:
    coordinates, control ids, or observation ids from an older screenshot.
 5. Repeat one action at a time, then call `app_ui__stop_computer_use` on every
    success, failure, cancellation, or abandonment path.
+
+The required lifecycle is `snapshot -> find -> one act -> snapshot -> stop`.
+Results such as `policy_disabled`, `permission_denied`, `authentication`,
+`confirmation`, `desktop_unavailable`, and `user_interrupted` stop the
+workflow. Do not switch to a generic Computer Use provider, retry after
+`Ctrl+Alt+Esc`, or change the target session.
 
 If the exact target still exists but is minimized or hidden, the first
 snapshot can fail before producing an id. Do not widen the scope or use desktop
