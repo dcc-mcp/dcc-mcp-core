@@ -1,0 +1,604 @@
+/* Operator dashboard skin.
+ *
+ * This file is intentionally imported after the feature styles. It keeps the
+ * existing panel markup and actions intact while giving the admin shell a
+ * quieter visual hierarchy and a denser operator workflow.
+ */
+
+:root {
+  --background: #f6f6f3;
+  --foreground: #20252b;
+  --card: #ffffff;
+  --card-foreground: #20252b;
+  --popover: #ffffff;
+  --popover-foreground: #20252b;
+  --brand: #3b6fe8;
+  --brand-dark: #2859c7;
+  --brand-light: #6e96ef;
+  --brand-50: #eef3ff;
+  --brand-100: #dfe9ff;
+  --primary: #3b6fe8;
+  --primary-foreground: #ffffff;
+  --secondary: #eef0f2;
+  --secondary-foreground: #29313a;
+  --muted: #f0f1ef;
+  --muted-foreground: #68717b;
+  --accent: #3b6fe8;
+  --accent-foreground: #ffffff;
+  --border: #dfe2e5;
+  --input: #cfd5da;
+  --ring: #6e96ef;
+  --sidebar: #eeefec;
+  --sidebar-foreground: #20252b;
+  --sidebar-primary: #e1eaff;
+  --sidebar-primary-foreground: #2859c7;
+  --sidebar-accent: #e4e6e3;
+  --sidebar-accent-foreground: #20252b;
+  --sidebar-border: #dfe2df;
+  --sidebar-ring: #6e96ef;
+  --link: #2859c7;
+  --link-strong: #1d469e;
+  --accent-soft: rgba(59, 111, 232, 0.1);
+  --accent-line: rgba(59, 111, 232, 0.3);
+  --radius: 0.4rem;
+  --radius-sm: 3px;
+  --radius-md: 5px;
+  --radius-lg: 8px;
+  --radius-xl: 10px;
+  --shadow-sm: 0 1px 2px rgba(32, 37, 43, 0.04);
+  --shadow: 0 3px 10px rgba(32, 37, 43, 0.07);
+  --shadow-md: 0 7px 20px rgba(32, 37, 43, 0.1);
+}
+
+:root.dark {
+  --background: #171a1e;
+  --foreground: #edf0f2;
+  --card: #20252b;
+  --card-foreground: #edf0f2;
+  --popover: #20252b;
+  --popover-foreground: #edf0f2;
+  --brand: #7ea3f5;
+  --brand-dark: #9db8f8;
+  --brand-light: #aac1fa;
+  --brand-50: #202b46;
+  --brand-100: #2a3a60;
+  --primary: #7ea3f5;
+  --primary-foreground: #172039;
+  --secondary: #2a3037;
+  --secondary-foreground: #edf0f2;
+  --muted: #252b31;
+  --muted-foreground: #a6afb8;
+  --accent: #7ea3f5;
+  --accent-foreground: #172039;
+  --border: #343b43;
+  --input: #46505a;
+  --ring: #9db8f8;
+  --sidebar: #1b1f24;
+  --sidebar-foreground: #edf0f2;
+  --sidebar-primary: #293a62;
+  --sidebar-primary-foreground: #d9e4ff;
+  --sidebar-accent: #272d34;
+  --sidebar-accent-foreground: #edf0f2;
+  --sidebar-border: #30373e;
+  --sidebar-ring: #9db8f8;
+  --link: #9db8f8;
+  --link-strong: #c2d2fb;
+  --accent-soft: rgba(126, 163, 245, 0.16);
+  --accent-line: rgba(126, 163, 245, 0.4);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.2);
+  --shadow: 0 3px 12px rgba(0, 0, 0, 0.24);
+  --shadow-md: 0 7px 20px rgba(0, 0, 0, 0.3);
+}
+
+body {
+  font-family: 'Inter Variable', Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+.side-rail {
+  padding: 1rem 0.7rem 0.75rem;
+}
+
+.brand-lockup {
+  margin: 0 0.6rem 0.85rem;
+  padding-bottom: 0.8rem;
+}
+
+.brand-logo {
+  background: var(--card);
+  border-radius: var(--radius-md);
+  box-shadow: none;
+  width: min(100%, 9.7rem);
+}
+
+.brand-text h1 {
+  font-size: 1rem;
+  letter-spacing: -0.01em;
+}
+
+.brand-tag {
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+}
+
+.sidebar-preferences {
+  margin: -0.1rem 0.35rem 0.7rem;
+}
+
+.nav-links {
+  gap: 0.1rem;
+  padding: 0 0.35rem;
+}
+
+.nav-section-title {
+  font-size: 0.62rem;
+  letter-spacing: 0.1em;
+  margin: 1rem 0 0.3rem;
+  padding: 0 0.55rem;
+}
+
+.nav-link {
+  border-radius: 6px;
+  font-size: 0.84rem;
+  font-weight: 650;
+  gap: 0.55rem;
+  min-height: 2.35rem;
+  padding: 0.42rem 0.55rem;
+}
+
+.nav-link.active {
+  background: var(--sidebar-primary);
+  border-color: transparent;
+  box-shadow: inset 2px 0 0 var(--primary);
+  color: var(--sidebar-primary-foreground);
+}
+
+.main-stage {
+  background: var(--background);
+  padding: 1.35rem clamp(1rem, 3vw, 2.6rem) 2rem;
+}
+
+.panel.active {
+  animation: panel-soft 0.18s ease both;
+}
+
+.panel-header {
+  margin-bottom: 0.85rem;
+}
+
+h2 {
+  font-size: 1.35rem;
+  letter-spacing: -0.02em;
+}
+
+.panel-meta,
+.log-hint {
+  font-size: 0.78rem;
+}
+
+.status-bar {
+  background: var(--card);
+  border-radius: 6px;
+  font-size: 0.76rem;
+  margin-bottom: 0.8rem;
+  padding: 0.5rem 0.7rem;
+}
+
+.discover-tabs,
+.overview-tabs {
+  margin-bottom: 0.8rem;
+}
+
+.discover-tab {
+  border-radius: 5px 5px 0 0;
+  font-size: 0.8rem;
+  min-height: 2.25rem;
+  padding: 0.42rem 0.7rem;
+}
+
+/* Instances */
+
+.instances-panel .log-hint {
+  margin-bottom: 0.45rem;
+  max-width: 58rem;
+}
+
+.instance-groups {
+  gap: 0.85rem;
+}
+
+.instance-group {
+  gap: 0.5rem;
+}
+
+.instance-group-head {
+  padding-bottom: 0.35rem;
+}
+
+.instance-group-head h3 {
+  font-size: 0.76rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.instance-group-head span {
+  font-size: 0.68rem;
+}
+
+.instances-list {
+  gap: 0.55rem;
+  margin-bottom: 0.75rem;
+}
+
+.instance-row {
+  border-radius: 8px;
+  box-shadow: inset 2px 0 0 var(--instance-accent);
+  gap: 0.7rem;
+  grid-template-columns: minmax(17rem, 0.95fr) minmax(22rem, 1.3fr) minmax(14rem, 0.8fr);
+  padding: 0.75rem 0.85rem;
+}
+
+.instance-row:hover {
+  box-shadow: inset 2px 0 0 var(--instance-accent), var(--shadow-sm);
+}
+
+.instance-title {
+  font-size: 0.9rem;
+}
+
+.instance-subline,
+.instance-title span {
+  font-size: 0.67rem;
+}
+
+.instance-state-strip {
+  gap: 0.35rem;
+}
+
+.instance-state-strip > span {
+  border-radius: 5px;
+  min-height: 1.8rem;
+  padding: 0.22rem 0.38rem;
+}
+
+.instance-state-strip small,
+.instance-detail-item small,
+.instance-link-groups small,
+.instance-update-heading {
+  font-size: 0.61rem;
+  letter-spacing: 0.06em;
+}
+
+.instance-row-details {
+  gap: 0.35rem;
+}
+
+.instance-detail-item,
+.instance-link-groups > span {
+  border-radius: 5px;
+  padding: 0.36rem 0.45rem;
+}
+
+.instance-detail-item {
+  min-height: 2.65rem;
+}
+
+.instance-detail-item strong {
+  font-size: 0.7rem;
+}
+
+.instance-row-actions {
+  gap: 0.6rem;
+  padding-left: 0.75rem;
+}
+
+.instance-update-cell {
+  min-height: 5.2rem;
+}
+
+.instance-update-meta,
+.instance-update-help {
+  font-size: 0.67rem;
+}
+
+.instances-footer {
+  align-items: center;
+  display: flex;
+  gap: 0.65rem;
+  justify-content: space-between;
+  margin-top: 0.25rem;
+}
+
+.instances-footer .status-bar {
+  flex: 1;
+  margin: 0;
+}
+
+/* Overview and statistics */
+
+.stats-hero {
+  gap: 0.6rem;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-bottom: 0.8rem;
+}
+
+.hero-metric {
+  border-radius: 8px;
+  box-shadow: none;
+  gap: 0.25rem;
+  padding: 0.9rem 1rem 0.95rem;
+}
+
+.hero-metric::before {
+  background: var(--primary);
+  height: 2px;
+}
+
+.hero-metric:hover {
+  box-shadow: var(--shadow-sm);
+  transform: none;
+}
+
+.hero-metric .hero-label {
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+}
+
+.hero-metric .hero-value {
+  font-size: clamp(1.6rem, 3.2vw, 2.5rem);
+}
+
+.hero-metric .hero-detail {
+  font-size: 0.7rem;
+}
+
+.metric-grid {
+  gap: 0.5rem;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-bottom: 0.8rem;
+}
+
+.metric-tile {
+  border-radius: 7px;
+  min-height: 4.65rem;
+  padding: 0.65rem 0.75rem;
+}
+
+.metric-tile .label {
+  font-size: 0.62rem;
+}
+
+.metric-tile .value {
+  font-size: 1.1rem;
+}
+
+.overview-issues {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 0.8rem;
+  padding: 0.65rem 0.75rem;
+}
+
+.overview-issue-grid {
+  gap: 0.45rem;
+}
+
+.overview-issue {
+  border-radius: 6px;
+  box-shadow: none;
+  padding: 0.55rem 0.6rem;
+}
+
+.overview-issue:hover {
+  box-shadow: var(--shadow-sm);
+  transform: none;
+}
+
+.stats-charts {
+  gap: 0.65rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.chart-card {
+  border-radius: 8px;
+  min-height: 10.5rem;
+  padding: 0.75rem 0.85rem;
+}
+
+.chart-title {
+  font-size: 0.65rem;
+  margin-bottom: 0.55rem;
+}
+
+/* Skills, marketplace and integrations */
+
+.marketplace-summary-strip {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  gap: 0;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  overflow: hidden;
+}
+
+.marketplace-summary-item {
+  border: 0;
+  border-right: 1px solid var(--border);
+  border-radius: 0;
+  min-height: 3.5rem;
+  padding: 0.55rem 0.7rem;
+}
+
+.marketplace-summary-item:last-child {
+  border-right: 0;
+}
+
+.marketplace-summary-item span {
+  font-size: 0.6rem;
+}
+
+.marketplace-summary-item strong {
+  font-size: 1rem;
+}
+
+.marketplace-tabs {
+  background: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  display: inline-flex;
+  gap: 0.15rem;
+  margin-bottom: 0.8rem;
+  padding: 0.18rem;
+}
+
+.marketplace-tab {
+  border: 0;
+  border-radius: 5px;
+  font-size: 0.76rem;
+  margin: 0;
+  min-height: 2.05rem;
+  padding: 0.35rem 0.7rem;
+}
+
+.marketplace-tab.active {
+  background: var(--card);
+  border: 0;
+  box-shadow: var(--shadow-sm);
+  color: var(--foreground);
+}
+
+.marketplace-grid {
+  gap: 0.7rem;
+  grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
+}
+
+.marketplace-card {
+  border-radius: 8px;
+  box-shadow: none;
+}
+
+.marketplace-card:hover {
+  box-shadow: var(--shadow);
+  transform: none;
+}
+
+.marketplace-card-media {
+  aspect-ratio: 2.8 / 1;
+}
+
+.marketplace-card-body {
+  gap: 0.5rem;
+  padding: 0.75rem 0.8rem 0.8rem;
+}
+
+.marketplace-card-desc {
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  display: -webkit-box;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  max-height: 2.1rem;
+  overflow: hidden;
+}
+
+.marketplace-card-chip,
+.marketplace-dcc-chip {
+  font-size: 0.64rem;
+}
+
+.marketplace-sources-section,
+.marketplace-installed-list,
+.integration-card,
+.integration-edit-form {
+  border-radius: 8px;
+  box-shadow: none;
+}
+
+.marketplace-installed-row {
+  min-height: 4.1rem;
+  padding: 0.6rem 0.75rem;
+}
+
+.integration-card-body {
+  gap: 0.7rem;
+  padding: 0.65rem 0.75rem;
+}
+
+.integration-card-icon-wrap {
+  border-radius: 6px;
+  height: 2rem;
+  width: 2rem;
+}
+
+@media (max-width: 1240px) {
+  .instance-row {
+    grid-template-columns: minmax(16rem, 0.9fr) minmax(0, 1.1fr);
+  }
+
+  .instance-row-actions {
+    border-left: 0;
+    border-top: 1px solid var(--border);
+    grid-column: 1 / -1;
+    grid-template-columns: minmax(0, 1fr) minmax(15rem, 0.8fr);
+    padding-left: 0;
+    padding-top: 0.65rem;
+  }
+
+  .metric-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 900px) {
+  .stats-hero,
+  .metric-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .stats-charts {
+    grid-template-columns: 1fr;
+  }
+
+  .instance-row {
+    grid-template-columns: 1fr;
+  }
+
+  .instance-row-actions {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .instances-footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .marketplace-summary-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .marketplace-summary-item:nth-child(2) {
+    border-right: 0;
+  }
+
+  .marketplace-summary-item:nth-child(-n + 2) {
+    border-bottom: 1px solid var(--border);
+  }
+
+  .marketplace-summary-item:last-child {
+    border-right: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .panel.active,
+  .hero-metric,
+  .overview-issue,
+  .marketplace-card {
+    animation: none;
+    transition: none;
+  }
+}

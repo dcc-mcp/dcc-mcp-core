@@ -75,11 +75,11 @@ pub(crate) fn build_initialize_result_from_value(
     build_initialize_result(state, session_id, &init_params)
 }
 
-fn server_capabilities(state: &ServerState, client_wants_delta: bool) -> ServerCapabilities {
-    let mut caps = match (
-        state.features.enable_resources,
-        state.features.enable_prompts,
-    ) {
+pub(crate) fn server_capabilities(
+    state: &ServerState,
+    client_wants_delta: bool,
+) -> ServerCapabilities {
+    let mut caps = match (state.enable_resources, state.enable_prompts) {
         (true, true) => ServerCapabilities::builder()
             .enable_logging()
             .enable_tools()
@@ -115,6 +115,17 @@ fn server_capabilities(state: &ServerState, client_wants_delta: bool) -> ServerC
         let mut experimental: ExperimentalCapabilities = BTreeMap::new();
         experimental.insert(DELTA_TOOLS_UPDATE_CAP.to_string(), enabled);
         caps.experimental = Some(experimental);
+    }
+    if state.enable_resources && state.enable_skills_extension {
+        let mut extensions = BTreeMap::new();
+        extensions.insert(
+            "io.modelcontextprotocol/skills".to_string(),
+            serde_json::json!({"directoryRead": true})
+                .as_object()
+                .cloned()
+                .unwrap_or_default(),
+        );
+        caps.extensions = Some(extensions);
     }
     caps
 }

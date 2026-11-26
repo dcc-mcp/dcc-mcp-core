@@ -42,14 +42,7 @@ pub struct FeatureFlags {
     #[serde(default = "default_true")]
     pub enable_prompts: bool,
 
-    /// Advertise the `io.modelcontextprotocol/skills` extension on the
-    /// 2026-07-28 stateless path, serving `skills/list`, `skills/get` and
-    /// `resources/directory/read` alongside the existing `*_skills` tools.
-    ///
-    /// The declaration also requires the `resources` capability, so this flag
-    /// is only honoured together with `enable_resources`. It has no effect on
-    /// the legacy session protocol: the extension is specified against base
-    /// revision 2026-07-28 or later.
+    /// Advertise the MCP Skills extension through the Resources primitive.
     #[serde(default = "default_true")]
     pub enable_skills_extension: bool,
 

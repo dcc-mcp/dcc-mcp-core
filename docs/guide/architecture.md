@@ -205,7 +205,8 @@ dccmcp ← dcc-mcp-catalog + gateway REST contract
 
 ### dcc-mcp-protocols
 
-**Purpose**: MCP (Model Context Protocol) type definitions per 2025-03-26 spec.
+**Purpose**: MCP (Model Context Protocol) type definitions shared across the
+supported legacy revisions and the modern 2026-07-28 discovery lifecycle.
 
 **Key Types**:
 - `ToolDefinition`, `ToolAnnotations` — canonical camelCase MCP tool wire schema
@@ -431,7 +432,11 @@ dccmcp ← dcc-mcp-catalog + gateway REST contract
 
 ### dcc-mcp-http
 
-**Purpose**: MCP Streamable HTTP facade (2025-03-26 spec) for HTTP-based MCP clients. It owns axum routing, server startup, prompt/resource registries, gateway bootstrap, and compatibility re-exports from the extracted crates.
+**Purpose**: MCP Streamable HTTP facade for HTTP-based MCP clients. It serves
+the modern 2026-07-28 discovery lifecycle and preserves legacy
+initialize/session compatibility. It owns axum routing, server startup,
+prompt/resource registries, gateway bootstrap, and compatibility re-exports
+from the extracted crates.
 
 **Key Components**:
 - `McpHttpServer` — background-thread HTTP server (axum/Tokio).

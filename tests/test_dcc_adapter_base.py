@@ -992,12 +992,16 @@ class TestDccServerBase:
         monkeypatch.delenv("DCC_MCP_DISABLE_DEFAULT_SKILL_PATHS", raising=False)
         server = self._make_server(tmp_path)
         marketplace_dcc_dir = tmp_path / "marketplace" / "fake-dcc"
+        marketplace_any_dir = tmp_path / "marketplace" / "any"
         marketplace_dcc_dir.mkdir(parents=True)
+        marketplace_any_dir.mkdir(parents=True)
         monkeypatch.setenv("DCC_MCP_MARKETPLACE_INSTALL_ROOT", str(tmp_path / "marketplace"))
 
         paths = server.collect_skill_search_paths(include_bundled=False, filter_existing=True)
 
         assert str(marketplace_dcc_dir) in paths
+        assert str(marketplace_any_dir) in paths
+        assert paths.index(str(marketplace_any_dir)) < paths.index(str(marketplace_dcc_dir))
 
     def test_collect_skill_search_paths_includes_host_neutral_marketplace_dir(self, tmp_path, monkeypatch):
         """Host-neutral entries install into ``<marketplace_root>/any`` and must be discoverable."""
@@ -1088,8 +1092,9 @@ class TestDccServerBase:
         local = tmp_path / "local"
         platform = tmp_path / "platform"
         marketplace = tmp_path / "marketplace" / "fake-dcc"
+        marketplace_any = tmp_path / "marketplace" / "any"
         admin = tmp_path / "admin"
-        for path in (explicit, env_root, local, platform, marketplace, admin):
+        for path in (explicit, env_root, local, platform, marketplace, marketplace_any, admin):
             path.mkdir(parents=True)
 
         monkeypatch.setenv("DCC_MCP_DISABLE_DEFAULT_SKILL_PATHS", "1")
@@ -1133,7 +1138,7 @@ class TestDccServerBase:
 
         assert str(explicit) in paths
         assert str(env_root) in paths
-        assert not {str(local), str(platform), str(marketplace), str(admin)} & set(paths)
+        assert not {str(local), str(platform), str(marketplace), str(marketplace_any), str(admin)} & set(paths)
 
     def test_enable_hot_reload_creates_reloader(self, tmp_path):
         server = self._make_server(tmp_path)

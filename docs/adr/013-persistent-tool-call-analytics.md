@@ -56,7 +56,7 @@ GET /v1/debug/stats
 ```
 
 All supplied dimensions are ANDed before aggregation. The response echoes the
-canonical `filters` object. `dcc-mcp-cli stats` is a thin client for this API
+canonical `filters` object. `dccmcp stats` is a thin client for this API
 and prints JSON by default. Existing unfiltered Stats and Admin requests keep
 their behavior.
 
@@ -86,7 +86,7 @@ flowchart LR
     DCC["DCC tool call"] --> GW["Gateway trace and workflow span"]
     GW --> DB["Local persistent Admin SQLite"]
     DB --> API["Filtered stats API"]
-    API --> CLI["dcc-mcp-cli stats / agents"]
+    API --> CLI["dccmcp stats / agents"]
     GW --> OTLP["OTLP batch exporter"]
     OTLP --> COL["Studio OpenTelemetry Collector"]
     COL --> OBS["Studio traces and metrics backend"]

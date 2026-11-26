@@ -24,6 +24,7 @@ use tower::ServiceExt;
 use tracing::info;
 
 use super::rmcp_providers_impl::{PromptRegistryProvider, ResourceRegistryProvider};
+use super::skill_provider::SkillCatalogProvider;
 use crate::handler::AppState;
 
 /// Attach the rmcp endpoint at `/mcp`.
@@ -82,6 +83,13 @@ pub(crate) fn build_registry_context(app_state: &AppState) -> Arc<RegistryContex
             None
         };
 
+    let skill_provider: Option<Arc<dyn dcc_mcp_http_server::rmcp_providers::SkillProvider>> =
+        if app_state.server.enable_resources && app_state.server.enable_skills_extension {
+            Some(Arc::new(SkillCatalogProvider))
+        } else {
+            None
+        };
+
     let prompt_provider: Option<Arc<dyn dcc_mcp_http_server::rmcp_providers::PromptProvider>> =
         if app_state.server.features.enable_prompts {
             Some(Arc::new(PromptRegistryProvider {
@@ -110,6 +118,7 @@ pub(crate) fn build_registry_context(app_state: &AppState) -> Arc<RegistryContex
 
     Arc::new(RegistryContext {
         resource_provider,
+        skill_provider,
         prompt_provider,
         readiness: app_state.readiness.clone(),
         on_skill_catalog_mutated,
@@ -127,12 +136,10 @@ pub(crate) fn build_legacy_service(
     let session_manager = Arc::new(LocalSessionManager::default());
 
     let mut config = StreamableHttpServerConfig::default();
-    // Stateless + JSON-direct mode: each request is independent and
-    // responses are plain application/json (no SSE framing). This is
-    // compliant with MCP Streamable HTTP spec (2025-06-18) and matches
-    // the DCC embedding scenario where the server has at most one active
-    // client and does not need cross-request session state.
-    config.stateful_mode = false;
+    // Keep initialize/session semantics for legacy clients. rmcp routes
+    // 2026-07-28 requests statelessly on the same endpoint regardless of this
+    // setting, while CLI clients retain their established session contract.
+    config.legacy_session_mode = true;
     config.json_response = true;
     // Allow any host (production should restrict via reverse proxy).
     config.allowed_hosts = vec![];

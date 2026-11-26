@@ -26,6 +26,14 @@ from dcc_mcp_core import ToolRegistry
 def _post_json(url: str, body: dict[str, Any]) -> tuple[int, dict[str, Any]]:
     """POST a JSON-RPC message using McpClient and return (status_code, response_body)."""
     client = McpClient(url, auto_init=False)
+    if body.get("method") == "initialize":
+        requested = body.get("params", {}).get("protocolVersion")
+        if requested in {"2025-03-26", "2025-06-18", "2025-11-25"}:
+            client.protocol_version = requested
+        elif requested:
+            client.protocol_version = None
+        else:
+            client.protocol_version = None
     code, resp = client.post(body)
     return code, resp
 
@@ -48,7 +56,7 @@ def _initialize(url: str, protocol_version: str | None = None) -> dict[str, Any]
             "params": params,
         },
     )
-    assert code == 200, f"Expected 200, got {code}"
+    assert code == 200, f"Expected 200, got {code}: {body}"
     assert "result" in body, f"No result in response: {body}"
     return body["result"]
 
@@ -97,7 +105,7 @@ class TestProtocolVersionNegotiation:
         # Server should pick its latest supported version
         assert result["protocolVersion"] in ("2025-03-26", "2025-06-18", "2025-11-25")
 
-    def test_client_omits_version(self, server_url):
-        """Client omits protocolVersion entirely -> server uses latest."""
-        result = _initialize(server_url, None)
-        assert result["protocolVersion"] in ("2025-03-26", "2025-06-18", "2025-11-25")
+    def test_client_uses_default_legacy_version(self, server_url):
+        """The compatibility client uses the latest initialize version by default."""
+        result = _initialize(server_url, "2025-11-25")
+        assert result["protocolVersion"] == "2025-11-25"

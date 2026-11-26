@@ -14,7 +14,10 @@ use std::collections::HashMap;
 use std::fmt;
 use std::sync::Arc;
 
-use dcc_mcp_jsonrpc::{GetPromptResult, McpPrompt, McpResource, ReadResourceResult};
+use dcc_mcp_jsonrpc::{
+    GetPromptResult, GetSkillResult, ListSkillsResult, McpPrompt, McpResource,
+    ReadResourceDirectoryResult, ReadResourceResult,
+};
 use dcc_mcp_skills::SkillCatalog;
 use serde_json::Value;
 
@@ -65,6 +68,38 @@ pub trait ResourceProvider: Send + Sync {
         uri: &str,
         catalog: &Arc<SkillCatalog>,
     ) -> Result<ReadResourceResult, ProviderError>;
+}
+
+/// Provides the MCP Skills extension independently from the generic Resources
+/// registry. The extension reads the same discovered catalog as the existing
+/// skill-management tools, but does not load skills or register their tools.
+pub trait SkillProvider: Send + Sync {
+    /// Enumerate publishable skills with complete file manifests.
+    fn list_skills(&self, catalog: &Arc<SkillCatalog>) -> ListSkillsResult;
+
+    /// Resolve one skill by its `SKILL.md` resource URI.
+    fn get_skill(
+        &self,
+        uri: &str,
+        catalog: &Arc<SkillCatalog>,
+    ) -> Result<GetSkillResult, ProviderError>;
+
+    /// Add the skill entry-point resources to `resources/list`.
+    fn list_skill_resources(&self, catalog: &Arc<SkillCatalog>) -> Vec<McpResource>;
+
+    /// Read one `skill://` file resource.
+    fn read_skill_resource(
+        &self,
+        uri: &str,
+        catalog: &Arc<SkillCatalog>,
+    ) -> Result<ReadResourceResult, ProviderError>;
+
+    /// List direct children of one skill directory.
+    fn read_skill_directory(
+        &self,
+        uri: &str,
+        catalog: &Arc<SkillCatalog>,
+    ) -> Result<ReadResourceDirectoryResult, ProviderError>;
 }
 
 /// Provides prompt listing and rendering for the rmcp handler.

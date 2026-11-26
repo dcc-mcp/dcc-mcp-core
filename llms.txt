@@ -44,7 +44,8 @@ release installers in `README.md`. Keep it current with
 `dcc-mcp-cli update check`, then `dcc-mcp-cli update apply`; apply stages the
 next CLI launch and does not replace a running server.
 
-**New to this project?** Read [`AI_AGENT_GUIDE.md`](AI_AGENT_GUIDE.md) FIRST.
+**New to this project?** Read [`AGENTS.md`](AGENTS.md) FIRST, then use
+`docs/guide/agents-reference.md` for detailed rules.
 
 **Building a DCC-MCP adapter?** Follow the release train docs in order:
 1. [`new-adapter-onboarding.md`](docs/guide/new-adapter-onboarding.md) — scaffolding template
@@ -68,6 +69,7 @@ next CLI launch and does not replace a running server.
 | Sandbox AI actions | `SandboxPolicy` + `SandboxContext` |
 | Share large data zero-copy | `PySharedSceneBuffer.write()` with LZ4 compression |
 | Expose DCC tools over HTTP/MCP | `create_skill_server("maya", McpHttpConfig())` — Skills-First setup with an OS-assigned instance port discoverable through the CLI/gateway; falls back to `McpHttpServer(registry, config)` for manual registry wiring |
+| Serve Agent Skills through MCP | `McpHttpConfig.enable_skills_extension` enables `skills/list`, `skills/get`, `resources/directory/read`, and `skill://` `resources/read` entries with complete SHA-256 manifests; reading `SKILL.md` does not activate tools; see `docs/api/skills-extension.md` |
 | Register MCP prompts from Python (issue #792) | `handle = server.prompts(); handle.register_prompt(name, template, description=..., arguments=[...])` — `server.prompts()` returns `PromptHandle`; registration upserts in-place and appears in the next `prompts/list` / `prompts/get` |
 | Build a DCC adapter | `opts = DccServerOptions.from_env("maya", Path(...)); DccServerBase(opts)` — skill/lifecycle/gateway/hot-reload inherited |
 | Apply adapter metadata policy before skills load (#1204) | `DccServerBase.set_skill_load_transform(fn)` / `McpHttpServer.set_skill_load_transform(fn)` — callable receives a mutable `SkillMetadata`, may return `None` or a replacement, and applies consistently to direct Python `load_skill`, MCP `load_skill`, REST `/v1/load_skill`, batch, and group load paths. Use `set_after_load_skill_hook(fn)` only to observe `(skill, registered_actions)` after registration. |
@@ -453,11 +455,12 @@ tools:
   - `.registry_dir`, `.stale_timeout_secs`, `.heartbeat_secs`, `.dcc_type`, `.dcc_version`, `.scene` — gateway participation config
   - `.bare_tool_names` — default `True`; publish unique action names without `<skill>__` prefix in `tools/list` (#307). Collisions fall back to the client-safe full form (`<skill>__<action>`).
   - `.enable_resources` — default `True`; advertise `resources: { subscribe, listChanged }` and serve `resources/list|read|subscribe|unsubscribe` (#350). Built-ins: `scene://current`, `capture://current_window`, `audit://recent`
+  - `.enable_skills_extension` — default `True` when Resources are enabled; advertise `io.modelcontextprotocol/skills` and serve `skills/list`, `skills/get`, `resources/directory/read`, and `skill://` resources with complete SHA-256 manifests
   - `.enable_artefact_resources` — default `False`; when `True`, `artefact://` URIs are served from the artefact store (#349, not yet implemented); otherwise returns JSON-RPC error `-32002`
   - `.enable_tool_cache` — default `True`; per-session `tools/list` snapshot cache (#438). Cache hit avoids registry scan + bare-name resolution + `McpTool` construction. Invalidated on skill load/unload, group activation/deactivation, session TTL eviction, or `_meta.dcc.refresh=true` on the `tools/list` request
-- `McpHttpServer(registry, config=None)` — MCP Streamable HTTP server (**2025-03-26 spec**), axum/Tokio backend
+- `McpHttpServer(registry, config=None)` — MCP Streamable HTTP server with modern `2026-07-28` discovery and legacy initialize/session support for `2025-11-25`, `2025-06-18`, and `2025-03-26`, using the axum/Tokio backend
   - `.start() -> McpServerHandle` — starts background thread, returns immediately
-  - **Note**: MCP 2025-03-26 implements Streamable HTTP, Tool Annotations, OAuth 2.1. MCP 2025-06-18 adds Structured Tool Output, Elicitation, Resource Links, and removes JSON-RPC batching. MCP 2025-11-25 adds icon metadata, Tasks, Sampling with tools. The 2026 roadmap focuses on: (1) transport scalability — `.well-known` capability discovery, stateless sessions; (2) agent communication — Tasks lifecycle, retry/expiration; (3) governance — delegated workgroups; (4) enterprise readiness — audit, SSO (mostly extensions). No new transport types in 2026. Do NOT implement manually — wait for library support.
+  - **Modern capabilities**: `server/discover`, per-request protocol metadata, cache hints, SEP-2243 routing headers, and the official `io.modelcontextprotocol/skills` extension. The CLI continues to use the `2025-11-25` initialize/session compatibility path.
 - `McpServerHandle` (alias for `McpServerHandle`) — handle to running server
   - `.mcp_url() -> str` — full MCP endpoint URL (e.g. `"http://127.0.0.1:8765/mcp"`)
   - `.port -> int`, `.bind_addr -> str`
@@ -1059,7 +1062,7 @@ Full guide: `docs/guide/remote-server.md`. Per-module API: `docs/api/{auth,batch
 
 - [README (English)](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/README.md)
 - [README (中文)](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/README_zh.md)
-- [AI Agent Guide (AGENTS.md)](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/AGENTS.md)
+- [Agent rules (AGENTS.md)](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/AGENTS.md)
 - [Claude Guide (CLAUDE.md)](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/CLAUDE.md)
 - [Gemini Guide (GEMINI.md)](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/GEMINI.md)
 - [CodeBuddy Guide (CODEBUDDY.md)](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/CODEBUDDY.md)

@@ -457,6 +457,28 @@ class TestSidecarBackedSkillServer:
         assert metadata.version == "1.0.0"
         assert [item.name for item in server.search_skills(dcc="python")] == ["generic-skill"]
 
+    def test_discover_includes_host_neutral_marketplace_skills(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ):
+        marketplace_root = tmp_path / "marketplace"
+        shared_root = marketplace_root / "any"
+        legacy_root = marketplace_root / "all"
+        _write_skill(shared_root, "shared-marketplace-skill", dcc="maya")
+        _write_skill(legacy_root, "legacy-marketplace-skill", dcc="maya")
+        monkeypatch.setenv("DCC_MCP_MARKETPLACE_INSTALL_ROOT", str(marketplace_root))
+        monkeypatch.delenv(ENV_DISABLE_DEFAULT_SKILL_PATHS, raising=False)
+        server = SidecarBackedSkillServer(
+            "maya",
+            PureMcpHttpConfig(),
+            host_rpc="stub://localhost",
+        )
+
+        assert server.discover(accumulated=False) == 2
+        assert server.get_skill("shared-marketplace-skill") is not None
+        assert server.get_skill("legacy-marketplace-skill") is not None
+
     def test_custom_dcc_env_paths_use_canonical_underscore_slug(
         self,
         monkeypatch: pytest.MonkeyPatch,

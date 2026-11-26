@@ -2,15 +2,14 @@
 
 **DCC-MCP-Core** 是一套 Rust 基础库（含 Python 绑定），把 DCC（数字内容创作）软件中的"能力"—— Maya、Blender、Houdini、Photoshop、ZBrush、Unreal、Unity、Figma 等 ——分层暴露给两类消费者：
 
-- **具备 shell 能力的 Agent** → 安装公开 `dcc-mcp` Skill，通过 `dcc-mcp-cli` 执行 `search → describe → call`。
-- **MCP-only IDE 客户端** → 使用 gateway 的少量固定 MCP 工作流（`search`、`describe`、`load_skill`、`call`）。
+- **AI 助手** → 通过 gateway 的**少量、固定、只读** **MCP 发现工具**（`search` / `describe`），再用 REST `/v1/*` 执行。
 - **传统调用方** →（cURL / CI / 任意 HTTP 客户端）通过**完整的 `/v1/*` REST 服务**。
 
-底层是 Rust，通过 [PyO3](https://pyo3.rs/) + [maturin](https://github.com/PyO3/maturin) 编译成一个 Python 扩展模块。Python 3.8+ 直接使用标准库 typing 对象；Python 3.7 使用 Core 内部的有界兼容子集，不安装也不导入 typing backport。配套的 `dcc-mcp-server` wheel 提供打包后的 gateway daemon 二进制。
+底层是 Rust，通过 [PyO3](https://pyo3.rs/) + [maturin](https://github.com/PyO3/maturin) 编译成一个 Python 扩展模块。它没有第三方 Python 库运行时依赖；配套的 `dcc-mcp-server` wheel 提供打包后的 gateway daemon 二进制。
 
 ---
 
-## 核心工作流程（2026-07 更新）
+## 核心工作流程（2026-05 更新）
 
 ```mermaid
 flowchart LR
@@ -30,12 +29,11 @@ flowchart LR
       PERDCC --> GW
     end
 
-    AGENT([Shell Agent + dcc-mcp Skill]):::client
-    IDE([MCP-only IDE 客户端]):::client
+    AGENT([AI 助手]):::client
     TRAD([cURL / CI / 传统后端]):::client
 
-    AGENT -->|dcc-mcp-cli: search<br/>describe / call| GW
-    IDE -->|MCP: search<br/>describe / load_skill / call| GW
+    AGENT -->|MCP: search<br/>describe| GW
+    AGENT -->|REST: POST /v1/call| GW
     TRAD -->|REST: POST /v1/search<br/>/describe /call| GW
     TRAD -.->|直连 per-DCC REST| PERDCC
     GW -->|/v1/call 路由到具体 DCC| PERDCC
@@ -63,7 +61,7 @@ flowchart LR
 - **多 DCC 网关汇聚** —— 文件型服务注册表 + TCP 心跳探测，自动剔除 3 连失败的实例、清理 ghost 行，基于 `crate_version → adapter_version → adapter_dcc` 的三级选举仲裁。
 - **Tool Slug 契约** —— `<dcc>.<id8>.<tool>` 三段 slug 是唯一的全局寻址方式，网关据此把 REST `/v1/call` 路由到正确的后端。
 - **Tunnel（#504）** —— `dcc-mcp-tunnel-relay` + `dcc-mcp-tunnel-agent` 两个可执行二进制，让远程 AI 客户端直接访问工作站上的 DCC。
-- **PyO3 绑定** —— Rust 加速的一切从 Python 透明可用；Python 3.7 使用 Core 内部有界 typing 兼容层，不增加第三方 Python 库运行依赖；gateway daemon 启动使用配套的 `dcc-mcp-server` wheel。
+- **PyO3 绑定** —— Rust 加速的一切从 Python 透明可用；没有第三方 Python 库运行时依赖，gateway daemon 启动使用配套的 `dcc-mcp-server` wheel。
 
 ---
 
@@ -117,7 +115,7 @@ dcc-mcp-core/
     └── dcc_mcp_core/
         ├── __init__.py              # 从 _core 重导出公共 API
         ├── constants.py             # METADATA_*, LAYER_*, CATEGORY_*（#487）
-        ├── result_envelope.py       # 轻依赖 ToolResultEnvelope 构建器
+        ├── result_envelope.py       # ToolResult 工厂（#487）
         ├── _server/                 # DccServerBase 协作者（#486）
         └── _core.pyi                # 所有公开 API 的类型桩
 ```
@@ -180,7 +178,7 @@ from dcc_mcp_core import (
 |---|---|---|
 | **网关 REST 默认 compact TOON** | `/v1/search`、`/v1/describe`、`/v1/call`、直接 instance describe/call 和 `/v1/call_batch` 默认返回 `application/toon` | 需要旧 JSON 时发送 `Accept: application/json` 或 body `response_format: "json"`；迁移窗口可临时设置 `DCC_MCP_GATEWAY_RESPONSE_FORMAT=json` |
 | **网关 MCP 表面收敛** | `GatewayToolExposure` 枚举、`tool_exposure` / `publishes_backend_tools` 配置、`--gateway-tool-exposure` CLI 标志全部移除 | 删掉对应代码/配置/环境变量；网关现在只有一种（最小）表面 |
-| **网关 wrapper payload 更严格** | MCP `call`、隐藏 `call_tool` / `call_tools`、`/v1/call`、`/v1/call_batch` 都经过 `dcc-mcp-wire` 归一化；wrapper 顶层的后端字段会被忽略或拒绝 | 发送 `{tool_slug, arguments?, meta?}` 或 `{calls:[...]}`，把工具输入放进 `arguments`；Python wrapper 使用 `dcc_mcp_core.wire.normalize_tool_arguments()` |
+| **网关 wrapper payload 更严格** | MCP `call`、隐藏 `call_tool` / `call_tools`、`/v1/call`、`/v1/call_batch` 都经过 `dcc-mcp-wire` 归一化；wrapper 顶层的后端字段会被忽略或拒绝 | 发送 `{tool_slug, arguments?, meta?}` 或 `{calls:[...]}`，把工具输入放进 `arguments`；Python host wrapper 使用 `normalize_tool_arguments()` |
 | **网关 prompt 名称对 Cursor 安全** | 聚合 prompt 名称使用 `i_<id8>__<escaped>`，不再暴露原始后端名称 | 原样保存并使用 `prompts/list` 返回的名称，不要从 DCC/tool 名称自行拼接 |
 | **删除 SKILL.md flat-form 解析** | `metadata: { "dcc-mcp.dcc": ... }` 不再填充典型字段 | 改用 nested form：`metadata: { dcc-mcp: { dcc: ... } }` |
 | **删除 `register_dcc_api_docs` / `DccApiDoc*`** | 相关 Python API 不再存在 | 用 `register_docs_resource()` 替代 |
@@ -191,7 +189,7 @@ from dcc_mcp_core import (
 
 ## 版本 / 语言支持
 
-- **当前版本**：0.20.55 <!-- x-release-please-version -->
+- **当前版本**：0.21.0 <!-- x-release-please-version -->
 - **Python**：3.7–3.14。Python 3.7 提供原生 `cp37-cp37m` wheel 和 lite 回退；Python 3.8+ 使用 `abi3-py38` wheel。
 - **Rust**：Edition 2024；MSRV 见仓库根 `rust-toolchain.toml`
 - **构建**：maturin + PyO3
@@ -204,7 +202,7 @@ from dcc_mcp_core import (
 - [CLI 参考](/zh/guide/cli-reference) —— `dcc-mcp-server`、`dcc-mcp-tunnel-relay`、`dcc-mcp-tunnel-agent` 的完整旗标 + 典型部署场景
 - [网关争用与调试](/zh/guide/gateway-diagnostics) —— 多实例竞争、选举、心跳、ghost 清除、故障排查手册
 - [`AGENTS.md`](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/AGENTS.md) —— AI Agent 接入核心规则
-- [`docs/guide/ai-agent-guide.md`](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/docs/guide/ai-agent-guide.md) —— AI Agent 使用 dcc-mcp-core 的最佳实践
+- [`AGENTS.md`](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/AGENTS.md) —— 仓库规则与 Agent 工作流
 
 ## 相关项目
 

@@ -223,6 +223,7 @@ fn telemetry_config_accepts_minimal_body() {
 
 /// Pin every default boolean of [`FeatureFlags`]. Most are `false`,
 /// but `bare_tool_names`, `enable_resources`, `enable_prompts`,
+/// `enable_skills_extension`,
 /// and `enable_job_notifications` default to `true` because that
 /// is the documented pre-#852 surface the wheel ships with.
 /// A future change to any of these defaults must be conscious;
@@ -234,6 +235,7 @@ fn feature_flags_default_matches_documented_pre_852_surface() {
     assert!(f.bare_tool_names);
     assert!(f.enable_resources);
     assert!(f.enable_prompts);
+    assert!(f.enable_skills_extension);
     assert!(!f.enable_artefact_resources);
     assert!(f.enable_job_notifications);
     assert!(!f.shutdown_on_drop);
@@ -251,6 +253,7 @@ fn feature_flags_round_trip() {
     assert_eq!(back.bare_tool_names, f.bare_tool_names);
     assert_eq!(back.enable_resources, f.enable_resources);
     assert_eq!(back.enable_prompts, f.enable_prompts);
+    assert_eq!(back.enable_skills_extension, f.enable_skills_extension);
     assert_eq!(back.enable_artefact_resources, f.enable_artefact_resources);
     assert_eq!(back.enable_job_notifications, f.enable_job_notifications);
     assert_eq!(back.shutdown_on_drop, f.shutdown_on_drop);
@@ -276,7 +279,7 @@ fn standalone_main_thread_execution_builder_opts_in() {
 
 /// Critical contract: an empty `{}` body must deserialise into
 /// the documented Default surface, NOT into "every flag is
-/// `false`". The four `default = "default_true"` annotations
+/// `false`". The five `default = "default_true"` annotations
 /// are what keep this guarantee — drop one and the wheel
 /// silently regresses to a different `tools/list` shape.
 #[test]
@@ -287,6 +290,7 @@ fn feature_flags_minimal_body_uses_per_field_defaults() {
     assert_eq!(f.bare_tool_names, d.bare_tool_names);
     assert_eq!(f.enable_resources, d.enable_resources);
     assert_eq!(f.enable_prompts, d.enable_prompts);
+    assert_eq!(f.enable_skills_extension, d.enable_skills_extension);
     assert_eq!(f.enable_artefact_resources, d.enable_artefact_resources);
     assert_eq!(f.enable_job_notifications, d.enable_job_notifications);
     assert_eq!(f.shutdown_on_drop, d.shutdown_on_drop);
@@ -310,6 +314,7 @@ fn feature_flags_partial_body_inherits_other_defaults() {
     assert!(f.bare_tool_names);
     assert!(f.enable_resources);
     assert!(f.enable_prompts);
+    assert!(f.enable_skills_extension);
     assert!(f.enable_job_notifications);
     // And the `false`-by-default ones stay `false`:
     assert!(!f.enable_artefact_resources);

@@ -124,6 +124,12 @@ or when the user explicitly chooses that integration.
 | **When to choose** | Default whenever the agent can run shell commands | The client cannot run shell commands or the user explicitly requests native MCP |
 | **Resources / prompts** | Not covered here; use REST `/v1/context` or IDE MCP if needed | `resources/read`, `prompts/get`, SSE subscribe via MCP |
 
+When an IDE MCP server declares `io.modelcontextprotocol/skills`, use
+`skills/list` or `skills/get` to discover workflow instructions and
+`resources/read` for the files in the returned manifest. Reading `SKILL.md`
+does not activate the skill. Use the server's skill-loading workflow before
+calling its tools.
+
 **Decision rules for agents loading this skill:**
 
 1. **Use this routing policy first** for every DCC-control request, whether the

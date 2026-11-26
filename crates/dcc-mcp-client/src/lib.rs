@@ -7,9 +7,9 @@ use std::time::Duration;
 
 use dcc_mcp_jsonrpc::{
     CallToolResult, GetPromptResult, InitializeResult, JsonRpcNotification, JsonRpcRequest,
-    JsonRpcResponse, ListPromptsResult, ListResourcesResult, ListToolsResult, MCP_PROTOCOL_VERSION,
-    MCP_SESSION_HEADER, McpPrompt, McpResource, McpTool, ReadResourceResult,
-    SUPPORTED_PROTOCOL_VERSIONS,
+    JsonRpcResponse, ListPromptsResult, ListResourcesResult, ListToolsResult,
+    MCP_LEGACY_PROTOCOL_VERSION, MCP_SESSION_HEADER, McpPrompt, McpResource, McpTool,
+    ReadResourceResult, SUPPORTED_PROTOCOL_VERSIONS,
 };
 use reqwest::header::{ACCEPT, CONTENT_TYPE};
 use serde_json::{Value, json};
@@ -72,7 +72,10 @@ impl McpHttpClient {
             timeout,
             client_name: DEFAULT_CLIENT_NAME.to_string(),
             client_version: env!("CARGO_PKG_VERSION").to_string(),
-            protocol_version: MCP_PROTOCOL_VERSION.to_string(),
+            // The CLI is the compatibility control plane. Keep it on the
+            // initialize/session lifecycle while servers may serve modern
+            // 2026-07-28 clients on the same endpoint.
+            protocol_version: MCP_LEGACY_PROTOCOL_VERSION.to_string(),
             session_id: None,
             initialized: false,
             next_request_id: 1,

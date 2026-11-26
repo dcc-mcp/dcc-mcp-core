@@ -19,31 +19,20 @@ Documentation contract:
 
 **Start here if you're an AI agent** — read these documents in order:
 
-| Your task | Install first |
-|-----------|---------------|
-| Operate a live DCC or discover Marketplace capabilities | [`dcc-mcp`](https://clawhub.ai/loonghao/skills/dcc-mcp) |
-| Create or modernize a complete DCC-MCP adapter | [`dcc-mcp-creator`](https://clawhub.ai/loonghao/skills/dcc-mcp-creator) |
-| Create or improve a DCC-specific Skill package | [`dcc-mcp-skills-creator`](https://clawhub.ai/loonghao/skills/dcc-mcp-skills-creator) |
-
 | Priority | Document | Why |
 |----------|----------|-----|
 | 1 | [`AGENTS.md`](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/AGENTS.md) | Navigation map, response rules, PR rules, and links |
-| 2 | [`docs/guide/ai-agent-guide.md`](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/docs/guide/ai-agent-guide.md) | Skills-First usage workflow for AI agents |
-| 3 | [agents-reference.md](agents-reference.md) | **Critical** — traps, do/don't, code style, constants |
-| 4 | [skills.md](skills.md) | How to write and register skills |
-| 5 | [gateway.md](gateway.md) + [rest-api-surface.md](rest-api-surface.md) + [dcc-rest-skill-api.md](dcc-rest-skill-api.md) | Gateway dynamic-capability, call wrapper payloads, and REST workflows |
+| 2 | [agents-reference.md](agents-reference.md) | **Critical** — traps, do/don't, code style, constants |
+| 3 | [skills.md](skills.md) | How to write and register skills |
+| 4 | [gateway.md](gateway.md) + [rest-api-surface.md](rest-api-surface.md) + [dcc-rest-skill-api.md](dcc-rest-skill-api.md) | Gateway dynamic-capability, call wrapper payloads, and REST workflows |
 
 ## Getting Started
 
-For embedded-host DLL failures and explicit install/startup verification, see
-[Native extension preflight](native-preflight.md).
-
 | Document | Purpose |
 |----------|---------|
-| [getting-started.md](getting-started.md) | Install the right Agent Skill/CLI, operate a DCC, or expose a first server |
+| [getting-started.md](getting-started.md) | Install, first server, first tool |
 | [what-is-dcc-mcp-core.md](what-is-dcc-mcp-core.md) | High-level project overview and motivation |
 | [architecture.md](architecture.md) | Rust workspace layout, crate boundaries, PyO3 bridge |
-| [windows-msvc-toolchain.md](windows-msvc-toolchain.md) | Select the MSVC Rust host for Windows native builds and diagnose GNU `dlltool` failures |
 
 ## AI Agent & Skill Authoring
 
@@ -64,14 +53,12 @@ For embedded-host DLL failures and explicit install/startup verification, see
 | Document | Purpose |
 |----------|---------|
 | [remote-server.md](remote-server.md) | Cloud-hosted MCP agents: auth, batch, elicitation, rich content |
-| [design-provider-bridge.md](design-provider-bridge.md) | Experimental official design-session bridge, five provider boundaries and reusable frontend pilot |
 | [gateway.md](gateway.md) | Multi-DCC gateway: aggregation, tool routing |
 | [gateway-election.md](gateway-election.md) | `DccGatewayElection` — automatic failover |
 | [dcc-rest-skill-api.md](dcc-rest-skill-api.md) | Per-DCC REST skill API surface (#658 / #660) |
 | [tunnel-relay.md](tunnel-relay.md) | Zero-config remote MCP relay (`RelayServer` + tunnel agent) |
 | [production-deployment.md](production-deployment.md) | Production checklist: logging, health probes, monitoring |
 | [protocols.md](protocols.md) | MCP protocol types and versioning |
-| [mcp-2026-07-28-migration.md](mcp-2026-07-28-migration.md) | MCP 2026-07-28 stateless protocol: breaking changes, dual-protocol window, client and adapter upgrade steps |
 | [middleware.md](middleware.md) | Pluggable BeforeCall/AfterCall middleware chain: audit, quota, redaction |
 | [admin-ui.md](admin-ui.md) | Built-in embedded `/admin` dashboard (instances, tools, calls, traces, stats, workers, merged logs, health, durable JSONL audit/trace persistence) |
 | [analytics-dashboard.md](analytics-dashboard.md) | Analytics dashboard: KPIs, timeseries, heatmap, top tools, CSV/JSONL export |
@@ -80,10 +67,7 @@ For embedded-host DLL failures and explicit install/startup verification, see
 | [translate.md](translate.md) | `translate` subcommand: bridge any stdio MCP server to HTTP/SSE |
 | [openapi-mount.md](openapi-mount.md) | OpenAPI-to-MCP mount helper: expose any REST API as MCP tools |
 | [catalog.md](catalog.md) | DCC-MCP public adapter catalog: search and describe |
-| [adapter-release-index.md](adapter-release-index.md) | Opt-in release discovery, exact artifact evidence and reviewed promotion |
 | [adapter-install-lifecycle.md](adapter-install-lifecycle.md) | Import-light adapter install/uninstall helpers for registry query, sidecar stop, and Windows native-file lock handling |
-| [adapter-install-sop.md](adapter-install-sop.md) | Install SOP: shared command, JSON result, exit-code, receipt, verification, and rollback contract |
-| [adapter-install-sop-v2-migration.md](adapter-install-sop-v2-migration.md) | Install SOP v2 migration: field delta from frozen v1, compatibility verdict, and adapter steps |
 
 ## Operator & deployment
 
@@ -99,7 +83,6 @@ For embedded-host DLL failures and explicit install/startup verification, see
 |----------|---------|
 | [actions.md](actions.md) | ToolRegistry, ToolDispatcher, ToolPipeline, VersionedRegistry |
 | [asset-import-contract.md](asset-import-contract.md) | `AssetDescriptor` → `ImportToSceneResult` contract for cross-DCC asset import |
-| [asset-sync.md](asset-sync.md) | Content-addressed revisions, optimistic conflict handling, and consumer-owned materialization for cross-DCC sync |
 | [custom-actions.md](custom-actions.md) | Adding custom tool types and validation strategies |
 | [events.md](events.md) | EventBus pub/sub system |
 | [naming.md](naming.md) | Client-safe tool name and action ID validation rules |
@@ -110,9 +93,8 @@ For embedded-host DLL failures and explicit install/startup verification, see
 | [shm.md](shm.md) | Shared memory and zero-copy scene data |
 | [usd.md](usd.md) | OpenUSD bridge: UsdStage, scene info JSON |
 | [artefacts.md](artefacts.md) | FileRef + ArtefactStore — cross-tool file handoff |
-| [adapter-runtime-contracts.md](adapter-runtime-contracts.md) | Session events, artefact refs, debug descriptors, `ui_control` automation contracts |
-| [adapter-launch-plan-contract.md](adapter-launch-plan-contract.md) | Adapter side of `start-instance`: launch-plan schema, argv placeholders, registry metadata, readiness bits, blocking states |
-| [ui-control-workflows.md](ui-control-workflows.md) | Agent workflows for scoped `ui_control` UI automation, recovery, and VRS coverage |
+| [adapter-runtime-contracts.md](adapter-runtime-contracts.md) | Session events, artefact refs, debug descriptors, `app_ui` automation contracts |
+| [app-ui-workflows.md](app-ui-workflows.md) | Agent workflows for scoped `app_ui` UI automation, recovery, and VRS coverage |
 | [telemetry.md](telemetry.md) | ToolMetrics, ToolRecorder, RecordingGuard |
 | [observability.md](observability.md) | OTLP exporter, agent workflow spans, gateway event log (`resources://gateway/events`), Prometheus counters |
 | [metric-dictionary.md](metric-dictionary.md) | Canonical metric dictionary: units, sampling windows, null semantics, storage layer inventory |
@@ -135,7 +117,6 @@ For embedded-host DLL failures and explicit install/startup verification, see
 | [host-adapter.md](host-adapter.md) | `HostAdapter` base class for per-DCC dispatcher wiring |
 | [adapter-dispatcher-migration.md](adapter-dispatcher-migration.md) | Dispatcher migration decision table, fake adapter conformance fixtures, and adapter-specific checklist |
 | [cross-dcc-verification.md](cross-dcc-verification.md) | `SceneStats` contract for producer→file→verifier round-trips |
-| [cross-dcc-modeling-adoption.md](cross-dcc-modeling-adoption.md) | Evidence matrix for typed modeling, readback, reference fit, and real-DCC smoke |
 | [py37-lite-architecture.md](py37-lite-architecture.md) | **py37-lite**: Rust/Python decoupling, try/except import fallback, pure-Python wheel, maintenance guide |
 
 ## Adapter Release Train & Onboarding
@@ -144,10 +125,7 @@ For embedded-host DLL failures and explicit install/startup verification, see
 |----------|---------|
 | [adapter-release-checklist.md](adapter-release-checklist.md) | Release train checklist: core pin, sidecar metadata, gateway smoke, release-please config |
 | [new-adapter-onboarding.md](new-adapter-onboarding.md) | Onboarding template: pyproject deps, adapter_version, readiness, CI/CD, first skill |
-| [adapter-install-sop.md](adapter-install-sop.md) | Adapter-owned installation contract and reusable `install.md` template |
-| [adapter-install-sop-v2-migration.md](adapter-install-sop-v2-migration.md) | Install SOP v2 migration and the frozen-artifact rule for adapters |
 | [adapter-compatibility-matrix.md](adapter-compatibility-matrix.md) | Per-DCC compatibility rows: core pin, adapter version, DCC min version, dispatcher pattern |
-| [adapter-core-version-contract.md](adapter-core-version-contract.md) | Core `0.x` bound contract: required upper bound, one minor line, package-environment drift, runtime checks |
 
 ## Integration
 

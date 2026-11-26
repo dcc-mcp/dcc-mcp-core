@@ -62,6 +62,7 @@ and external issue creation require human review and user authorization.
 | Wrap values for safe RPyC transport | `wrap_value()` / `unwrap_value()` |
 | Handle multiple versions of an action | `VersionedRegistry` + `VersionConstraint` |
 | Expose DCC tools over HTTP/MCP | `create_skill_server("maya", McpHttpConfig())` — Skills-First one-call setup with an OS-assigned instance port discoverable through the CLI/gateway; gateway/slim agents use `search_tools` → `describe_tool` → `call_tool` / `call_tools`; wrapper payloads are `{tool_slug, arguments?, meta?}` and backend-specific fields live inside `arguments`; falls back to `McpHttpServer(registry, config)` for manual registry wiring |
+| Serve Agent Skills through MCP | `McpHttpConfig.enable_skills_extension` enables `skills/list`, `skills/get`, `resources/directory/read`, and `skill://` `resources/read` entries with complete SHA-256 manifests; reading `SKILL.md` does not activate tools; see `docs/api/skills-extension.md` |
 | Bind adapter readiness probe | `AdapterReadinessBinder.bind_inline(server)` / `.bind_headless(server)` / `.bind_queue_dispatcher(server, dispatcher)` — publishes `ReadinessProbe` gating MCP `tools/call`, REST `/v1/readyz`, and REST `/v1/call` (#1331, #1206) |
 | Check DCC adapter readiness | `GET /v1/readyz` → 200 `ready` / 503 `booting` / 503 `not-ready` with per-bit details (process, dcc, catalog, dispatcher, host_bridge, main_thread_executor) (#1331) |
 | Discover gateway DCC instances / direct MCP URLs (#813 phase 1) | `resources/read uri="gateway://instances"` or `gateway://instances/{id}` — entries include `mcp_url`; `resources/list` shows the root pointer only; legacy `list_dcc_instances` / `get_dcc_instance` / `connect_to_dcc` and non-standard `instances/list` are removed |
@@ -3071,28 +3072,17 @@ client.send_frame(DccLinkFrame(msg_type=6, seq=0, body=json.dumps({"topic": "mes
 
 ## MCP HTTP Server (`dcc_mcp_core`)
 
-The `dcc-mcp-http` crate provides a **MCP Streamable HTTP server** compliant with the **2025-03-26 MCP
-specification**. It uses axum + Tokio and runs in a background thread, making it safe to call from any
-DCC main thread.
+The `dcc-mcp-http` crate provides a **MCP Streamable HTTP server** with modern
+`2026-07-28` discovery and legacy initialize/session support for `2025-11-25`,
+`2025-06-18`, and `2025-03-26`. It uses axum + Tokio and runs in a
+background thread, making it safe to call from any DCC main thread.
 
-> **MCP Spec Roadmap**: The MCP specification has evolved significantly since the 2025-03-26 version this library implements:
->
-> | Version | Key Changes | Status |
-> |---------|-------------|--------|
-> | 2025-03-26 | Streamable HTTP, Tool Annotations, OAuth 2.1 | **Implemented** |
-> | 2025-06-18 | Structured Tool Output, Elicitation (server asks user for info), Resource Links in tool results, JSON-RPC batching **removed**, `MCP-Protocol-Version` header mandatory | Planned |
-> | 2025-11-25 | Icon metadata, Tasks (experimental), Sampling with tool calls, JSON Schema 2020-12, enhanced OAuth | Planned |
->
-> **2026 MCP Roadmap** (announced March 2026) — four priority areas:
-> 1. **Transport scalability**: `.well-known` server capability discovery, stateless session model for horizontal scaling
-> 2. **Agent communication**: Tasks primitive lifecycle (experimental in 2025-11-25), retry/expiration semantics pending
-> 3. **Governance**: contributor ladder, delegated workgroup model for faster SEP review
-> 4. **Enterprise readiness**: audit trails, SSO integration, gateway behavior (mostly as extensions, not core spec changes)
->
-> No new official transport types will be added in the 2026 cycle — only evolution of Streamable HTTP.
->
-> When these features land in `dcc-mcp-core`, they will be exposed via `McpHttpServer` —
-> do NOT implement these manually.
+Modern clients use `server/discover` with per-request metadata, cache hints,
+SEP-2243 routing headers, and the official
+`io.modelcontextprotocol/skills` extension. The extension exposes
+`skills/list`, `skills/get`, `resources/read`, and
+`resources/directory/read` with complete SHA-256 manifests. The DCCMCP CLI
+keeps the `2025-11-25` initialize/session path as its compatibility default.
 
 ### McpHttpConfig
 
