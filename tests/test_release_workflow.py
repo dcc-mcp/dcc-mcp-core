@@ -272,7 +272,6 @@ def test_release_workflow_keeps_github_release_safety_net_after_pypi_jobs() -> N
     ]
     assert "always()" in summary["if"]
     summary_step = summary["steps"][0]
-    run = summary_step["run"]
     # Each route's result reaches the script through `env:`; interpolating these
     # job results into the shell body would let GitHub substitute text before
     # bash runs, which is the injection shape this workflow forbids.

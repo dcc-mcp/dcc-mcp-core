@@ -4,11 +4,10 @@ from __future__ import annotations
 
 import argparse
 import json
+from pathlib import Path
 import re
 import sys
-from pathlib import Path
 from typing import Any
-
 
 SEMVER = re.compile(
     r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"
@@ -99,9 +98,7 @@ def validate_manifest(manifest: dict[str, Any], skill_root: Path) -> list[str]:
                 entrypoint = _require_object(entrypoint, f"entrypoints[{index}]")
                 unknown_entrypoint = set(entrypoint) - {"kind", "path"}
                 if unknown_entrypoint:
-                    raise ManifestError(
-                        f"unknown entrypoint fields: {', '.join(sorted(unknown_entrypoint))}"
-                    )
+                    raise ManifestError(f"unknown entrypoint fields: {', '.join(sorted(unknown_entrypoint))}")
                 if entrypoint.get("kind") != "skill":
                     raise ManifestError(f"entrypoints[{index}].kind must be 'skill'")
                 if entrypoint.get("path") != "SKILL.md":
@@ -126,9 +123,7 @@ def validate_manifest(manifest: dict[str, Any], skill_root: Path) -> list[str]:
                 command = _require_object(command, f"commands[{index}]")
                 unknown_command = set(command) - {"name", "compatibility_aliases"}
                 if unknown_command:
-                    raise ManifestError(
-                        f"unknown command fields: {', '.join(sorted(unknown_command))}"
-                    )
+                    raise ManifestError(f"unknown command fields: {', '.join(sorted(unknown_command))}")
                 command_name = _require_string(command.get("name"), f"commands[{index}].name")
                 aliases = _require_string_list(
                     command.get("compatibility_aliases"),
@@ -163,6 +158,7 @@ def validate_manifest(manifest: dict[str, Any], skill_root: Path) -> list[str]:
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse the manifest path and optional skill-root override."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("manifest", type=Path)
     parser.add_argument(
@@ -174,6 +170,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
+    """Validate the requested manifest and return a process exit code."""
     args = parse_args()
     manifest_path = args.manifest.resolve()
     skill_root = (args.skill_root or manifest_path.parent).resolve()
