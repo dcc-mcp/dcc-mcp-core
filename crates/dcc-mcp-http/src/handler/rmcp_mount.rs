@@ -14,6 +14,7 @@ use std::sync::Arc;
 use axum::Router;
 use axum::body::{Body, Bytes, to_bytes};
 use dcc_mcp_http_server::rmcp_handler::{DccMcpHandler, RegistryContext};
+#[cfg(not(feature = "mcp-2026-07-28"))]
 use dcc_mcp_http_server::rmcp_providers::SkillProvider;
 use dcc_mcp_jsonrpc::NotificationBuilder;
 #[cfg(feature = "mcp-2026-07-28")]
@@ -21,6 +22,7 @@ use http::header::HeaderValue;
 use http::{Request, Response, StatusCode};
 use rmcp::transport::streamable_http_server::session::local::LocalSessionManager;
 use rmcp::transport::streamable_http_server::{StreamableHttpServerConfig, StreamableHttpService};
+#[cfg(not(feature = "mcp-2026-07-28"))]
 use serde_json::{Value, json};
 use tower::ServiceExt;
 use tracing::info;
@@ -153,10 +155,10 @@ pub(crate) fn build_legacy_service(
     let session_manager = Arc::new(LocalSessionManager::default());
 
     let mut config = StreamableHttpServerConfig::default();
-    // Keep initialize/session semantics for legacy clients. rmcp routes
-    // 2026-07-28 requests statelessly on the same endpoint regardless of this
-    // setting, while CLI clients retain their established session contract.
-    config.legacy_session_mode = true;
+    // Keep the established JSON request/response lifecycle for legacy clients.
+    // rmcp routes 2026-07-28 requests statelessly on the same endpoint, while
+    // legacy requests remain compatible with the pre-extension transport.
+    config.legacy_session_mode = false;
     config.json_response = true;
     // Allow any host (production should restrict via reverse proxy).
     config.allowed_hosts = vec![];
@@ -344,14 +346,14 @@ async fn dispatch_legacy_request(
     if let Some(protocol_version) = payload
         .pointer_mut("/result/protocolVersion")
         .and_then(|value| value.as_str())
+        && protocol_version == "2025-06-18"
     {
-        if protocol_version == "2025-06-18" {
-            payload["result"]["protocolVersion"] = Value::String("2025-11-25".to_string());
-        }
+        payload["result"]["protocolVersion"] = Value::String("2025-11-25".to_string());
     }
     Ok(Response::from_parts(parts, Body::from(payload.to_string())))
 }
 
+#[cfg(not(feature = "mcp-2026-07-28"))]
 fn value_method(body: &[u8]) -> Option<String> {
     serde_json::from_slice::<Value>(body)
         .ok()?
@@ -360,6 +362,7 @@ fn value_method(body: &[u8]) -> Option<String> {
         .map(str::to_string)
 }
 
+#[cfg(not(feature = "mcp-2026-07-28"))]
 fn legacy_skill_response(
     request: &Value,
     state: &dcc_mcp_http_server::ServerState,

@@ -11,10 +11,12 @@ Release 资产发布。旧的 `dcc-mcp-cli` 继续作为兼容别名保留。DCC
 安装，先征得用户同意，再通过官方 URL 安装：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-cli/main/scripts/install-cli.sh | sh
+curl -fsSL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.sh -o install-cli.sh
+sh install-cli.sh
 
 # Windows PowerShell
-powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-cli/main/scripts/install-cli.ps1 | iex"
+Invoke-WebRequest https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-core/main/scripts/install-cli.ps1 -OutFile install-cli.ps1
+& .\\install-cli.ps1
 ```
 
 需要固定版本时，设置 `DCC_MCP_VERSION=v0.17.17`，或给安装脚本传

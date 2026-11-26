@@ -349,10 +349,9 @@ impl McpHttpClient {
         if let Some(protocol_version) = headers
             .get("Mcp-Protocol-Version")
             .and_then(|value| value.to_str().ok())
+            && SUPPORTED_PROTOCOL_VERSIONS.contains(&protocol_version)
         {
-            if SUPPORTED_PROTOCOL_VERSIONS.contains(&protocol_version) {
-                self.protocol_version = protocol_version.to_string();
-            }
+            self.protocol_version = protocol_version.to_string();
         }
     }
 }

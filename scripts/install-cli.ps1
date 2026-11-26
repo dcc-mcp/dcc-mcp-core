@@ -1,15 +1,13 @@
 param(
     [string] $Version = $env:DCC_MCP_VERSION,
-    [string] $InstallDir = $env:DCC_MCP_INSTALL_DIR,
-    [string] $Repo = $env:DCC_MCP_REPO
+    [string] $InstallDir = $env:DCC_MCP_INSTALL_DIR
 )
 
-# One-line install:
-# powershell -c "irm https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-cli/main/scripts/install-cli.ps1 | iex"
-
 $ErrorActionPreference = "Stop"
-$allowUnsigned = $env:DCC_MCP_ALLOW_UNSIGNED_DOWNLOADS -match "^(1|true|yes)$"
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+$ProgressPreference = "SilentlyContinue"
+$officialReleases = "https://github.com/dcc-mcp/dcc-mcp-core/releases"
+$platform = "windows-x86_64"
+$asset = "dcc-mcp-cli-windows-x86_64.exe"
 
 if ([string]::IsNullOrWhiteSpace($Version)) {
     $Version = "latest"
@@ -17,84 +15,89 @@ if ([string]::IsNullOrWhiteSpace($Version)) {
 if ([string]::IsNullOrWhiteSpace($InstallDir)) {
     $InstallDir = Join-Path $env:LOCALAPPDATA "dcc-mcp\bin"
 }
-if ([string]::IsNullOrWhiteSpace($Repo)) {
-    $Repo = "dcc-mcp/dcc-mcp-cli"
-}
 
-$asset = "dccmcp-windows-x86_64.exe"
-$legacyAsset = "dcc-mcp-cli-windows-x86_64.exe"
+if ($Version -eq "latest") {
+    $requestedVersion = $null
+    $manifestUrl = "$officialReleases/latest/download/dcc-mcp-update-manifest-$platform.json"
+} else {
+    if ($Version -notmatch '^v?([0-9]+\.[0-9]+\.[0-9]+([.+-][0-9A-Za-z.-]+)?)$') {
+        throw "Invalid release version: $Version"
+    }
+    $requestedVersion = $Matches[1]
+    $manifestUrl = "$officialReleases/download/v$requestedVersion/dcc-mcp-update-manifest-$platform.json"
+}
 
 New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
-$target = Join-Path $InstallDir "dccmcp.exe"
-$compatibilityTarget = Join-Path $InstallDir "dcc-mcp-cli.exe"
-$tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("dccmcp-" + [System.Guid]::NewGuid() + ".exe")
+$target = Join-Path $InstallDir "dcc-mcp-cli.exe"
+$primaryTarget = Join-Path $InstallDir "dccmcp.exe"
+$manifestTmp = Join-Path $InstallDir (".dcc-mcp-manifest-" + [System.Guid]::NewGuid() + ".json")
+$binaryTmp = Join-Path $InstallDir (".dcc-mcp-cli-" + [System.Guid]::NewGuid() + ".exe")
 
 try {
-    $downloadedUrl = $null
-    foreach ($candidate in @($asset, $legacyAsset)) {
-        if ($Version -eq "latest") {
-            $candidateUrl = "https://github.com/$Repo/releases/latest/download/$candidate"
-        } else {
-            $candidateUrl = "https://github.com/$Repo/releases/download/$Version/$candidate"
-        }
-        try {
-            Write-Host "Downloading $candidateUrl"
-            Invoke-WebRequest -Uri $candidateUrl -OutFile $tmp
-            $downloadedUrl = $candidateUrl
-            break
-        } catch {
-            Write-Warning "Asset unavailable: $candidateUrl"
-        }
-    }
-    if (-not $downloadedUrl) {
-        throw "No DCCMCP or dcc-mcp-cli release asset was found."
-    }
+    Write-Host "Downloading $manifestUrl"
+    Invoke-WebRequest -Uri $manifestUrl -OutFile $manifestTmp
 
-    $checksumPath = "$tmp.sha256"
+    $manifestText = Get-Content -LiteralPath $manifestTmp -Raw
+    if ([regex]::Matches($manifestText, '"dcc-mcp-cli"\s*:').Count -ne 1) {
+        throw "Official release manifest must contain one dcc-mcp-cli entry"
+    }
     try {
-        $checksumAvailable = $false
-        try {
-            Invoke-WebRequest -Uri "$downloadedUrl.sha256" -OutFile $checksumPath
-            $checksumAvailable = $true
-        } catch {
-            if (-not $allowUnsigned) {
-                throw "Release checksum verification failed for $downloadedUrl. $($_.Exception.Message) Set DCC_MCP_ALLOW_UNSIGNED_DOWNLOADS=1 only for a trusted legacy mirror."
-            }
-            Write-Warning "Checksum sidecar unavailable or invalid. Continuing by explicit opt-out."
-        }
-        if ($checksumAvailable) {
-            $expected = (Get-Content -Raw -Path $checksumPath).Trim() -split "\s+" | Select-Object -First 1
-            if ($expected -notmatch "^[0-9a-fA-F]{64}$") {
-                throw "Checksum sidecar does not contain a SHA-256 digest."
-            }
-            $actual = (Get-FileHash -Algorithm SHA256 -Path $tmp).Hash
-            if ($actual -ine $expected) {
-                throw "SHA-256 mismatch. Expected $expected, got $actual."
-            }
-        }
-    } finally {
-        if (Test-Path $checksumPath) {
-            Remove-Item -Force $checksumPath
-        }
+        $manifest = $manifestText | ConvertFrom-Json
+    } catch {
+        throw "Official release manifest is not valid JSON: $($_.Exception.Message)"
+    }
+    $entry = $manifest.'dcc-mcp-cli'
+    if ($null -eq $entry) {
+        throw "Official release manifest is missing dcc-mcp-cli"
     }
 
-    Move-Item -Force -Path $tmp -Destination $target
-    Copy-Item -Force -Path $target -Destination $compatibilityTarget
+    $manifestVersion = [string] $entry.version
+    $assetUrl = [string] $entry.url
+    $expectedSha256 = [string] $entry.sha256
+    if ($manifestVersion -notmatch '^[0-9]+\.[0-9]+\.[0-9]+([.+-][0-9A-Za-z.-]+)?$') {
+        throw "Official release manifest contains an invalid dcc-mcp-cli version"
+    }
+    if ($Version -ne "latest" -and $manifestVersion -ne $requestedVersion) {
+        throw "Official release manifest version does not match requested version $requestedVersion"
+    }
+
+    $expectedUrl = "$officialReleases/download/v$manifestVersion/$asset"
+    if ($assetUrl -cne $expectedUrl) {
+        throw "Official release manifest contains a non-official dcc-mcp-cli URL"
+    }
+    if ($expectedSha256 -notmatch '^[0-9A-Fa-f]{64}$') {
+        throw "Official release manifest contains an invalid SHA-256"
+    }
+
+    Write-Host "Downloading $assetUrl"
+    Invoke-WebRequest -Uri $assetUrl -OutFile $binaryTmp
+    $actualSha256 = (Get-FileHash -LiteralPath $binaryTmp -Algorithm SHA256).Hash
+    if ($actualSha256 -ine $expectedSha256) {
+        throw "dcc-mcp-cli SHA-256 does not match the official release manifest"
+    }
+
+    if (Test-Path -LiteralPath $target) {
+        [System.IO.File]::Replace($binaryTmp, $target, $null)
+    } else {
+        [System.IO.File]::Move($binaryTmp, $target)
+    }
+    Copy-Item -LiteralPath $target -Destination $primaryTarget -Force
 } finally {
-    if (Test-Path $tmp) {
-        Remove-Item -Force $tmp
+    foreach ($path in @($manifestTmp, $binaryTmp)) {
+        if (Test-Path -LiteralPath $path) {
+            Remove-Item -LiteralPath $path -Force
+        }
     }
 }
 
-Write-Host "Installed dccmcp to $target"
-Write-Host "Installed compatibility alias to $compatibilityTarget"
+Write-Host "Installed verified dccmcp $manifestVersion to $primaryTarget"
+Write-Host "Installed compatibility alias to $target"
 
 $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
 $pathParts = @()
 if ($userPath) {
     $pathParts = $userPath -split ";"
 }
-
 if ($pathParts -notcontains $InstallDir) {
     $newPath = if ($userPath) { "$userPath;$InstallDir" } else { $InstallDir }
     [Environment]::SetEnvironmentVariable("Path", $newPath, "User")

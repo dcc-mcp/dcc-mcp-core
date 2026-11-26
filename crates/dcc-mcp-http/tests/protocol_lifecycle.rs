@@ -118,9 +118,9 @@ async fn http_header_selects_lifecycle_independently_of_initialize_body() {
     for (requested, expected) in [
         (Some("2025-03-26"), "2025-03-26"),
         (Some("2025-06-18"), "2025-06-18"),
-        (Some("2026-07-28"), "2025-06-18"),
-        (Some("2099-01-01"), "2025-06-18"),
-        (None, "2025-06-18"),
+        (Some("2026-07-28"), "2025-11-25"),
+        (Some("2099-01-01"), "2025-11-25"),
+        (None, "2025-11-25"),
     ] {
         let body = request(
             &client,

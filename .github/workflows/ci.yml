@@ -1305,8 +1305,16 @@ jobs:
       - name: Validate agent plugin manifest
         run: python scripts/validate_agent_plugin.py skills/dcc-mcp/agent-plugin.json
 
+      - name: Download wheel
+        uses: actions/download-artifact@v8
+        with:
+          name: wheel-ubuntu-latest
+          path: dist/
+
       - name: Install Python test dependencies
-        run: pip install pytest anyio
+        run: |
+          pip install dist/*.whl
+          pip install pytest anyio
 
       - name: Run agent plugin contract tests
         run: pytest tests/test_agent_plugin_spec.py -v --tb=short
