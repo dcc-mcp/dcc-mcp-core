@@ -104,7 +104,7 @@ def _resolve_cli_sibling() -> Optional[str]:
         candidate = argv0.resolve().parent / file_name
         if candidate.is_file():
             return str(candidate)
-    for name in ("dcc-mcp-cli", "dccmcp"):
+    for name in ("dccmcp", "dcc-mcp-cli"):
         cli = shutil.which(name)
         if cli:
             candidates.append(Path(cli))
