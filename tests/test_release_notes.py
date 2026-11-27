@@ -433,6 +433,22 @@ def test_untyped_commit_is_reported_as_mechanism_a() -> None:
     assert "0.20.34" in errors[0]
 
 
+def test_legacy_untyped_baseline_commits_are_accepted_only_for_0_22_0() -> None:
+    checker = _load_checker_module()
+    commit = checker.Commit(
+        sha="521df1fa2156d308b240228fd8ff4c11199bc0c9",
+        subject="Publish adapter-install-sop-v2 and freeze the v1 schema artifact",
+    )
+
+    baseline = checker.check_commits([commit], "", HIDDEN_TYPES, version="0.22.0")
+    assert baseline.legacy_untyped == (commit,)
+    assert baseline.failures == ()
+
+    later = checker.check_commits([commit], "", HIDDEN_TYPES, version="0.22.1")
+    assert later.legacy_untyped == ()
+    assert later.untyped == (commit,)
+
+
 def test_undeclared_type_is_reported_as_mechanism_a() -> None:
     """A type release-please never declares is dropped, not merely missed.
 
