@@ -1,3 +1,4 @@
+import { skillStateLabel } from './skill-load-state';
 import { useEffect, useMemo } from 'react';
 import { RiRefreshLine } from '@remixicon/react';
 import { type InterpolationValues, type MessageKey } from '../../i18n';
@@ -26,7 +27,7 @@ function buildSkillInsights(skills: SkillRow[], paths: SkillPathRow[], totals: {
   const missingPaths = paths.filter((path) => path.status === 'missing' || path.exists === false);
   const lowAdoption = skills.filter((skill) => skill.adoption.low_adoption);
   const unused = skills.filter(
-    (skill) => skill.load_state !== 'unloaded' && !skill.adoption.used && !skill.adoption.low_adoption,
+    (skill) => (skill.loaded || skill.load_state === 'partial') && !skill.adoption.used && !skill.adoption.low_adoption,
   );
   const insights: SkillInsight[] = [];
 
@@ -167,6 +168,7 @@ export function SkillsPanel({
     return () => clearTimeout(timer);
   }, [active, highlightSkillName, inventory.skills.length, onHighlightConsumed]);
 
+  const selectedSkill = inventory.skills.find((skill) => skill.name === detailStore.selected?.name);
   const filteredSkills = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return inventory.skills;
@@ -178,14 +180,7 @@ export function SkillsPanel({
           skill.dcc_type,
           skill.dcc_types.join(' '),
           skill.load_state,
-          skill.load_state === 'loaded' ? 'loaded' : skill.load_state === 'partial' ? 'partial' : 'unloaded',
-          t(
-            skill.load_state === 'loaded'
-              ? 'skillPaths.state.loaded'
-              : skill.load_state === 'partial'
-                ? 'skillPaths.state.partial'
-                : 'skillPaths.state.unloaded',
-          ),
+          t(skillStateLabel[skill.load_state]),
           skill.summary ?? '',
           skill.instances.join(' '),
           skill.tools.join(' '),
@@ -275,17 +270,20 @@ export function SkillsPanel({
           />
         )}
         <DetailDialog
-          open={detailStore.selected !== null}
+          open={selectedSkill !== undefined}
           title={detailStore.selected?.name ?? t('skillPaths.title')}
           className="skill-detail-modal"
           onClose={detailStore.close}
         >
-          {detailStore.selected ? (
+          {selectedSkill ? (
             <SkillDetailPanel
-              skill={detailStore.selected}
+              skill={selectedSkill}
               detail={detailStore.detail}
               busy={detailStore.busy}
-              onReload={detailStore.reload}
+              onReload={() => {
+                void inventory.refresh();
+                detailStore.reload();
+              }}
               onClose={detailStore.close}
               t={t}
             />

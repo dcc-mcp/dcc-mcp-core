@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { normalizeSkillRow } from '../../admin-types';
@@ -66,4 +66,24 @@ it('recomputes localized state search when the language changes', async () => {
   expect(await screen.findByText(en('skillPaths.empty.skillsSearch'))).toBeVisible();
   rerender(<SkillsPanel active search={query} updatedAt="" t={zh} {...callbacks} />);
   expect(await screen.findByText('maya-history', { selector: '.skill-inventory-title' })).toBeVisible();
+});
+
+it('refreshes the displayed live state when reloading an open detail', async () => {
+  const t = createTranslator('en');
+  let loaded = true;
+  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+    const path = String(input);
+    const data = path.endsWith('/skills')
+      ? { skills: [{ name: 'shared', dcc_type: 'maya', loaded }] }
+      : { paths: [], instances: [] };
+    return new Response(JSON.stringify(data));
+  }));
+  render(<SkillsPanel active search="" updatedAt="" t={t} {...callbacks} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Open shared detail' }));
+  const dialog = await screen.findByRole('dialog');
+  const reload = within(dialog).getByRole('button', { name: t('action.reload') });
+  await waitFor(() => expect(reload).toBeEnabled());
+  loaded = false;
+  fireEvent.click(reload);
+  await waitFor(() => expect(dialog.querySelector('.skill-detail-summary-grid')).toHaveTextContent(t('skillPaths.state.unloaded')));
 });

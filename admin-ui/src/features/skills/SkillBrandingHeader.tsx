@@ -1,3 +1,4 @@
+import { skillStateLabel } from './skill-load-state';
 import { type InterpolationValues, type MessageKey } from '../../i18n';
 import { resolveDccIcon } from '../../admin-ui-core';
 import { type SkillRow } from '../../admin-types';
@@ -19,12 +20,6 @@ export function SkillBrandingHeader({ skill, t }: { skill: SkillRow; t: Translat
   const initial = deriveBrandingInitial(skill.name);
   const dccIcon = resolveDccIcon(skill.dcc_type || skill.dcc_types[0] || '');
   const dccLabel = skill.dcc_types.join(', ') || skill.dcc_type || t('common.status.unknown');
-  const loadLabel = skill.load_state === 'loaded'
-    ? t('skillPaths.state.loaded')
-    : skill.load_state === 'partial'
-      ? t('skillPaths.state.partial')
-      : t('skillPaths.state.unloaded');
-
   const avatar = branding?.logo_url ? (
     <img src={branding.logo_url} alt="" />
   ) : branding?.emoji ? (
@@ -58,7 +53,7 @@ export function SkillBrandingHeader({ skill, t }: { skill: SkillRow; t: Translat
             {dccLabel}
           </Badge>
           <Badge variant={skill.load_state === 'loaded' ? 'default' : 'secondary'} className={skill.load_state === 'loaded' ? 'badge-ok' : 'badge-muted'}>
-            {loadLabel}
+            {t(skillStateLabel[skill.load_state])}
           </Badge>
           {skill.version ? <span className="skill-card-version">v{skill.version}</span> : null}
         </div>
