@@ -19,10 +19,9 @@ metadata:
     layer: infrastructure
     compatibility: "Python 3.7+, dcc-mcp-core 0.17+"
     search-hint: "create dcc mcp skill, validate skill, scaffold skill, SKILL.md, tools.yaml, scripts, groups, prompts, skill taxonomy"
-    tools: tools.yaml
-    prompts: prompts.yaml
     skill-reference-docs:
-      - "references/*.md"
+      - "../../docs/guide/agents-reference.md"
+      - "../../docs/guide/skill-*.md"
   openclaw:
     homepage: https://github.com/dcc-mcp/dcc-mcp-core/blob/main/skills/dcc-mcp-skills-creator/SKILL.md
 ---
@@ -30,9 +29,10 @@ metadata:
 # DCC-MCP Skills Creator
 
 A first-class meta-skill for creating, validating, and reviewing DCC-MCP skill
-packages. It bundles scaffold/validation tools together with agent-facing
-authoring guidance for `SKILL.md`, `tools.yaml`, scripts, groups, prompts, and
-progressive-loading taxonomy.
+packages. It carries authoring guidance for `SKILL.md`, `tools.yaml`, scripts,
+groups, prompts, and progressive loading. Tool declarations and prompt
+templates live in the published `@loonghao/dcc-mcp-skills-creator` package, not
+in this repository spec.
 
 Use `dcc-mcp-creator` when the task is to create a full adapter repository for
 a host such as Nuke, Blender, 3ds Max, Unreal, ZBrush, Houdini, or Maya. Use
@@ -162,15 +162,15 @@ Generated `tools.yaml` entries follow the modern contract:
   host metadata in the shared bridge session. Do not expose arbitrary script
   execution as the default tool for Roblox Studio or other external hosts.
 
-### Computer Use Fallback Contract
+### UI Control Fallback Contract
 
-- Reuse the bundled `app-ui` skill instead of creating another screenshot,
+- Reuse the bundled `ui-control` skill instead of creating another screenshot,
   pointer, keyboard, or Windows `SendInput` tool set. Declare
-  `metadata.dcc-mcp.depends: ["app-ui"]` only when it is a hard workflow
+  `metadata.dcc-mcp.depends: ["ui-control"]` only when it is a hard workflow
   dependency.
-- Keep the visual loop as `app_ui__snapshot` -> `app_ui__act` ->
-  `app_ui__snapshot`, and pass the latest `snapshot_id` unchanged. End every
-  path with `app_ui__stop_computer_use`. Screenshot coordinates belong to that
+- Keep the visual loop as `ui_control__snapshot` -> `ui_control__act` ->
+  `ui_control__snapshot`, and pass the latest `snapshot_id` unchanged. End every
+  path with `ui_control__stop_computer_use`. Screenshot coordinates belong to that
   observation only.
 - When the exact HWND is minimized or hidden before the first snapshot, use
   only `get_window_state` followed by the necessary `restore_window`,
@@ -186,8 +186,8 @@ Generated `tools.yaml` entries follow the modern contract:
   only when the UI does not expose a stable semantic control.
 - Never set `DCC_MCP_COMPUTER_USE_ALLOW_RAW_INPUT` from a skill script. It is an
   operator-owned environment ceiling. Native input also requires the
-  adapter/operator to bind its DCC with `DCC_MCP_APP_UI_UIA_PROCESS_ID` or
-  `DCC_MCP_APP_UI_UIA_WINDOW_HANDLE`; a skill request may only narrow that
+  adapter/operator to bind its DCC with `DCC_MCP_UI_CONTROL_PROCESS_ID` or
+  `DCC_MCP_UI_CONTROL_WINDOW_HANDLE`; a skill request may only narrow that
   trusted scope. Propagate `user_interrupted` immediately;
   do not retry the action or fall back to another input path after Ctrl+Alt+Esc.
 - Never enter or retry another UI/input path after a policy, authorization,
@@ -249,9 +249,9 @@ as `dcc`, `version`, `tags`, `tools`, `groups`, `depends`, `search-hint`,
 that contains the `SKILL.md` loaded by adapters, not only mirrored repository
 docs or marketplace metadata.
 
-Read [AUTHORING_WORKFLOW.md](references/AUTHORING_WORKFLOW.md) and
-[DCC_TOOL_CONTRACTS.md](references/DCC_TOOL_CONTRACTS.md) before changing a
-production skill package.
+Read the [agent skill reference](../../docs/guide/agents-reference.md) and
+[skills guide](../../docs/guide/skills.md) before changing a production skill
+package.
 
 ## Gateway-Facing Tag Taxonomy
 
