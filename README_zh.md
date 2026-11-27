@@ -18,7 +18,7 @@
 [![CLI macOS](https://img.shields.io/github/downloads/dcc-mcp/dcc-mcp-cli/latest/dccmcp-macos-universal2?label=cli%20macOS)](https://github.com/dcc-mcp/dcc-mcp-cli/releases/latest)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](http://makeapullrequest.com)
 
-[English](README.md) | 中文
+[English](README.md) | 中文 | [Türkçe](README_tr.md)
 
 [官网](https://dcc-mcp.github.io/zh/) · [技能市场](https://dcc-mcp.github.io/zh/marketplace) · [案例画廊](https://dcc-mcp.github.io/zh/showcase) · [Agent 使用](https://dcc-mcp.github.io/zh/agents) · [生态目录](https://dcc-mcp.github.io/zh/ecosystem)
 
