@@ -243,6 +243,7 @@ Sunucuyu bir beceri dizinine yönlendirin ve MCP uç noktasını başlatın:
 
 ~~~python
 import os
+import time
 
 from dcc_mcp_core import McpHttpConfig, create_skill_server
 
@@ -251,6 +252,12 @@ os.environ["DCC_MCP_MAYA_SKILL_PATHS"] = "/path/to/skills"
 server = create_skill_server("maya", McpHttpConfig())
 handle = server.start()
 print(handle.mcp_url())
+
+try:
+    while True:
+        time.sleep(1)
+except KeyboardInterrupt:
+    pass
 ~~~
 
 Yerel DCC örnekleri varsayılan olarak işletim sistemi tarafından atanan bir porta bağlanır. Çözümlenen URL
