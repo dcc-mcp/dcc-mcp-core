@@ -82,5 +82,5 @@ tools:
       open_world_hint: true
       deferred_hint: false
     next-tools:
-      on-success: [dcc_mcp_skills_creator__validate_skill_dir]
+      on-success: []
       on-failure: [dcc_diagnostics__audit_log]
