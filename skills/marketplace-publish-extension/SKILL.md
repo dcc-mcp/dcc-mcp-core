@@ -19,7 +19,7 @@ metadata:
       domain: marketplace
       workflow_stage: publishing
       task_category: mutate
-    version: "0.22.0"  # x-release-please-version
+    version: "0.22.1"  # x-release-please-version
     layer: infrastructure
     search-hint: >-
       publish extension, register extension, marketplace catalog, upsert
