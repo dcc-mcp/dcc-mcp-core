@@ -111,6 +111,13 @@ host = "core"
 [tool.maturin]
 python-source = "python"
 module-name = "dcc_mcp_core._core"
+# Keep generated legal notices in every wheel and source distribution. The
+# release workflow stages these files into the Python package before maturin
+# runs, so an explicit include is required for non-Python package resources.
+include = [
+    "python/dcc_mcp_core/THIRD_PARTY_NOTICES.txt",
+    "python/dcc_mcp_core/THIRD_PARTY_LICENSES.txt",
+]
 # Feature list MUST stay in sync with `WHEEL_FEATURES` in the root justfile.
 # The justfile is the single source of truth for CI; this list only matters
 # for downstream `pip install .` / sdist rebuilds that bypass our CI.

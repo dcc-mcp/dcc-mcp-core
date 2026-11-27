@@ -111,3 +111,15 @@ def test_stage_package_notices_copies_generated_package_resources(tmp_path: Path
         names = CLI_WRAPPER_NOTICE_FILES if package_root == CLI_WRAPPER_ROOT else NOTICE_FILES
         for name in names:
             assert (tmp_path / package_root / name).read_bytes() == (tmp_path / name).read_bytes()
+
+
+def test_core_maturin_config_includes_generated_package_notices() -> None:
+    root = Path(__file__).resolve().parents[1]
+    config = (root / "pyproject.toml").read_text(encoding="utf-8")
+
+    assert (
+        "include = [\n"
+        '    "python/dcc_mcp_core/THIRD_PARTY_NOTICES.txt",\n'
+        '    "python/dcc_mcp_core/THIRD_PARTY_LICENSES.txt",\n'
+        "]"
+    ) in config
