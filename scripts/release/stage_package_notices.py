@@ -6,19 +6,29 @@ from __future__ import annotations
 from pathlib import Path
 import shutil
 
-NOTICE_FILES = ("LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.txt", "THIRD_PARTY_LICENSES.txt")
+# Maturin owns the standard license metadata and places LICENSE/NOTICE in the
+# wheel's dist-info/licenses directory. The generated third-party texts are
+# project resources, so stage those explicitly into each Maturin package.
+NOTICE_FILES = ("THIRD_PARTY_NOTICES.txt", "THIRD_PARTY_LICENSES.txt")
+CLI_WRAPPER_NOTICE_FILES = ("LICENSE", "NOTICE", *NOTICE_FILES)
 PACKAGE_ROOTS = (
+    Path("python/dcc_mcp_core"),
     Path("pkg/dcc-mcp-server-bin"),
+    Path("pkg/dcc-mcp-server-bin/python/dcc_mcp_server"),
     Path("pkg/dcc-mcp-core-semantic"),
+    Path("pkg/dcc-mcp-core-semantic/python/dcc_mcp_core_semantic"),
     Path("pkg/dcc-mcp-cli-bin"),
+    Path("pkg/dcc-mcp-cli-bin/python/dcc_mcp_cli"),
 )
+CLI_WRAPPER_ROOT = Path("pkg/dcc-mcp-cli-bin")
 
 
 def stage(root: Path) -> None:
     """Copy root legal notices into every standalone package root."""
     for package_root in PACKAGE_ROOTS:
         destination_root = root / package_root
-        for name in NOTICE_FILES:
+        names = CLI_WRAPPER_NOTICE_FILES if package_root == CLI_WRAPPER_ROOT else NOTICE_FILES
+        for name in names:
             source = root / name
             if not source.is_file():
                 raise FileNotFoundError(f"repository notice not found: {source}")
