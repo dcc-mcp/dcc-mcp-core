@@ -102,6 +102,7 @@ def test_release_workflow_uploads_assets_with_the_release_token() -> None:
 
 def test_release_workflow_manual_backfill_reuses_core_release_assets() -> None:
     build_wheels = _release_jobs()["build-wheels"]
+    assert build_wheels["with"]["release-tag-name"] == "${{ inputs.release_tag || needs.release-please.outputs.tag_name }}"
     assert build_wheels["with"]["reuse-release-assets"] == REUSE_RELEASE_ASSETS_EXPRESSION
     assert build_wheels["secrets"] == {"RELEASE_TOKEN": "${{ secrets.PERSONAL_ACCESS_TOKEN }}"}
 

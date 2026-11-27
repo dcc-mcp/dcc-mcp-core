@@ -30,6 +30,12 @@ def _write_zip(path: Path, root: Path, *, alter_notice: bool = False) -> None:
             archive.writestr(name, content)
 
 
+def _write_partial_zip(path: Path, root: Path, names: tuple[str, ...]) -> None:
+    with ZipFile(path, "w", ZIP_DEFLATED) as archive:
+        for name in names:
+            archive.writestr(name, (root / name).read_bytes())
+
+
 def _write_sdist(path: Path, root: Path) -> None:
     package_root = "sample-1.0.0"
     with tarfile.open(path, "w:gz") as archive:
@@ -61,6 +67,39 @@ def test_release_notice_gate_rejects_changed_notice(tmp_path: Path) -> None:
     errors = validate_archive(archive, _expected_files(tmp_path))
 
     assert errors == ["sample.zip: NOTICE does not match the repository notice in ['NOTICE']"]
+
+
+def test_release_notice_gate_accepts_maturin_wheel_contract(tmp_path: Path) -> None:
+    _write_repository_notices(tmp_path)
+    archive = tmp_path / "dcc_mcp_core-0.22.0-cp38-abi3-win_amd64.whl"
+    _write_partial_zip(archive, tmp_path, ("THIRD_PARTY_NOTICES.txt", "THIRD_PARTY_LICENSES.txt"))
+
+    assert validate_archive(archive, _expected_files(tmp_path)) == []
+
+
+def test_release_notice_gate_accepts_core_sdist_contract(tmp_path: Path) -> None:
+    _write_repository_notices(tmp_path)
+    archive = tmp_path / "dcc_mcp_core-0.22.0.tar.gz"
+    package_root = "dcc_mcp_core-0.22.0"
+    with tarfile.open(archive, "w:gz") as output:
+        for name in ("LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.txt"):
+            source = tmp_path / name
+            info = tarfile.TarInfo(f"{package_root}/{name}")
+            info.size = source.stat().st_size
+            with source.open("rb") as stream:
+                output.addfile(info, stream)
+
+    assert validate_archive(archive, _expected_files(tmp_path)) == []
+
+
+def test_release_notice_gate_rejects_missing_maturin_notice(tmp_path: Path) -> None:
+    _write_repository_notices(tmp_path)
+    archive = tmp_path / "dcc_mcp_server-0.22.0-py3-none-win_amd64.whl"
+    _write_partial_zip(archive, tmp_path, ("THIRD_PARTY_NOTICES.txt",))
+
+    errors = validate_archive(archive, _expected_files(tmp_path))
+
+    assert errors == [f"{archive.name}: missing THIRD_PARTY_LICENSES.txt"]
 
 
 def test_stage_package_notices_copies_generated_package_resources(tmp_path: Path) -> None:
