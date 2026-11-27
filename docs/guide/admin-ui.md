@@ -154,9 +154,12 @@ operations.
 
 ![Admin Skills paths panel](../assets/admin-ui/admin-skills-paths.png)
 
-The **Skills** panel shows loaded skills, action counts, per-instance prefixes,
-active skill discovery roots, and the local developer default
-`~/.dcc-mcp/{dcc-type}/skills` path when present.
+The **Skills** panel shows one row per logical skill. Shared Core skills are
+listed once with their supported DCC types, action counts, and per-instance
+load state. A skill can be `loaded`, `partially loaded`, or `unloaded` when
+the gateway sees multiple DCC instances. Active skill discovery roots and the
+local developer default `~/.dcc-mcp/{dcc-type}/skills` path are shown when
+present.
 
 ![Admin skill markdown detail panel](../assets/admin-ui/admin-skill-detail.png)
 
@@ -315,7 +318,7 @@ wrong instead of seeing `Unexpected token '<'`.
 | `GET /admin/api/workers` | `application/json` | Per-instance cards from the live registry; response field names remain `workers` for compatibility |
 | `GET /admin/api/logs` | `application/json` | Merged gateway operational events, on-disk `*.log` rows, and audited call summaries |
 | `GET /admin/api/health` | `application/json` | Service health summary, including active response-format defaults and token estimator metadata |
-| `GET /admin/api/skills` | `application/json` | Live skill inventory grouped by DCC type, skill name, load state, tools, backend instance, and skill health/adoption metrics from search telemetry plus audited calls |
+| `GET /admin/api/skills` | `application/json` | Live logical skill inventory with DCC applicability, `loaded` / `partial` / `unloaded` state, per-instance state, tools, and skill health/adoption metrics from search telemetry plus audited calls |
 | `GET /admin/api/skill-detail?name=...` | `application/json` | One skill's backend detail payload, including rendered-review `SKILL.md` markdown when available |
 | `GET /admin/api/skill-paths` | `application/json` | Current skill discovery roots with safe path aliases, present/missing status, and source/id metadata for public-safe screenshots and exports |
 | `POST /admin/api/skill-paths` | `application/json` | Add a SQLite-backed custom skill discovery root, then refresh live backend skill indexes |
@@ -1113,7 +1116,7 @@ when a human needs to inspect the state visually.
 | Instances | `/admin?panel=instances` | `GET /admin/api/instances`, `POST /admin/api/instances/{instance_id}/update` | Live backend inventory with readiness, DCC type, route/source metadata, versions, and check-only server update status. | Verify which DCC sessions are registered, then apply from the exact target environment. |
 | Health | `/admin?panel=health` | `GET /admin/api/health` | Gateway readiness, owner identity, version, audit/log status, and high-level counters. | Check whether the elected gateway is up before deeper debugging. |
 | Tools | `/admin?panel=tools` | `GET /admin/api/tools` | Aggregated tool inventory exposed through gateway discovery. | Confirm whether a tool slug exists and which DCC/backend owns it before using REST/CLI calls. |
-| Discover / Skills | `/admin?panel=discover&discoverTab=skills` | `GET /admin/api/skills`, `GET/POST/DELETE /admin/api/skill-paths`, `GET /admin/api/skill-detail?name=...&dcc_type=...` | Skill inventory, load state, adoption metadata, custom skill search paths, and skill detail modal. Opening the skill paths view triggers live backend reload. | Use for "why is this skill missing", "which skills are loaded", custom path setup, and skill package inspection. |
+| Discover / Skills | `/admin?panel=discover&discoverTab=skills` | `GET /admin/api/skills`, `GET/POST/DELETE /admin/api/skill-paths`, `GET /admin/api/skill-detail?name=...&dcc_type=...` | Logical skill inventory, DCC applicability, per-instance load state, adoption metadata, custom skill search paths, and skill detail modal. Opening the skill paths view triggers live backend reload. | Use for "why is this skill missing", "which instances have it loaded", custom path setup, and skill package inspection. |
 | Discover / Marketplace | `/admin?panel=discover&discoverTab=marketplace` | `GET/POST /admin/api/marketplace/*` | Browse, install, uninstall, update, and manage sources for skill packages from configured marketplace catalogs. | Use when an operator wants to install or update capabilities without CLI commands. After install/update/uninstall, refresh Skills and check `reload_required`. |
 | Discover / Integrations | `/admin?panel=discover&discoverTab=integrations` | `GET /admin/api/integrations`, `PUT /admin/api/integrations`, `POST /admin/api/integrations/test` | View and stage Sentry, Event Webhooks, WeCom message push, and OTLP config. Secret fields are masked and file-backed edits are `pending_restart`. | Use for observability setup. Test Send is currently supported for WeCom only and accepts only `https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=...` robot URLs. |
 | Workflows | `/admin?panel=workflows` | `GET /admin/api/workflows` | Workflow runs, discovery quality, status, step counts, and failure previews. | Debug multi-step gateway workflows and zero-result discovery loops. |

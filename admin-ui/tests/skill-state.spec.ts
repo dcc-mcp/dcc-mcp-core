@@ -58,7 +58,7 @@ for (const locale of SUPPORTED_LOCALES) {
         await expect(dialog.locator('.skill-detail-summary-grid strong').first())
           .toHaveText(t('skillPaths.detail.loadingState'));
         await expect(dialog.locator('.skill-detail-summary-grid > span').first())
-          .toHaveText(`${t('skillPaths.detail.loadingState')}unloaded`);
+          .toHaveText(`${t('skillPaths.detail.loadingState')}${t('skillPaths.state.unloaded')}`);
         await expect(dialog.getByRole('button', { name: t('action.reload'), exact: true })).toBeEnabled();
         const closeButton = dialog.locator('.skill-detail-panel')
           .getByRole('button', { name: t('action.close'), exact: true });

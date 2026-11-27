@@ -30,8 +30,6 @@ export function useSkillDetail({ onUpdated, onError }: UseSkillDetailArgs) {
       try {
         const params = new URLSearchParams({ name: skill.name });
         if (skill.dcc_type) params.set('dcc_type', skill.dcc_type);
-        const instanceId = skill.instance_details[0]?.id || skill.instance_ids[0];
-        if (instanceId) params.set('instance_id', instanceId);
         const payload = await apiJson<SkillDetailPayload>(`/skill-detail?${params.toString()}`);
         setDetail(normalizeSkillDetailPayload(payload));
         onUpdated(skill.name);

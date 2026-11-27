@@ -17,7 +17,13 @@ export function SkillBrandingHeader({ skill, t }: { skill: SkillRow; t: Translat
   const branding = skill.branding ?? null;
   const accent = branding?.accent_color || deriveAccentColor(skill.dcc_type, skill.name);
   const initial = deriveBrandingInitial(skill.name);
-  const dccIcon = resolveDccIcon(skill.dcc_type);
+  const dccIcon = resolveDccIcon(skill.dcc_type || skill.dcc_types[0] || '');
+  const dccLabel = skill.dcc_types.join(', ') || skill.dcc_type || t('common.status.unknown');
+  const loadLabel = skill.load_state === 'loaded'
+    ? t('skillPaths.state.loaded')
+    : skill.load_state === 'partial'
+      ? t('skillPaths.state.partial')
+      : t('skillPaths.state.unloaded');
 
   const avatar = branding?.logo_url ? (
     <img src={branding.logo_url} alt="" />
@@ -48,11 +54,11 @@ export function SkillBrandingHeader({ skill, t }: { skill: SkillRow; t: Translat
           </p>
         ) : null}
         <div className="skill-card-meta">
-          <Badge variant="outline" className="source-pill" data-dcc={skill.dcc_type || 'unknown'}>
-            {skill.dcc_type || t('common.status.unknown')}
+          <Badge variant="outline" className="source-pill" data-dcc={skill.dcc_type || 'multiple'}>
+            {dccLabel}
           </Badge>
-          <Badge variant={skill.loaded ? 'default' : 'secondary'} className={skill.loaded ? 'badge-ok' : 'badge-muted'}>
-            {skill.loaded ? t('skillPaths.state.loaded') : t('skillPaths.state.unloaded')}
+          <Badge variant={skill.load_state === 'loaded' ? 'default' : 'secondary'} className={skill.load_state === 'loaded' ? 'badge-ok' : 'badge-muted'}>
+            {loadLabel}
           </Badge>
           {skill.version ? <span className="skill-card-version">v{skill.version}</span> : null}
         </div>

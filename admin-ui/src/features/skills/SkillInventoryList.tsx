@@ -1,7 +1,7 @@
 import { RiArrowDownSLine, RiArrowRightLine } from '@remixicon/react';
 import { type InterpolationValues, type MessageKey } from '../../i18n';
 import { formatTraceDate, resolveDccIcon } from '../../admin-ui-core';
-import { type SkillRow } from '../../admin-types';
+import { type SkillInstanceRef, type SkillRow, type SkillLoadState } from '../../admin-types';
 import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
 import './SkillInventoryList.css';
@@ -23,10 +23,10 @@ export function SkillInventoryList({ skills, selected, onOpen, t }: SkillInvento
         const selectedRow = selected?.name === skill.name && selected?.dcc_type === skill.dcc_type;
         return (
           <article
-            key={`${skill.dcc_type}-${skill.name}-${skill.loaded ? 'on' : 'off'}`}
-            className={`skill-inventory-row${selectedRow ? ' is-selected' : ''}${skill.loaded ? '' : ' is-unloaded'}`}
+            key={`${skill.dcc_type}-${skill.name}-${skill.load_state}`}
+            className={`skill-inventory-row${selectedRow ? ' is-selected' : ''}${skill.load_state === 'unloaded' ? ' is-unloaded' : ''}${skill.load_state === 'partial' ? ' is-partial' : ''}`}
             data-skill-name={skill.name}
-            data-dcc={skill.dcc_type || 'unknown'}
+            data-dcc={skill.dcc_types.join(',') || skill.dcc_type || 'unknown'}
             role="listitem"
           >
             <SkillIdentityCell skill={skill} t={t} onOpen={onOpen} />
@@ -45,7 +45,7 @@ export function SkillInventoryList({ skills, selected, onOpen, t }: SkillInvento
             </div>
             <details className="skill-inventory-disclosure">
               <summary>
-                <span className="skill-inventory-source">{skill.dcc_type || t('common.status.unknown')}</span>
+                <span className="skill-inventory-source">{skill.dcc_types.join(', ') || skill.dcc_type || t('common.status.unknown')}</span>
                 <span>{t('skillPaths.usage.callsFailures', {
                   calls: skill.adoption.call_count,
                   failures: skill.adoption.failure_count,
@@ -92,7 +92,7 @@ function SkillIdentityCell({
   onOpen: (skill: SkillRow) => void;
 }) {
   const branding = skill.branding ?? null;
-  const dccIcon = resolveDccIcon(skill.dcc_type);
+  const dccIcon = resolveDccIcon(skill.dcc_type || skill.dcc_types[0] || '');
 
   return (
     <div className="skill-inventory-skill-cell">
@@ -116,10 +116,15 @@ function SkillIdentityCell({
         >
           {skill.name}
         </button>
-          <Badge variant="secondary" className={`skill-inventory-load-state${skill.loaded ? ' is-loaded' : ''}`}>
-            {skill.loaded ? t('skillPaths.state.loaded') : t('skillPaths.state.unloaded')}
+          <Badge variant="secondary" className={`skill-inventory-load-state${skill.loaded ? ' is-loaded' : ''}${skill.load_state === 'partial' ? ' is-partial' : ''}`}>
+            {skillLoadStateLabel(skill.load_state, t)}
           </Badge>
         </div>
+        {skill.dcc_types.length > 0 ? (
+          <div className="skill-inventory-scope" title={skill.dcc_types.join(', ')}>
+            {skill.dcc_types.join(' · ')}
+          </div>
+        ) : null}
         <p title={skill.summary ?? t('skillPaths.summary.missing')}>
           {skill.summary || t('skillPaths.summary.missing')}
         </p>
@@ -139,6 +144,19 @@ function SkillStateCell({ skill, t }: { skill: SkillRow; t: Translator }) {
   return (
     <span>{adoptionLabel}</span>
   );
+}
+
+function skillLoadStateLabel(state: SkillLoadState, t: Translator): string {
+  switch (state) {
+    case 'loaded':
+      return t('skillPaths.state.loaded');
+    case 'partial':
+      return t('skillPaths.state.partial');
+    case 'unloaded':
+      return t('skillPaths.state.unloaded');
+    default:
+      return t('common.status.unknown');
+  }
 }
 
 function SkillToolsCell({ skill, t }: { skill: SkillRow; t: Translator }) {
@@ -161,7 +179,14 @@ function SkillToolsCell({ skill, t }: { skill: SkillRow; t: Translator }) {
 }
 
 function SkillInstancesCell({ skill, t }: { skill: SkillRow; t: Translator }) {
-  const instances = skill.instances;
+  const instances: SkillInstanceRef[] = skill.instance_details.length > 0
+    ? skill.instance_details
+    : skill.instances.map((prefix, index) => ({
+      id: skill.instance_ids[index] ?? prefix,
+      prefix,
+      dcc_type: skill.dcc_type,
+      loaded: undefined,
+    }));
   return (
     <div className="skill-inventory-instances-cell">
       <span className="skill-inventory-count">
@@ -171,8 +196,12 @@ function SkillInstancesCell({ skill, t }: { skill: SkillRow; t: Translator }) {
       {instances.length > 0 ? (
         <div className="skill-inventory-instances">
           {instances.map((instance) => (
-            <code key={instance} title={t('skillPaths.label.instance', { id: instance })}>
-              {instance}
+            <code
+              key={instance.id}
+              className={instance.loaded === true ? 'is-loaded' : instance.loaded === false ? 'is-unloaded' : undefined}
+              title={`${instance.dcc_type ? `${instance.dcc_type}: ` : ''}${t('skillPaths.label.instance', { id: instance.prefix })}`}
+            >
+              {instance.prefix}
             </code>
           ))}
         </div>

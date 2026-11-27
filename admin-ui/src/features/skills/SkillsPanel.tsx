@@ -25,7 +25,9 @@ function buildSkillInsights(skills: SkillRow[], paths: SkillPathRow[], totals: {
   const failures = skills.filter((skill) => skill.adoption.failure_count > 0 || skill.adoption.load_error_count > 0);
   const missingPaths = paths.filter((path) => path.status === 'missing' || path.exists === false);
   const lowAdoption = skills.filter((skill) => skill.adoption.low_adoption);
-  const unused = skills.filter((skill) => skill.loaded && !skill.adoption.used && !skill.adoption.low_adoption);
+  const unused = skills.filter(
+    (skill) => skill.load_state !== 'unloaded' && !skill.adoption.used && !skill.adoption.low_adoption,
+  );
   const insights: SkillInsight[] = [];
 
   if (failures.length > 0) {
@@ -174,8 +176,16 @@ export function SkillsPanel({
         haystack(
           skill.name,
           skill.dcc_type,
-          skill.loaded ? 'loaded' : 'unloaded',
-          t(skill.loaded ? 'skillPaths.state.loaded' : 'skillPaths.state.unloaded'),
+          skill.dcc_types.join(' '),
+          skill.load_state,
+          skill.load_state === 'loaded' ? 'loaded' : skill.load_state === 'partial' ? 'partial' : 'unloaded',
+          t(
+            skill.load_state === 'loaded'
+              ? 'skillPaths.state.loaded'
+              : skill.load_state === 'partial'
+                ? 'skillPaths.state.partial'
+                : 'skillPaths.state.unloaded',
+          ),
           skill.summary ?? '',
           skill.instances.join(' '),
           skill.tools.join(' '),
