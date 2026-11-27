@@ -203,9 +203,10 @@ sidecar and the operator has explicitly accepted that exception.
 CLI command. DCCMCP is the control-plane layer. The project-owned **DCC-CUA**
 capability layer is the execution boundary behind that route. It owns exact
 window binding, screenshots, UI Automation, native input, visible safety
-effects, user interruption, and audit records. The `app_ui__*` names below are
-legacy runtime tool identifiers and MCP compatibility names. Do not call the
-feature generic “Computer Use” in agent-facing text.
+effects, user interruption, and audit records. Current tool names use the
+`ui_control__*` prefix; legacy `app_ui__*` identifiers remain only as
+compatibility aliases for installed adapters. Do not call the feature generic
+“Computer Use” in agent-facing text.
 
 Do not choose UI Control first. Search, describe, and call the structured DCC
 skill, host API, or adapter script that owns the operation. If the operation is
@@ -213,12 +214,12 @@ reported as unsupported, no suitable tool exists, or semantic UI Automation
 cannot reach the required control, make an agent-directed transition to DCC UI
 Control:
 
-1. `app_ui__snapshot` with an exact `process_id`, `window_handle`, or
+1. `ui_control__snapshot` with an exact `process_id`, `window_handle`, or
    `window_title`.
-2. `app_ui__find` and a semantic `app_ui__act` when possible; otherwise one
-   screenshot-coordinate `app_ui__act` using that snapshot.
-3. `app_ui__snapshot` after every action before choosing the next action.
-4. `app_ui__stop_computer_use` when the fallback completes, fails, or is
+2. `ui_control__find` and a semantic `ui_control__act` when possible; otherwise
+   one screenshot-coordinate `ui_control__act` using that snapshot.
+3. `ui_control__snapshot` after every action before choosing the next action.
+4. `ui_control__stop_computer_use` when the fallback completes, fails, or is
    abandoned so the visible effects and input owner are released.
 
 Shell agents should use the stable CLI wrapper instead of hand-building legacy
@@ -261,15 +262,15 @@ resolve the boundary first.
 Never widen the scope to the desktop or reuse coordinates across snapshots.
 Native pointer or keyboard fallback requires one exact `process_id` or
 `window_handle` already bound by the adapter/operator through
-`DCC_MCP_APP_UI_UIA_PROCESS_ID` or `DCC_MCP_APP_UI_UIA_WINDOW_HANDLE`; request
+`DCC_MCP_UI_CONTROL_PROCESS_ID` or `DCC_MCP_UI_CONTROL_WINDOW_HANDLE`; request
 scope can only narrow that trusted target. Title-only and process-name scopes
 are observation-only.
 If the user presses Ctrl+Alt+Esc and the tool returns `user_interrupted`, stop without
 retrying, changing `session_id`, or starting a new session. Only call
-`app_ui__snapshot(resume_computer_use=true)` after the user explicitly asks to
+`ui_control__snapshot(resume_computer_use=true)` after the user explicitly asks to
 resume DCC UI Control.
 
-For an exact PID/HWND, `app_ui__snapshot` automatically uses native window
+For an exact PID/HWND, `ui_control__snapshot` automatically uses native window
 capture if Windows UIA enumeration fails or times out; treat the returned tree
 as image-only and continue with one bounded native action.
 On the CLI+REST path, rich images are materialized into a bounded local
@@ -348,20 +349,26 @@ remove the old package to avoid duplicate intent routing.
 
 ---
 
-## Critical Rules
+## Routing Rules
 
-| Situation | You MUST |
-|-----------|----------|
-| **Starting any local DCC task** | Run `dccmcp list`; it ensures the local gateway, then reads the local FileRegistry |
-| **Startup state is ambiguous** | Run `dccmcp doctor`; inspect selected profile, registry dir, local inventory, direct-control readiness counts, daemon status, and server binary diagnostics |
-| **Starting any remote DCC task** | Select or override a profile with `dccmcp gateway set <name>` or `dccmcp list --gateway <name>` |
-| `dccmcp` missing | Ask permission before `--ensure-cli`; fallback Python REST is allowed if download fails |
-| CLI auto-ensure fails | Stop; explain the result; do not run agent-control or gateway endpoint commands until the gateway is reachable |
-| Inventory returns `total == 0` | Stop; do not run `search`, `describe`, or `call` |
-| Remote gateway unreachable | Stop; explain; ask user permission before troubleshooting |
+Run only the check whose answer is missing. These decisions replace a mandatory
+startup checklist:
+
+| Result or condition | Next decision |
+|---------------------|---------------|
+| Local task and instance identity is unknown | Run `dccmcp list`; it ensures the local gateway and reads the local FileRegistry |
+| Profile, registry path, or readiness is ambiguous | Run `dccmcp doctor` and inspect the reported profile, registry dir, inventory, readiness counts, daemon, and server diagnostics |
+| Remote task and no profile is selected | Select or override with `dccmcp gateway set <name>` or `dccmcp list --gateway <name>` |
+| `dccmcp` missing | Ask permission before `--ensure-cli`; the Python REST fallback is allowed only if download fails |
+| CLI auto-ensure fails | Stop and explain; do not use agent-control or gateway endpoint commands until the gateway is reachable |
+| Inventory returns `total == 0` | Stop discovery; offer setup guidance and continue only after explicit approval |
+| Remote gateway unreachable | Stop, explain, and ask permission before troubleshooting |
 | User has not agreed to setup | Do not install packages, edit env files, launch GUI apps, or write configs |
 | User approved setup | Follow [`references/ZERO_INSTANCES_CLI.md`](references/ZERO_INSTANCES_CLI.md) |
-| After DCC crash/restart | Re-run `list` and `search`; old slugs may be invalid |
+| DCC crashed or restarted | Re-run `list` and `search`; treat old slugs as invalid |
+
+Authorization, target binding, interruption, and confirmation rules are hard
+contracts and are not relaxed by this table.
 
 ---
 
@@ -374,29 +381,26 @@ write configuration without user consent.
 
 ---
 
-## Step 0 — Local Inventory First
-
-Run this as the **very first step** every time you begin local work or after a
-DCC adapter restarts:
+## Conditional Checks
 
 ```bash
-# Installed host applications and host Python interpreters, without launching DCCs
+# Installed hosts only; no DCC launch
 dccmcp discover
 
-# Supported adapter identifiers, only when support is unclear
+# Adapter identifiers only when support is unclear
 dccmcp dcc-types
 
 # Local FileRegistry inventory
 dccmcp list
 
-# No-launch startup diagnostics when state is unclear
+# Diagnostics only when startup state is unclear
 dccmcp doctor
 
-# Optional gateway health check
+# Health only for endpoint/admin/update workflows
 dccmcp health
 ```
 
-Interpret the result:
+Interpret only the checks you ran:
 
 - `list.total > 0` -> inspect status/dispatch metadata. Local `search`, `describe`, `load-skill`, `call`, and `reload-skills` only route to rows ready for local CLI control; use `wait-ready` or `doctor` for live-but-booting rows, including sidecars that have not reached `dispatch_status=ready`.
 - `doctor.profile.selected.mode` / `doctor.local.registry_dir` -> confirms which local/remote mode and registry path the CLI is using before adapter setup.
@@ -406,7 +410,7 @@ Interpret the result:
 
 ---
 
-## Step 1 — Select a Live Instance
+## Select a Live Instance
 
 Run `dccmcp list` whenever a DCC starts or stops. Report `total`, counts by
 `dcc_type`, stale rows, and the chosen `instance_id` or `instance_short`. If
@@ -415,7 +419,7 @@ after explicit approval.
 
 ---
 
-## Step 2 — Search Tools
+## Search Tools
 
 Only run this when inventory shows at least one non-stale target:
 
@@ -438,7 +442,7 @@ Never hand-build slugs.
 
 ---
 
-## Step 3 — Describe Schema
+## Describe Schema
 
 ```bash
 # CLI (primary)
@@ -452,7 +456,7 @@ Read `tool.inputSchema` and safety annotations before calling.
 
 ---
 
-## Step 4 — Call a Tool
+## Call a Tool
 
 ```bash
 # CLI (primary)
@@ -507,7 +511,7 @@ patterns and common errors.
 
 ---
 
-## Step 5 — Review Reusable Friction
+## Review Reusable Friction
 
 Only after task acceptance, query narrowly scoped gateway evidence:
 
