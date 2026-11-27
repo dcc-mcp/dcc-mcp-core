@@ -60,6 +60,7 @@ export function SkillInventoryList({ skills, selected, onOpen, t }: SkillInvento
                   {skill.branding?.tagline ? <p>{skill.branding.tagline}</p> : null}
                   {skill.version ? <span className="skill-inventory-version">v{skill.version}</span> : null}
                 </div>
+                <SkillDccStatesCell skill={skill} t={t} />
                 <SkillToolsCell skill={skill} t={t} />
                 <SkillInstancesCell skill={skill} t={t} />
                 <div className="skill-inventory-usage-detail">
@@ -78,6 +79,32 @@ export function SkillInventoryList({ skills, selected, onOpen, t }: SkillInvento
           </article>
         );
       })}
+    </div>
+  );
+}
+
+function SkillDccStatesCell({ skill, t }: { skill: SkillRow; t: Translator }) {
+  if (skill.dcc_states.length === 0) return null;
+  return (
+    <div className="skill-inventory-dcc-states">
+      <h4>{t('skillPaths.table.dccAvailability')}</h4>
+      {skill.dcc_states.map((state) => (
+        <div className="skill-inventory-dcc-state" key={state.dcc_type}>
+          <strong>{state.dcc_type || t('common.status.unknown')}</strong>
+          <span>{skillLoadStateLabel(state.load_state, t)}</span>
+          {state.loaded_instance_count > 0 || state.unloaded_instance_count > 0 ? (
+            <small>
+              {t('skillPaths.dcc.instances', {
+                loaded: state.loaded_instance_count,
+                unloaded: state.unloaded_instance_count,
+              })}
+            </small>
+          ) : null}
+          {state.catalog_available ? (
+            <small>{t('skillPaths.state.catalogAvailable')}</small>
+          ) : null}
+        </div>
+      ))}
     </div>
   );
 }

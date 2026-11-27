@@ -10,13 +10,20 @@ for (const locale of SUPPORTED_LOCALES) {
         await disableTestMotion(page);
         await mockAdminApi(page);
         await page.route('**/admin/api/skills', async (route) => route.fulfill({ json: {
-          total: 2, loaded: 1, unloaded: 1, action_count: 2,
+          total: 3, loaded: 2, unloaded: 1, action_count: 3,
           skills: [
             { name: 'maya-modeling', dcc_type: 'maya', loaded: false, action_count: 1,
               instance_count: 1, instances: ['12345678'], tools: ['create_sphere'],
               adoption: { used: true, call_count: 2, last_used: '2026-10-15T12:00:00Z' } },
             { name: 'blender-lookdev', dcc_type: 'blender', loaded: true, action_count: 1,
               instance_count: 1, instances: ['abcdef12'], tools: ['render_preview'],
+              adoption: { used: false, call_count: 0 } },
+            { name: 'dcc-mcp', dcc_types: ['maya'], load_state: 'loaded', loaded: true,
+              loaded_instance_count: 1, unloaded_instance_count: 0, instance_count: 1,
+              instances: ['maya-1'], instance_details: [{ id: 'maya-1', prefix: 'maya-1',
+                dcc_type: 'maya', loaded: true }],
+              dcc_states: [{ dcc_type: 'maya', load_state: 'loaded', loaded_instance_count: 1,
+                unloaded_instance_count: 0, catalog_available: true }], tools: ['discover_tools'],
               adoption: { used: false, call_count: 0 } },
           ],
         } }));
@@ -32,6 +39,13 @@ for (const locale of SUPPORTED_LOCALES) {
         await expect(row).not.toContainText(t('skillPaths.usage.neverUsed'));
         await expect(page.locator('.skill-inventory-row[data-skill-name="blender-lookdev"]'))
           .toContainText(t('skillPaths.state.notUsed'));
+        const sharedRow = page.locator('.skill-inventory-row[data-skill-name="dcc-mcp"]');
+        await expect(sharedRow).toContainText(t('skillPaths.state.loaded'));
+        await expect(sharedRow).not.toContainText(t('skillPaths.state.partial'));
+        await expect(sharedRow).not.toContainText('00000000');
+        await sharedRow.locator('.skill-inventory-disclosure > summary').click();
+        await expect(sharedRow).toContainText(t('skillPaths.state.catalogAvailable'));
+        await expect(sharedRow).toContainText(t('skillPaths.dcc.instances', { loaded: 1, unloaded: 0 }));
         const unusedRow = page.locator('.skill-inventory-row[data-skill-name="blender-lookdev"]');
         await row.locator('.skill-inventory-disclosure > summary').click();
         await unusedRow.locator('.skill-inventory-disclosure > summary').click();
@@ -47,8 +61,9 @@ for (const locale of SUPPORTED_LOCALES) {
         expect(overflow).toBeLessThanOrEqual(2);
         const search = page.locator('.list-search-wrap[data-panel="discover"] .list-search-input');
         await search.fill(t('skillPaths.state.loaded'));
-        await expect(page.locator('.skill-inventory-row')).toHaveCount(1);
-        await expect(page.locator('.skill-inventory-row')).toContainText('blender-lookdev');
+        await expect(page.locator('.skill-inventory-row')).toHaveCount(2);
+        await expect(page.locator('.skill-inventory-row[data-skill-name="blender-lookdev"]')).toBeVisible();
+        await expect(page.locator('.skill-inventory-row[data-skill-name="dcc-mcp"]')).toBeVisible();
         await search.fill(t('skillPaths.state.used'));
         await expect(page.locator('.skill-inventory-row')).toHaveCount(1);
         await expect(row).toBeVisible();
@@ -73,10 +88,10 @@ for (const locale of SUPPORTED_LOCALES) {
         await expect(dialog).toBeHidden();
         await expect(search).toHaveValue(t('skillPaths.state.used'));
         await search.fill(t('skillPaths.state.notUsed'));
-        await expect(page.locator('.skill-inventory-row')).toHaveCount(1);
-        await expect(page.locator('.skill-inventory-row')).toContainText('blender-lookdev');
-        await search.fill('');
         await expect(page.locator('.skill-inventory-row')).toHaveCount(2);
+        await expect(page.locator('.skill-inventory-row[data-skill-name="blender-lookdev"]')).toBeVisible();
+        await search.fill('');
+        await expect(page.locator('.skill-inventory-row')).toHaveCount(3);
       });
     });
   }

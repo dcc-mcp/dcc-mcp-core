@@ -121,7 +121,7 @@ vx git diff --check
 
 ![Admin Skills 路径面板](../../assets/admin-ui/admin-skills-paths.png)
 
-**Skills** 面板按逻辑 skill 展示一行。共享 Core skill 只显示一次，同时列出适用的 DCC、action 数量、后端实例前缀和每个实例的加载状态。多个实例状态不一致时显示“部分实例已加载”，避免把聚合状态误显示为完全已加载或完全未加载。活动发现路径和本地开发默认路径 `~/.dcc-mcp/{dcc-type}/skills`（存在时）也会显示。
+**Skills** 面板按逻辑 skill 展示一行。共享 Core skill 只显示一次，同时列出适用的 DCC、action 数量、后端实例前缀和每个实例的加载状态。多个实例状态不一致时显示“部分实例已加载”，目录可发现状态单独展示，避免把目录占位记录当成真实实例或把已加载 skill 误显示为部分加载。活动发现路径和本地开发默认路径 `~/.dcc-mcp/{dcc-type}/skills`（存在时）也会显示。
 
 ![Admin Skill Markdown 详情面板](../../assets/admin-ui/admin-skill-detail.png)
 
@@ -247,7 +247,7 @@ Admin API 路由意外返回 HTML shell（例如 dev server 或反向代理把
 | `GET /admin/api/workers` | `application/json` | 来自 live registry 的实例卡片；响应字段名保留 `workers` 以兼容现有客户端 |
 | `GET /admin/api/logs` | `application/json` | 合并后的网关竞争事件、磁盘 `*.log` 行和审计调用摘要 |
 | `GET /admin/api/health` | `application/json` | 服务健康摘要 |
-| `GET /admin/api/skills` | `application/json` | 按逻辑 skill 聚合的实时清单，包含适用 DCC、`loaded` / `partial` / `unloaded` 状态、实例级状态、工具，以及来自 search telemetry 和审计调用的 skill 健康/采用指标 |
+| `GET /admin/api/skills` | `application/json` | 按逻辑 skill 聚合的实时清单，包含适用 DCC、真实实例的 `loaded` / `partial` / `unloaded` 状态、目录可发现状态、实例级状态、工具，以及来自 search telemetry 和审计调用的 skill 健康/采用指标 |
 | `GET /admin/api/skill-detail?name=...` | `application/json` | 单个 skill 的后端详情；可用时包含用于 review 的 `SKILL.md` Markdown 内容 |
 | `GET /admin/api/skill-paths` | `application/json` | 当前 skill 发现根目录，返回安全路径别名、存在/缺失状态和 source/id 元数据，便于公开截图和导出 |
 | `POST /admin/api/skill-paths` | `application/json` | 添加 SQLite 持久化的自定义 skill 发现根目录，并刷新 live backend skill index |
