@@ -461,7 +461,7 @@
               "scale": {
                 "type": "number",
                 "description": "Scale factor 0.0-1.0 (default 1.0 = native resolution). Use 0.5 to halve the size.",
-                "default": 1.0
+                "default": 1
               },
               "jpeg_quality": {
                 "type": "integer",
@@ -1139,7 +1139,7 @@
               "edge": {
                 "type": "number",
                 "description": "Cube edge length in model units",
-                "default": 1.0
+                "default": 1
               },
               "marker": {
                 "type": "string",
@@ -1172,12 +1172,12 @@
               "radius": {
                 "type": "number",
                 "description": "Cylinder base radius",
-                "default": 1.0
+                "default": 1
               },
               "height": {
                 "type": "number",
                 "description": "Cylinder height",
-                "default": 2.0
+                "default": 2
               },
               "marker": {
                 "type": "string",
@@ -1526,7 +1526,7 @@
               "opacity": {
                 "type": "number",
                 "description": "Overlay opacity (0.0-1.0)",
-                "default": 1.0
+                "default": 1
               }
             }
           },
@@ -1681,9 +1681,7 @@
           "defer-loading": false,
           "source_file": "scripts/create_extension.py",
           "next-tools": {
-            "on-success": [
-              "dcc_mcp_skills_creator__validate_skill_dir"
-            ],
+            "on-success": [],
             "on-failure": [
               "dcc_diagnostics__audit_log"
             ]
@@ -1972,7 +1970,7 @@
               "radius": {
                 "type": "number",
                 "description": "Sphere radius in Maya units",
-                "default": 1.0
+                "default": 1
               },
               "subdivisionsX": {
                 "type": "integer",
@@ -2007,7 +2005,7 @@
           "call_examples": [
             {
               "arguments": {
-                "radius": 5.0,
+                "radius": 5,
                 "subdivisionsX": 32,
                 "subdivisionsY": 32
               },
@@ -3565,14 +3563,14 @@
                   "right": "-X",
                   "up": "+Z",
                   "forward": "-Y",
-                  "meters_per_unit": 1.0
+                  "meters_per_unit": 1
                 },
                 "target": {
                   "name": "glTF 2.0",
                   "right": "-X",
                   "up": "+Y",
                   "forward": "+Z",
-                  "meters_per_unit": 1.0
+                  "meters_per_unit": 1
                 },
                 "sample_point": [
                   1,
@@ -3589,7 +3587,7 @@
                   "right": "+X",
                   "up": "+Y",
                   "forward": "+Z",
-                  "meters_per_unit": 1.0
+                  "meters_per_unit": 1
                 },
                 "target": {
                   "name": "Unreal Engine",
@@ -5050,7 +5048,7 @@
           "source_file": "scripts/make_comparison_sheet.py",
           "next-tools": {
             "on-success": [
-              "image_stats"
+              "verification__image_stats"
             ],
             "on-failure": []
           },
