@@ -119,7 +119,8 @@ describe('SkillInventoryList', () => {
     const row = screen.getByRole('listitem');
     expect(row).not.toHaveTextContent('00000000');
     fireEvent.click(row.querySelector('summary')!);
-    expect(within(row).getAllByText(t('skillPaths.state.catalogAvailable'))).toHaveLength(2);
+    expect(within(row).getAllByText(t('skillPaths.state.catalogAvailable'))).toHaveLength(3);
+    expect(within(row).queryByText(t('skillPaths.state.unloaded'))).toBeNull();
     expect(within(row).getByText('blender')).toBeVisible();
     expect(within(row).getByText('maya')).toBeVisible();
   });

@@ -1034,7 +1034,7 @@ export type SkillDccState = {
   catalog_available: boolean;
 };
 
-export type SkillLoadState = 'loaded' | 'partial' | 'unloaded' | 'unknown';
+export type SkillLoadState = 'loaded' | 'partial' | 'unloaded' | 'catalog_only' | 'unknown';
 
 export type SkillPayload = {
   skills?: unknown[];
@@ -1108,20 +1108,25 @@ export function normalizeSkillInstanceRef(raw: unknown, fallbackPrefix = '', fal
   };
 }
 
+function normalizeSkillLoadState(raw: unknown, catalogOnly: boolean, legacyLoaded?: unknown): SkillLoadState {
+  if (catalogOnly || raw === 'catalog_only') return 'catalog_only';
+  if (raw === 'loaded' || raw === 'partial' || raw === 'unloaded' || raw === 'unknown') return raw;
+  if (legacyLoaded === true) return 'loaded';
+  if (legacyLoaded === false) return 'unloaded';
+  return 'unknown';
+}
+
 export function normalizeSkillDccState(raw: unknown): SkillDccState[] {
   const o = recordOrNull(raw);
   if (!o) return [];
-  const rawLoadState = String(o.load_state ?? 'unknown');
-  const loadState: SkillLoadState = rawLoadState === 'loaded'
-    || rawLoadState === 'partial'
-    || rawLoadState === 'unloaded'
-    ? rawLoadState
-    : 'unknown';
+  const loaded = Number(o.loaded_instance_count ?? 0);
+  const unloaded = Number(o.unloaded_instance_count ?? 0);
+  const loadState = normalizeSkillLoadState(o.load_state, o.catalog_available === true && loaded + unloaded === 0);
   return [{
     dcc_type: String(o.dcc_type ?? ''),
     load_state: loadState,
-    loaded_instance_count: Number(o.loaded_instance_count ?? 0),
-    unloaded_instance_count: Number(o.unloaded_instance_count ?? 0),
+    loaded_instance_count: loaded,
+    unloaded_instance_count: unloaded,
     catalog_available: o.catalog_available === true,
   }];
 }
@@ -1231,14 +1236,7 @@ export function normalizeSkillRow(raw: unknown): SkillRow {
   const dccType = String(o.dcc_type ?? o.dcc ?? '');
   const dccTypes = stringList(o.dcc_types);
   if (dccTypes.length === 0 && dccType) dccTypes.push(dccType);
-  const rawLoadState = String(o.load_state ?? '');
-  const loadState: SkillLoadState = rawLoadState === 'loaded'
-    || rawLoadState === 'partial'
-    || rawLoadState === 'unloaded'
-    ? rawLoadState
-    : o.loaded === true
-      ? 'loaded'
-      : 'unloaded';
+  const loadState = normalizeSkillLoadState(o.load_state, o.catalog_only === true, o.loaded);
   const explicitDetails = Array.isArray(o.instance_details)
     ? o.instance_details.map((item, index) => normalizeSkillInstanceRef(item, instances[index], dccType))
     : [];

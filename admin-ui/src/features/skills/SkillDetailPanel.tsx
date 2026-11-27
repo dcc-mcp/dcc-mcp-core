@@ -1,7 +1,8 @@
+import { skillStateLabel } from './skill-load-state';
 import { RiCloseLine, RiRefreshLine } from '@remixicon/react';
 import { type InterpolationValues, type MessageKey } from '../../i18n';
 import { compactId } from '../../admin-ui-core';
-import { type SkillDetailInstance, type SkillDetailPayload, type SkillLoadState, type SkillRow } from '../../admin-types';
+import { type SkillDetailInstance, type SkillDetailPayload, type SkillRow } from '../../admin-types';
 import { SkillMarkdownPreview } from '../../components/SkillMarkdownPreview';
 import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
@@ -9,19 +10,6 @@ import { Button } from '../../components/ui/button';
 type Translator = (key: MessageKey, values?: InterpolationValues) => string;
 
 type ToolSummary = { name: string; summary: string; annotations: string[] };
-
-function skillLoadStateLabel(state: SkillLoadState, t: Translator): string {
-  switch (state) {
-    case 'loaded':
-      return t('skillPaths.state.loaded');
-    case 'partial':
-      return t('skillPaths.state.partial');
-    case 'unloaded':
-      return t('skillPaths.state.unloaded');
-    default:
-      return t('common.status.unknown');
-  }
-}
 
 function recordOrNull(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value)
@@ -81,9 +69,7 @@ export function SkillDetailPanel({
 }: SkillDetailPanelProps) {
   const selected = detail?.skill ?? detail?.instances?.[0] ?? null;
   const tools = skillDetailTools(selected);
-  const dccLabel = selected?.dcc_type ?? selected?.dcc ?? skill.dcc_type;
-  const instanceCount =
-    detail?.instances?.length || skill.instance_count || (selected?.instance_id ? 1 : 0);
+  const dccLabel = skill.dcc_types.join(', ') || skill.dcc_type || selected?.dcc_type || selected?.dcc;
 
   return (
     <section className="skill-detail-panel" aria-live="polite">
@@ -93,7 +79,7 @@ export function SkillDetailPanel({
           <div className="skill-detail-meta">
             <Badge variant="outline" className="source-pill">{dccLabel || t('common.status.unknown')}</Badge>
             <Badge variant={skill.load_state === 'loaded' ? 'default' : 'secondary'} className={skill.load_state === 'loaded' ? 'badge-ok' : 'badge-muted'}>
-              {skillLoadStateLabel(skill.load_state, t)}
+              {t(skillStateLabel[skill.load_state])}
             </Badge>
             {selected?.instance_short ? (
               <span className="mono-path">
@@ -135,7 +121,7 @@ export function SkillDetailPanel({
       <div className="skill-detail-summary-grid">
         <span>
           <strong>{t('skillPaths.detail.loadingState')}</strong>
-          {skillLoadStateLabel(skill.load_state, t)}
+          {t(skillStateLabel[skill.load_state])}
         </span>
         <span>
           <strong>{t('skillPaths.metric.actions')}</strong>
@@ -143,7 +129,7 @@ export function SkillDetailPanel({
         </span>
         <span>
           <strong>{t('skillPaths.table.instances')}</strong>
-          {instanceCount}
+          {skill.instance_count}
         </span>
         <span>
           <strong>DCC</strong>

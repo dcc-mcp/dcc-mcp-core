@@ -157,7 +157,8 @@ operations.
 The **Skills** panel shows one row per logical skill. Shared Core skills are
 listed once with their supported DCC types, action counts, and per-instance
 load state. A skill can be `loaded`, `partially loaded`, or `unloaded` when
-the gateway sees multiple DCC instances. Catalog availability is shown
+the gateway sees multiple DCC instances. Each live instance counts once across all of its tools.
+A catalog-only skill displays **catalog available** until an instance reports a load state. Catalog availability is shown
 separately from live instance state, so a catalog entry does not create a
 fake DCC instance or make a loaded skill appear partial. Active skill
 discovery roots and the local developer default

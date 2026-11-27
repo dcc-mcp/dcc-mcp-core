@@ -1,7 +1,8 @@
+import { skillStateLabel } from './skill-load-state';
 import { RiArrowDownSLine, RiArrowRightLine } from '@remixicon/react';
 import { type InterpolationValues, type MessageKey } from '../../i18n';
 import { formatTraceDate, resolveDccIcon } from '../../admin-ui-core';
-import { type SkillInstanceRef, type SkillRow, type SkillLoadState } from '../../admin-types';
+import { type SkillInstanceRef, type SkillRow } from '../../admin-types';
 import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
 import './SkillInventoryList.css';
@@ -91,7 +92,7 @@ function SkillDccStatesCell({ skill, t }: { skill: SkillRow; t: Translator }) {
       {skill.dcc_states.map((state) => (
         <div className="skill-inventory-dcc-state" key={state.dcc_type}>
           <strong>{state.dcc_type || t('common.status.unknown')}</strong>
-          <span>{skillLoadStateLabel(state.load_state, t)}</span>
+          <span>{t(skillStateLabel[state.load_state])}</span>
           {state.loaded_instance_count > 0 || state.unloaded_instance_count > 0 ? (
             <small>
               {t('skillPaths.dcc.instances', {
@@ -100,7 +101,7 @@ function SkillDccStatesCell({ skill, t }: { skill: SkillRow; t: Translator }) {
               })}
             </small>
           ) : null}
-          {state.catalog_available ? (
+          {state.catalog_available && state.load_state !== 'catalog_only' ? (
             <small>{t('skillPaths.state.catalogAvailable')}</small>
           ) : null}
         </div>
@@ -144,7 +145,7 @@ function SkillIdentityCell({
           {skill.name}
         </button>
           <Badge variant="secondary" className={`skill-inventory-load-state${skill.loaded ? ' is-loaded' : ''}${skill.load_state === 'partial' ? ' is-partial' : ''}`}>
-            {skillLoadStateLabel(skill.load_state, t)}
+            {t(skillStateLabel[skill.load_state])}
           </Badge>
         </div>
         {skill.dcc_types.length > 0 ? (
@@ -171,19 +172,6 @@ function SkillStateCell({ skill, t }: { skill: SkillRow; t: Translator }) {
   return (
     <span>{adoptionLabel}</span>
   );
-}
-
-function skillLoadStateLabel(state: SkillLoadState, t: Translator): string {
-  switch (state) {
-    case 'loaded':
-      return t('skillPaths.state.loaded');
-    case 'partial':
-      return t('skillPaths.state.partial');
-    case 'unloaded':
-      return t('skillPaths.state.unloaded');
-    default:
-      return t('common.status.unknown');
-  }
 }
 
 function SkillToolsCell({ skill, t }: { skill: SkillRow; t: Translator }) {
