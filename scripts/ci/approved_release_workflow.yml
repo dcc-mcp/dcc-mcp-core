@@ -324,18 +324,10 @@ jobs:
           MATRIX_PLATFORM: ${{ matrix.platform }}
           MATRIX_ARTIFACT_NAME: ${{ matrix.artifact_name }}
         run: |
-          helper_args=()
-          if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            helper_args=(
-              --capture-helper target/x86_64-pc-windows-msvc/release/dcc-mcp-capture-helper.exe
-              --ui-control-host target/x86_64-pc-windows-msvc/release/dcc-mcp-ui-control-host.exe
-            )
-          fi
           python scripts/release/build_server_bundle.py \
             --version "$RELEASE_VERSION" \
             --platform "$MATRIX_PLATFORM" \
             --server-bin "$MATRIX_ARTIFACT_NAME" \
-            "${helper_args[@]}" \
             --out-dir .
 
       - name: Generate update manifest

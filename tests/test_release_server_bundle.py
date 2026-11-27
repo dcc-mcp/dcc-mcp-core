@@ -76,47 +76,7 @@ def test_build_server_bundle_preserves_windows_exe_names(tmp_path) -> None:
         assert set(zf.namelist()) == _expected_notice_members() | {"dcc-mcp-server.exe"}
 
 
-def test_build_server_bundle_includes_windows_helpers_when_declared(tmp_path) -> None:
-    server = tmp_path / "dcc-mcp-server-linux-x86_64"
-    helper = tmp_path / "dcc-mcp-capture-helper.exe"
-    ui_control_host = tmp_path / "dcc-mcp-ui-control-host.exe"
-    server.write_bytes(b"server")
-    helper.write_bytes(b"helper")
-    ui_control_host.write_bytes(b"ui-control-host")
-
-    out_dir = tmp_path / "dist"
-    subprocess.run(
-        [
-            sys.executable,
-            str(SCRIPT),
-            "--version",
-            "0.18.12",
-            "--platform",
-            "linux-x86_64",
-            "--server-bin",
-            str(server),
-            "--capture-helper",
-            str(helper),
-            "--ui-control-host",
-            str(ui_control_host),
-            "--out-dir",
-            str(out_dir),
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-
-    bundle = out_dir / "dcc-mcp-server-0.18.12-linux-x86_64.zip"
-    with zipfile.ZipFile(bundle) as zf:
-        assert set(zf.namelist()) == _expected_notice_members() | {
-            "dcc-mcp-server",
-            "dcc-mcp-capture-helper.exe",
-            "dcc-mcp-ui-control-host.exe",
-        }
-
-
-def test_build_server_bundle_accepts_server_without_cli_payload(tmp_path) -> None:
+def test_build_server_bundle_contains_only_server_and_notices(tmp_path) -> None:
     server = tmp_path / "dcc-mcp-server-windows-x86_64.exe"
     server.write_bytes(b"server")
 
@@ -124,8 +84,6 @@ def test_build_server_bundle_accepts_server_without_cli_payload(tmp_path) -> Non
         version="0.18.12",
         platform="windows-x86_64",
         server_bin=server,
-        capture_helper=None,
-        ui_control_host=None,
         out_dir=tmp_path / "dist",
     )
 
