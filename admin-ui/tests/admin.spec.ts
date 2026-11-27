@@ -997,7 +997,7 @@ test.describe('Admin Page', () => {
     await expect(page.locator('.skill-paths-panel')).toContainText('Skills & paths');
     await expect(page.locator('.skill-paths-panel')).toContainText('maya-modeling');
     await expect(page.locator('.skill-paths-panel')).toContainText('create_sphere');
-    await expect(page.locator('.skill-paths-panel')).toContainText('Loaded skills');
+    await expect(page.locator('.skill-paths-panel')).toContainText('Active skills');
     await expect(page.locator('.skill-inventory-list')).toBeVisible();
     await expect(page.locator('.skill-inventory-row')).toHaveCount(2);
     await expect(page.locator('.skill-card-grid')).toHaveCount(0);
