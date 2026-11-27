@@ -53,6 +53,18 @@
         "v0.20.31": "8d3b595e3e6ba0c829f995d44450d40a991132a38c1d951952ac747226f88649"
       }
     },
+    "https://dcc-mcp.github.io/dcc-mcp-core/schemas/eval-report-v1.schema.json": {
+      "path": "python/dcc_mcp_core/schemas/eval-report-v1.schema.json",
+      "released": {
+        "v0.22.0": "5d47c74376e5ae1a6cb65d6d05dfc39d003ad08d2ae9f39a332caa2b4f938229"
+      }
+    },
+    "https://dcc-mcp.github.io/dcc-mcp-core/schemas/eval-set-v1.schema.json": {
+      "path": "python/dcc_mcp_core/schemas/eval-set-v1.schema.json",
+      "released": {
+        "v0.22.0": "40956db50b220f989d53b19d8e46fea5afff921091e843bd3d2420aed9cdeca5"
+      }
+    },
     "https://dcc-mcp.github.io/dcc-mcp-core/schemas/graph-state-v1.schema.json": {
       "path": "python/dcc_mcp_core/schemas/graph-state-v1.schema.json",
       "released": {
