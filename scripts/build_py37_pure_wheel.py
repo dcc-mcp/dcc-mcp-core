@@ -14,8 +14,6 @@ PYTHON_ROOT = ROOT / "python"
 PACKAGE_DIR = PYTHON_ROOT / "dcc_mcp_core"
 DIST = ROOT / "dist"
 _NATIVE_SUFFIXES = frozenset({".dll", ".dylib", ".pdb", ".pyd", ".so"})
-WINDOWS_CAPTURE_HELPER = Path("dcc_mcp_core/bin/dcc-mcp-capture-helper.exe")
-WINDOWS_UI_CONTROL_HOST = Path("dcc_mcp_core/bin/dcc-mcp-ui-control-host.exe")
 
 
 def _ensure_wheel() -> None:
@@ -95,11 +93,6 @@ def main() -> int:
             if not _is_lite_payload_file(file_path):
                 continue
             arcname = file_path.relative_to(PYTHON_ROOT).as_posix()
-            if Path(arcname) in {WINDOWS_CAPTURE_HELPER, WINDOWS_UI_CONTROL_HOST}:
-                # These helpers are version-matched native binaries. Keep them
-                # out of the pure-Python wheel and stage them in the native
-                # package instead.
-                continue
             wf.write(str(file_path), arcname)
 
         wf.writestr(f"{dist_info}/METADATA", metadata.as_string())

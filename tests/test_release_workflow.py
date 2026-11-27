@@ -305,8 +305,8 @@ def test_release_workflow_builds_deployable_zips_per_platform() -> None:
     assert bundle["env"]["MATRIX_ARTIFACT_NAME"] == "${{ matrix.artifact_name }}"
     assert "--cli-bin" not in run
     assert "--dccmcp-bin" not in run
-    assert "--capture-helper target/x86_64-pc-windows-msvc/release/dcc-mcp-capture-helper.exe" in run
-    assert "--ui-control-host target/x86_64-pc-windows-msvc/release/dcc-mcp-ui-control-host.exe" in run
+    assert "capture-helper" not in run
+    assert "ui-control-host" not in run
 
     raw_upload = next(
         step

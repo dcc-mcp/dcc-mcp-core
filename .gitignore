@@ -56,8 +56,6 @@ THIRD_PARTY_LICENSES.txt
 /pkg/dcc-mcp-cli-bin/NOTICE
 /pkg/dcc-mcp-cli-bin/THIRD_PARTY_NOTICES.txt
 /pkg/dcc-mcp-cli-bin/THIRD_PARTY_LICENSES.txt
-/python/dcc_mcp_core/bin/dcc-mcp-ui-control-host.exe
-
 # Python cache
 *.pyc
 *.pyo
