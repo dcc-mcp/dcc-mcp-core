@@ -19,8 +19,11 @@ export function SkillsSummaryGrid({ totals, pathCount, t }: SkillsSummaryGridPro
     <div className="metric-grid compact skill-summary-grid">
       <MetricTile
         label={t('skillPaths.metric.loadedSkills')}
-        value={totals.loaded}
-        detail={t('skillPaths.detail.indexed', { count: totals.total })}
+        value={totals.loaded + totals.partial}
+        detail={t('skillPaths.detail.fromLoadedSkills', {
+          loaded: totals.loaded,
+          partial: totals.partial,
+        })}
       />
       <MetricTile
         label={t('skillPaths.metric.actions')}

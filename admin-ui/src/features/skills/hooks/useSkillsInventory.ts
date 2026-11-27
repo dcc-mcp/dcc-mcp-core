@@ -10,6 +10,7 @@ import { apiJson } from '../../../admin-ui-core';
 export type SkillTotals = {
   total: number;
   loaded: number;
+  partial: number;
   unloaded: number;
   action_count: number;
   searched: number;
@@ -22,6 +23,7 @@ export type SkillTotals = {
 const EMPTY_TOTALS: SkillTotals = {
   total: 0,
   loaded: 0,
+  partial: 0,
   unloaded: 0,
   action_count: 0,
   searched: 0,
@@ -55,7 +57,8 @@ export function useSkillsInventory({ onUpdated, onError }: UseSkillsInventoryArg
       const totalsNext: SkillTotals = {
         total: Number(payload.total ?? rows.length),
         loaded: Number(payload.loaded ?? rows.filter((s) => s.loaded).length),
-        unloaded: Number(payload.unloaded ?? rows.filter((s) => !s.loaded).length),
+        partial: Number(payload.partial ?? rows.filter((s) => s.load_state === 'partial').length),
+        unloaded: Number(payload.unloaded ?? rows.filter((s) => s.load_state === 'unloaded').length),
         action_count: Number(payload.action_count ?? rows.reduce((sum, s) => sum + s.action_count, 0)),
         searched: Number(healthSection.searched_skills ?? rows.filter((s) => s.adoption.searched).length),
         used: Number(healthSection.used_skills ?? rows.filter((s) => s.adoption.used).length),

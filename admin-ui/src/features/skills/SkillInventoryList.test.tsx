@@ -51,4 +51,26 @@ describe('SkillInventoryList', () => {
     expect(screen.getByText('Detailed branding tagline.')).toBeVisible();
     expect(screen.getByText('v1.0.0')).toBeVisible();
   });
+
+  it('shows one shared skill row with its DCC scope and partial instance state', () => {
+    const skill = normalizeSkillRow({
+      name: 'dcc-mcp',
+      dcc_types: ['blender', 'maya'],
+      load_state: 'partial',
+      loaded_instance_count: 1,
+      unloaded_instance_count: 1,
+      instance_details: [
+        { id: 'blender-1', prefix: 'blender-1', dcc_type: 'blender', loaded: false },
+        { id: 'maya-1', prefix: 'maya-1', dcc_type: 'maya', loaded: true },
+      ],
+      adoption: {},
+    });
+    render(<SkillInventoryList skills={[skill]} selected={null} onOpen={vi.fn()} t={t} />);
+    const row = screen.getByRole('listitem');
+    expect(within(row).getByText(t('skillPaths.state.partial'))).toBeInTheDocument();
+    expect(within(row).getByText('blender · maya')).toBeInTheDocument();
+    fireEvent.click(row.querySelector('summary')!);
+    expect(within(row).getByText('blender-1')).toHaveClass('is-unloaded');
+    expect(within(row).getByText('maya-1')).toHaveClass('is-loaded');
+  });
 });

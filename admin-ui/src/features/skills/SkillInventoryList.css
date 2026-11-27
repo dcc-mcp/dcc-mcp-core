@@ -21,6 +21,7 @@
 .skill-inventory-row:only-child { border-radius: var(--radius-lg); }
 .skill-inventory-row:hover { background: color-mix(in srgb, var(--muted) 35%, transparent); }
 .skill-inventory-row.is-selected { background: color-mix(in srgb, var(--primary) 5%, var(--card)); }
+.skill-inventory-row.is-partial { border-left: 3px solid var(--warning, #d97706); }
 .skill-inventory-highlight { outline: 2px solid var(--ring); outline-offset: -2px; }
 .skill-inventory-skill-cell { display: flex; align-items: flex-start; gap: 12px; min-width: 0; }
 .skill-inventory-avatar {
@@ -63,8 +64,15 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.skill-inventory-scope {
+  color: var(--muted-foreground);
+  font-size: 11px;
+  line-height: 16px;
+  text-transform: capitalize;
+}
 .skill-inventory-load-state { font-size: 12px; font-weight: 450; }
 .skill-inventory-load-state.is-loaded { color: var(--ok); background: color-mix(in srgb, var(--ok) 8%, var(--card)); }
+.skill-inventory-load-state.is-partial { color: var(--warning, #d97706); background: color-mix(in srgb, var(--warning, #d97706) 8%, var(--card)); }
 .skill-inventory-action-cell { justify-self: end; }
 .skill-inventory-action { min-height: 32px; background: transparent; }
 .skill-inventory-disclosure { grid-column: 1 / -1; min-width: 0; margin-left: 44px; }
@@ -121,6 +129,8 @@
   font: 12px/1.5 var(--font-mono);
   overflow-wrap: anywhere;
 }
+.skill-inventory-instances code.is-loaded { color: var(--ok); }
+.skill-inventory-instances code.is-unloaded { color: var(--muted-foreground); }
 @container skill-inventory (max-width: 600px) {
   .skill-inventory-expanded { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .skill-inventory-tools-cell { grid-column: 1 / -1; }

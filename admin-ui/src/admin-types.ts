@@ -996,7 +996,11 @@ export type SkillLinks = {
 export type SkillRow = {
   name: string;
   dcc_type: string;
+  dcc_types: string[];
+  load_state: SkillLoadState;
   loaded: boolean;
+  loaded_instance_count: number;
+  unloaded_instance_count: number;
   action_count: number;
   instance_count: number;
   instances: string[];
@@ -1016,13 +1020,17 @@ export type SkillInstanceRef = {
   id: string;
   prefix: string;
   dcc_type?: string;
+  loaded?: boolean;
 };
+
+export type SkillLoadState = 'loaded' | 'partial' | 'unloaded' | 'unknown';
 
 export type SkillPayload = {
   skills?: unknown[];
   total?: number;
   loaded?: number;
   unloaded?: number;
+  partial?: number;
   action_count?: number;
   adoption_scope?: 'gateway_routed';
   health?: {
@@ -1085,6 +1093,7 @@ export function normalizeSkillInstanceRef(raw: unknown, fallbackPrefix = '', fal
     id,
     prefix,
     dcc_type: String(o?.dcc_type ?? fallbackDcc),
+    loaded: o?.loaded == null ? undefined : o.loaded === true,
   };
 }
 
@@ -1170,7 +1179,11 @@ export function normalizeSkillRow(raw: unknown): SkillRow {
     return {
       name: '',
       dcc_type: '',
+      dcc_types: [],
+      load_state: 'unknown',
       loaded: false,
+      loaded_instance_count: 0,
+      unloaded_instance_count: 0,
       action_count: 0,
       instance_count: 0,
       instances: [],
@@ -1184,17 +1197,36 @@ export function normalizeSkillRow(raw: unknown): SkillRow {
   const instances = stringList(o.instances);
   const instanceIds = stringList(o.instance_ids);
   const dccType = String(o.dcc_type ?? o.dcc ?? '');
+  const dccTypes = stringList(o.dcc_types);
+  if (dccTypes.length === 0 && dccType) dccTypes.push(dccType);
+  const rawLoadState = String(o.load_state ?? '');
+  const loadState: SkillLoadState = rawLoadState === 'loaded'
+    || rawLoadState === 'partial'
+    || rawLoadState === 'unloaded'
+    ? rawLoadState
+    : o.loaded === true
+      ? 'loaded'
+      : 'unloaded';
   const explicitDetails = Array.isArray(o.instance_details)
     ? o.instance_details.map((item, index) => normalizeSkillInstanceRef(item, instances[index], dccType))
     : [];
   const instanceDetails = explicitDetails.length > 0
     ? explicitDetails
-    : instances.map((prefix, index) => ({ id: instanceIds[index] ?? prefix, prefix, dcc_type: dccType }));
+    : instances.map((prefix, index) => ({
+      id: instanceIds[index] ?? prefix,
+      prefix,
+      dcc_type: dccType,
+      loaded: undefined,
+    }));
   const tools = stringList(o.tools);
   return {
     name: String(o.name ?? ''),
     dcc_type: dccType,
-    loaded: o.loaded === true,
+    dcc_types: dccTypes,
+    load_state: loadState,
+    loaded: loadState === 'loaded',
+    loaded_instance_count: Number(o.loaded_instance_count ?? instanceDetails.filter((instance) => instance.loaded === true).length),
+    unloaded_instance_count: Number(o.unloaded_instance_count ?? instanceDetails.filter((instance) => instance.loaded === false).length),
     action_count: Number(o.action_count ?? tools.length ?? 0),
     instance_count: Number(o.instance_count ?? instances.length ?? 0),
     instances,

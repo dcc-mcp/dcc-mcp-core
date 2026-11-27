@@ -27,10 +27,10 @@ export function SkillCard({ skill, selected, onOpen, t }: SkillCardProps) {
   return (
     <article
       className={`skill-card${selected ? ' skill-card-selected' : ''}${
-        skill.loaded ? '' : ' skill-card-unloaded'
+        skill.load_state === 'unloaded' ? ' skill-card-unloaded' : skill.load_state === 'partial' ? ' skill-card-partial' : ''
       }`}
       data-skill-name={skill.name}
-      data-dcc={skill.dcc_type || 'unknown'}
+      data-dcc={skill.dcc_types.join(',') || skill.dcc_type || 'unknown'}
     >
       <button
         type="button"
