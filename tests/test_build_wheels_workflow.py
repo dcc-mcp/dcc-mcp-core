@@ -40,6 +40,17 @@ def _jobs() -> dict:
     return workflow["jobs"]
 
 
+def test_shared_build_wheel_action_stages_all_package_notices() -> None:
+    action = yaml_loads((REPO_ROOT / ".github" / "actions" / "build-wheel" / "action.yml").read_text(encoding="utf-8"))
+    steps = action["runs"]["steps"]
+    generate_index = next(
+        index for index, step in enumerate(steps) if step.get("name") == "Generate third-party license texts"
+    )
+    stage_index = next(index for index, step in enumerate(steps) if step.get("name") == "Stage package legal notices")
+    assert generate_index < stage_index
+    assert steps[stage_index]["run"] == "python scripts/release/stage_package_notices.py"
+
+
 def test_manual_backfill_reuses_verified_github_release_assets() -> None:
     workflow = yaml_loads(BUILD_WHEELS_WORKFLOW.read_text(encoding="utf-8"))
     reuse_input = workflow["on"]["workflow_call"]["inputs"]["reuse-release-assets"]
