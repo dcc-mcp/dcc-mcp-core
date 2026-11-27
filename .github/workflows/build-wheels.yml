@@ -82,7 +82,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
-          RELEASE_TAG: ${{ inputs.release-tag-name }}
+          RELEASE_TAG: ${{ inputs['release-tag-name'] }}
           CHECKOUT_REF: ${{ inputs.checkout-ref }}
         shell: bash
         run: |
@@ -102,7 +102,7 @@ jobs:
       - name: Classify immutable Core distribution state
         id: classify
         env:
-          RELEASE_VERSION: ${{ inputs.release-tag-name }}
+          RELEASE_VERSION: ${{ inputs['release-tag-name'] }}
         shell: bash
         run: |
           set -euo pipefail
@@ -559,8 +559,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
-          RELEASE_TAG: ${{ inputs.release-tag-name }}
-          RELEASE_VERSION: ${{ inputs.release-tag-name }}
+          RELEASE_TAG: ${{ inputs['release-tag-name'] }}
+          RELEASE_VERSION: ${{ inputs['release-tag-name'] }}
         shell: bash
         run: |
           set -euo pipefail
@@ -581,7 +581,7 @@ jobs:
 
       - name: Verify downloaded distributions against GitHub digests
         env:
-          RELEASE_VERSION: ${{ inputs.release-tag-name }}
+          RELEASE_VERSION: ${{ inputs['release-tag-name'] }}
         shell: bash
         run: |
           set -euo pipefail
@@ -606,7 +606,7 @@ jobs:
       - linux-py37
       - windows-py37
       - macos
-    if: inputs.release-tag-name != ''
+    if: inputs['release-tag-name'] != ''
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -678,7 +678,7 @@ jobs:
             .workflow-tools dist/*.whl dist/*.tar.gz
       - name: Validate complete Core distribution set before publication
         env:
-          RELEASE_VERSION: ${{ inputs.release-tag-name }}
+          RELEASE_VERSION: ${{ inputs['release-tag-name'] }}
         shell: bash
         run: |
           set -euo pipefail
@@ -695,7 +695,7 @@ jobs:
           # the whole asset set. release.yml passes the same token
           # release-please uses to cut and publish the release.
           token: ${{ secrets.RELEASE_TOKEN || github.token }}
-          tag_name: ${{ inputs.release-tag-name }}
+          tag_name: ${{ inputs['release-tag-name'] }}
           files: dist/*
           overwrite_files: ${{ inputs.overwrite-release-assets }}
           fail_on_unmatched_files: true
