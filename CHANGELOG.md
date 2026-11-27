@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.22.1](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.22.0...v0.22.1) (2026-11-27)
+
+
+### Bug Fixes
+
+* aggregate dashboard skills across DCC instances ([#2954](https://github.com/dcc-mcp/dcc-mcp-core/issues/2954)) ([bb0ba99](https://github.com/dcc-mcp/dcc-mcp-core/commit/bb0ba991b1287470bedea26d648d25c1ea963696))
+* count live skill instances in the dashboard ([89431e2](https://github.com/dcc-mcp/dcc-mcp-core/commit/89431e2079619cf58b88d59c469b480690e7f623))
+* include generated notices in core wheels ([0a88ffd](https://github.com/dcc-mcp/dcc-mcp-core/commit/0a88ffdb38c9a5c3275f1996862890c7cf1d7e9d))
+* include release notices in every wheel ([4d455a3](https://github.com/dcc-mcp/dcc-mcp-core/commit/4d455a3224554afa7ecd91efd8a683a3bfbcb436))
+* keep standalone CUA out of Core release assets ([ffb2666](https://github.com/dcc-mcp/dcc-mcp-core/commit/ffb2666c6d4e23565ca519d783ca2997a42a55bf))
+* publish reusable wheel workflow assets ([ba7bd38](https://github.com/dcc-mcp/dcc-mcp-core/commit/ba7bd38e0e18a01de38c6c35064731500f34f0d4))
+* repair release asset backfill packaging ([#2949](https://github.com/dcc-mcp/dcc-mcp-core/issues/2949)) ([708188f](https://github.com/dcc-mcp/dcc-mcp-core/commit/708188f05a92e3be1fcb2356b09e2ee0a23909bc))
+* restore release asset backfill ([#2951](https://github.com/dcc-mcp/dcc-mcp-core/issues/2951)) ([26fcf6d](https://github.com/dcc-mcp/dcc-mcp-core/commit/26fcf6d03073eee21deb37c782537399a360f60f))
+* separate catalog and live skill state ([8321081](https://github.com/dcc-mcp/dcc-mcp-core/commit/83210813c1a58576545e55c03c1786baa5ca3bea))
+
+
+### Documentation
+
+* align skill routing and reference contracts ([1d14b56](https://github.com/dcc-mcp/dcc-mcp-core/commit/1d14b562c8ebfce007126ca9927dc41e4e37f464))
+* refresh benchmark seeds for skill metadata changes ([15e3dea](https://github.com/dcc-mcp/dcc-mcp-core/commit/15e3dea3500fc7f7b148f91c9e652b6107da6933))
+* **tr:** add/update README_tr.md for Turkish README ([c78aade](https://github.com/dcc-mcp/dcc-mcp-core/commit/c78aade55d1991290c26672328edc25cb2d63455))
+* **tr:** add/update README_zh.md for Turkish README ([5bd112d](https://github.com/dcc-mcp/dcc-mcp-core/commit/5bd112d598ca876785141f7ec8a485c34647c431))
+* **tr:** add/update README.md for Turkish README ([fdacb33](https://github.com/dcc-mcp/dcc-mcp-core/commit/fdacb33b9801fc1b142d6af17dcf22be52667517))
+* **tr:** keep quick-start MCP server alive in README_tr.md ([9e3a990](https://github.com/dcc-mcp/dcc-mcp-core/commit/9e3a99067b2fc18bcc389c2c39c2c4db46f757ab))
+
 ## [0.22.0](https://github.com/dcc-mcp/dcc-mcp-core/compare/v0.21.0...v0.22.0) (2026-11-26)
 
 
