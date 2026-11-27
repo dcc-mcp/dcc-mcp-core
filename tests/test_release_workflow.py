@@ -106,6 +106,24 @@ def test_release_workflow_manual_backfill_reuses_core_release_assets() -> None:
     assert build_wheels["secrets"] == {"RELEASE_TOKEN": "${{ secrets.PERSONAL_ACCESS_TOKEN }}"}
 
 
+def test_asset_backfill_builds_from_current_workflow_source() -> None:
+    jobs = _release_jobs()
+    release_please = jobs["release-please"]
+    assert release_please["outputs"]["source_ref"] == "${{ steps.decide.outputs.source_ref }}"
+
+    decide = next(step for step in release_please["steps"] if step.get("name") == "Decide release outputs")
+    assert decide["env"]["BACKFILL_ASSETS"] == "${{ inputs.backfill_assets }}"
+    assert decide["env"]["GITHUB_SHA"] == "${{ github.sha }}"
+    assert 'source_ref="$GITHUB_SHA"' in decide["run"]
+    assert 'source_ref="$tag_name"' in decide["run"]
+
+    for job_id in ("build-admin-ui", "build-binaries", "build-semantic-wheels", "validate-release-notices"):
+        checkout = next(step for step in jobs[job_id]["steps"] if step.get("uses") == "actions/checkout@v6")
+        assert checkout["with"]["ref"] == "${{ needs.release-please.outputs.source_ref }}"
+
+    assert jobs["build-wheels"]["with"]["checkout-ref"] == "${{ needs.release-please.outputs.source_ref }}"
+
+
 def test_manual_backfill_is_explicitly_core_only() -> None:
     jobs = _release_jobs()
     for job_id in ("build-admin-ui", "build-binaries", "build-semantic-wheels"):

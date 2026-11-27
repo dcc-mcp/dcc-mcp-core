@@ -56,6 +56,7 @@ jobs:
       release_created: ${{ steps.decide.outputs.release_created }}
       tag_name: ${{ steps.decide.outputs.tag_name }}
       version: ${{ steps.decide.outputs.version }}
+      source_ref: ${{ steps.decide.outputs.source_ref }}
     steps:
       # `push` is retained below so the step keeps working if the push trigger
       # is ever restored. Neither condition matches the dispatch entry point
@@ -120,6 +121,8 @@ jobs:
         env:
           BACKFILL_TAG: ${{ inputs.release_tag }}
           BACKFILL_VERSION: ${{ inputs.release_version }}
+          BACKFILL_ASSETS: ${{ inputs.backfill_assets }}
+          GITHUB_SHA: ${{ github.sha }}
           RP_RELEASE_CREATED: ${{ steps.release.outputs.release_created }}
           RP_TAG_NAME: ${{ steps.release.outputs.tag_name }}
           RP_VERSION: ${{ steps.release.outputs.version }}
@@ -140,12 +143,22 @@ jobs:
             tag_name="$RP_TAG_NAME"
             version="$RP_VERSION"
           fi
+          # Normal releases and core-only backfills build from the immutable
+          # release tag. An explicit asset backfill must use the current
+          # workflow source so it can repair packaging defects merged after
+          # the tag without rewriting the tag itself.
+          if [ -n "$BACKFILL_TAG" ] && [ "$BACKFILL_ASSETS" = "true" ]; then
+            source_ref="$GITHUB_SHA"
+          else
+            source_ref="$tag_name"
+          fi
           {
             echo "release_created=$release_created"
             echo "tag_name=$tag_name"
             echo "version=$version"
+            echo "source_ref=$source_ref"
           } >> "$GITHUB_OUTPUT"
-          echo "Release decision: created=$release_created tag=$tag_name version=$version"
+          echo "Release decision: created=$release_created tag=$tag_name version=$version source_ref=$source_ref"
 
   build-admin-ui:
     needs: [release-please]
@@ -156,7 +169,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: ${{ needs.release-please.outputs.tag_name }}
+          ref: ${{ needs.release-please.outputs.source_ref }}
 
       - uses: loonghao/vx@v0.9.34
         with:
@@ -232,7 +245,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: ${{ needs.release-please.outputs.tag_name }}
+          ref: ${{ needs.release-please.outputs.source_ref }}
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@master
@@ -474,7 +487,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: ${{ needs.release-please.outputs.tag_name }}
+          ref: ${{ needs.release-please.outputs.source_ref }}
 
       - name: Setup Rust for license metadata
         uses: dtolnay/rust-toolchain@master
@@ -655,7 +668,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: ${{ needs.release-please.outputs.tag_name }}
+          ref: ${{ needs.release-please.outputs.source_ref }}
 
       - uses: actions/setup-python@v6
         with:
@@ -716,7 +729,7 @@ jobs:
     if: needs.release-please.outputs.release_created == 'true'
     uses: ./.github/workflows/build-wheels.yml
     with:
-      checkout-ref: ${{ needs.release-please.outputs.tag_name }}
+      checkout-ref: ${{ needs.release-please.outputs.source_ref }}
       release-tag-name: ${{ needs.release-please.outputs.tag_name }}
       reuse-release-assets: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag != '' && inputs.backfill_assets != true }}
       overwrite-release-assets: ${{ github.event_name == 'workflow_dispatch' && inputs.backfill_assets == true }}
