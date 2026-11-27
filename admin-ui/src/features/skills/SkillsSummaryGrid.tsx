@@ -28,7 +28,7 @@ export function SkillsSummaryGrid({ totals, pathCount, t }: SkillsSummaryGridPro
       <MetricTile
         label={t('skillPaths.metric.actions')}
         value={totals.action_count}
-        detail={t('skillPaths.detail.fromLoadedSkills')}
+        detail={t('skillPaths.detail.indexed', { count: totals.total })}
       />
       <MetricTile
         label={t('skillPaths.metric.searchPaths')}
