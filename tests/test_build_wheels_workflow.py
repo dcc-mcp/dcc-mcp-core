@@ -131,7 +131,7 @@ def test_release_wheels_are_uploaded_once_after_every_build() -> None:
 
     publish = jobs["publish-release"]
     assert set(publish["needs"]) == PUBLISH_JOB_IDS
-    assert publish["if"] == "inputs.release-tag-name != ''"
+    assert publish["if"] == "inputs['release-tag-name'] != ''"
     assert publish["permissions"] == {"actions": "read", "contents": "write"}
 
     # The macOS cp37 wheel is a build-verification spike, not a release
@@ -171,7 +171,7 @@ def test_release_wheels_are_uploaded_once_after_every_build() -> None:
     # release PAT through the reusable-workflow secret.
     assert upload["with"] == {
         "token": "${{ secrets.RELEASE_TOKEN || github.token }}",
-        "tag_name": "${{ inputs.release-tag-name }}",
+        "tag_name": "${{ inputs['release-tag-name'] }}",
         "files": "dist/*",
         # Replacing a same-named asset is opt-in: the caller decides, because
         # only the asset backfill may overwrite an existing release.
