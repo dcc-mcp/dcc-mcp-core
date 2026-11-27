@@ -51,6 +51,17 @@ def test_shared_build_wheel_action_stages_all_package_notices() -> None:
     assert steps[stage_index]["run"] == "python scripts/release/stage_package_notices.py"
 
 
+def test_py37_lite_build_generates_and_stages_package_notices() -> None:
+    steps = _jobs()["py37-lite"]["steps"]
+    setup_index = next(index for index, step in enumerate(steps) if step.get("uses") == "actions/setup-python@v6")
+    generate_index = next(
+        index for index, step in enumerate(steps) if step.get("name") == "Generate third-party license texts"
+    )
+    stage_index = next(index for index, step in enumerate(steps) if step.get("name") == "Stage package legal notices")
+    build_index = next(index for index, step in enumerate(steps) if "build_py37_pure_wheel.py" in step.get("run", ""))
+    assert setup_index < generate_index < stage_index < build_index
+
+
 def test_manual_backfill_reuses_verified_github_release_assets() -> None:
     workflow = yaml_loads(BUILD_WHEELS_WORKFLOW.read_text(encoding="utf-8"))
     reuse_input = workflow["on"]["workflow_call"]["inputs"]["reuse-release-assets"]

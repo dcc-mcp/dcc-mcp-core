@@ -14,6 +14,13 @@ config/*.json text eol=lf
 *.jsonl text eol=lf
 *.sh text eol=lf
 *.ps1 text eol=lf
+
+# Release notice bytes are compared across Linux, macOS, and Windows assets.
+# Keep the canonical files byte-identical after checkout on every runner.
+LICENSE text eol=lf
+NOTICE text eol=lf
+THIRD_PARTY_NOTICES.txt text eol=lf
+
 licenses/spdx/*.txt text eol=lf
 
 # Core release projections compare canonical bytes, including on Windows.
