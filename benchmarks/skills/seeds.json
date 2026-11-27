@@ -700,7 +700,8 @@
         "dcc-mcp.search-hint": "create DCC MCP adapter, Nuke MCP, DccServerBase, HostExecutionBridge, dispatcher, readiness, resources, gateway, Blender, 3ds Max, Unreal, ZBrush, Houdini, Maya",
         "dcc-mcp.tags": "adapter-development, host-runtime, dispatcher, gateway, nuke, blender, 3dsmax, unreal, zbrush",
         "dcc-mcp.skill-reference-docs": [
-          "references/*.md"
+          "../../docs/guide/adapter-*.md",
+          "../../docs/guide/new-adapter-onboarding.md"
         ]
       },
       "dcc": "python",
@@ -757,10 +758,10 @@
         "dcc-mcp.layer": "infrastructure",
         "dcc-mcp.compatibility": "Python 3.7+, dcc-mcp-core 0.17+",
         "dcc-mcp.search-hint": "create dcc mcp skill, validate skill, scaffold skill, SKILL.md, tools.yaml, scripts, groups, prompts, skill taxonomy",
-        "dcc-mcp.tools": "tools.yaml",
         "dcc-mcp.prompts": "prompts.yaml",
         "dcc-mcp.skill-reference-docs": [
-          "references/*.md"
+          "../../docs/guide/agents-reference.md",
+          "../../docs/guide/skill-*.md"
         ]
       },
       "dcc": "python",
