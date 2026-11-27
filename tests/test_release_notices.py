@@ -118,7 +118,7 @@ def test_core_maturin_config_includes_generated_package_notices() -> None:
     config = (root / "pyproject.toml").read_text(encoding="utf-8")
 
     assert (
-        'include = [\n'
+        "include = [\n"
         '    "python/dcc_mcp_core/THIRD_PARTY_NOTICES.txt",\n'
         '    "python/dcc_mcp_core/THIRD_PARTY_LICENSES.txt",\n'
         "]"
