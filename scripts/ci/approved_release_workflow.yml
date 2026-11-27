@@ -730,7 +730,10 @@ jobs:
     uses: ./.github/workflows/build-wheels.yml
     with:
       checkout-ref: ${{ needs.release-please.outputs.source_ref }}
-      release-tag-name: ${{ needs.release-please.outputs.tag_name }}
+      # Keep the explicit backfill tag available inside the reusable workflow.
+      # The release-please output is used for normal release windows, while a
+      # manual asset backfill must never depend on an output that was skipped.
+      release-tag-name: ${{ inputs.release_tag || needs.release-please.outputs.tag_name }}
       reuse-release-assets: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag != '' && inputs.backfill_assets != true }}
       overwrite-release-assets: ${{ github.event_name == 'workflow_dispatch' && inputs.backfill_assets == true }}
     secrets:

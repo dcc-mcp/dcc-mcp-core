@@ -9,7 +9,14 @@ import sys
 import tarfile
 import zipfile
 
+# Maturin writes the project license metadata into the wheel metadata contract
+# and the release package staging step adds the generated third-party texts to
+# the importable package. The standalone Hatchling CLI wrapper is the exception
+# because it owns all four files directly in its wheel payload.
 REQUIRED_FILES = ("LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.txt", "THIRD_PARTY_LICENSES.txt")
+MATURIN_WHEEL_FILES = ("THIRD_PARTY_NOTICES.txt", "THIRD_PARTY_LICENSES.txt")
+CORE_SDIST_FILES = ("LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.txt")
+MATURIN_WHEEL_PREFIXES = ("dcc_mcp_core-", "dcc_mcp_core_semantic-", "dcc_mcp_server-")
 
 
 def _expected_files(root: Path) -> dict[str, bytes]:
@@ -20,6 +27,15 @@ def _expected_files(root: Path) -> dict[str, bytes]:
             raise ValueError(f"repository is missing required notice file {name!r}")
         expected[name] = path.read_bytes()
     return expected
+
+
+def _required_files_for_archive(path: Path) -> tuple[str, ...]:
+    """Return the notice files required by the archive packaging contract."""
+    if path.suffix == ".whl" and path.name.startswith(MATURIN_WHEEL_PREFIXES):
+        return MATURIN_WHEEL_FILES
+    if path.name.startswith("dcc_mcp_core-") and path.name.endswith(".tar.gz"):
+        return CORE_SDIST_FILES
+    return REQUIRED_FILES
 
 
 def _member_basename(name: str) -> str:
@@ -71,7 +87,9 @@ def validate_archive(path: Path, expected: dict[str, bytes]) -> list[str]:
             return [f"{path}: unsupported release archive format"]
     except (OSError, tarfile.TarError, zipfile.BadZipFile, ValueError) as exc:
         return [f"{path}: cannot inspect archive: {exc}"]
-    return _validate_members(path.name, members, expected)
+    required = _required_files_for_archive(path)
+    scoped_expected = {name: expected[name] for name in required}
+    return _validate_members(path.name, members, scoped_expected)
 
 
 def main() -> int:
