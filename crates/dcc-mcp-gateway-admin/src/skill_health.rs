@@ -111,6 +111,36 @@ struct SkillHealthSummary {
     path_redaction: &'static str,
 }
 
+const CATALOG_INSTANCE_ID: &str = "00000000-0000-0000-0000-000000000000";
+
+#[derive(Debug, Default)]
+struct DccSkillState {
+    loaded_instances: usize,
+    unloaded_instances: usize,
+    catalog_available: bool,
+}
+
+impl DccSkillState {
+    fn record(&mut self, record: &SkillCapabilityInput) {
+        if is_catalog_record(&record.instance_id) {
+            self.catalog_available = true;
+        } else if record.loaded {
+            self.loaded_instances += 1;
+        } else {
+            self.unloaded_instances += 1;
+        }
+    }
+
+    fn load_state(&self) -> &'static str {
+        match (self.loaded_instances, self.unloaded_instances) {
+            (0, 0) => "unloaded",
+            (0, _) => "unloaded",
+            (_, 0) => "loaded",
+            _ => "partial",
+        }
+    }
+}
+
 /// Build the public admin skill inventory from backend-neutral projection inputs.
 #[must_use]
 pub fn skill_inventory_payload(
@@ -146,12 +176,19 @@ pub fn skill_inventory_payload(
         .map(|(name, records)| {
             let mut instance_states: BTreeMap<String, (bool, String)> = BTreeMap::new();
             let mut dcc_types = BTreeSet::new();
+            let mut dcc_states: BTreeMap<String, DccSkillState> = BTreeMap::new();
             for record in &records {
                 dcc_types.insert(record.dcc_type.clone());
-                instance_states
-                    .entry(record.instance_id.clone())
-                    .and_modify(|state| state.0 |= record.loaded)
-                    .or_insert((record.loaded, record.dcc_type.clone()));
+                dcc_states
+                    .entry(record.dcc_type.clone())
+                    .or_default()
+                    .record(record);
+                if !is_catalog_record(&record.instance_id) {
+                    instance_states
+                        .entry(record.instance_id.clone())
+                        .and_modify(|state| state.0 |= record.loaded)
+                        .or_insert((record.loaded, record.dcc_type.clone()));
+                }
             }
             let loaded_instance_count = instance_states
                 .values()
@@ -194,6 +231,22 @@ pub fn skill_inventory_payload(
                 .collect();
             let instance_ids: Vec<String> = instance_states.keys().cloned().collect();
             let dcc_types: Vec<String> = dcc_types.into_iter().collect();
+            let catalog_dcc_types: Vec<String> = dcc_states
+                .iter()
+                .filter_map(|(dcc_type, state)| state.catalog_available.then_some(dcc_type.clone()))
+                .collect();
+            let dcc_states: Vec<Value> = dcc_states
+                .into_iter()
+                .map(|(dcc_type, state)| {
+                    json!({
+                        "dcc_type": dcc_type,
+                        "load_state": state.load_state(),
+                        "loaded_instance_count": state.loaded_instances,
+                        "unloaded_instance_count": state.unloaded_instances,
+                        "catalog_available": state.catalog_available,
+                    })
+                })
+                .collect();
             let dcc_type = if dcc_types.len() == 1 {
                 dcc_types[0].clone()
             } else {
@@ -217,6 +270,9 @@ pub fn skill_inventory_payload(
                 "loaded": load_state == "loaded",
                 "loaded_instance_count": loaded_instance_count,
                 "unloaded_instance_count": unloaded_instance_count,
+                "catalog_only": instance_states.is_empty() && !catalog_dcc_types.is_empty(),
+                "catalog_dcc_types": catalog_dcc_types,
+                "dcc_states": dcc_states,
                 "action_count": tools.len(),
                 "instance_count": instances.len(),
                 "instances": instances.into_iter().collect::<Vec<_>>(),
@@ -570,6 +626,10 @@ fn instance_short(id: &str) -> String {
     id.chars().take(8).collect()
 }
 
+fn is_catalog_record(instance_id: &str) -> bool {
+    instance_id.eq_ignore_ascii_case(CATALOG_INSTANCE_ID)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -672,5 +732,41 @@ mod tests {
         assert_eq!(skill["dcc_types"], json!(["blender", "maya"]));
         assert_eq!(skill["instance_details"][0]["loaded"], false);
         assert_eq!(skill["instance_details"][1]["loaded"], true);
+    }
+
+    #[test]
+    fn catalog_placeholder_does_not_turn_a_loaded_skill_into_partial() {
+        let mut catalog = capability("dcc-mcp", "discover_tools");
+        catalog.instance_id = CATALOG_INSTANCE_ID.to_string();
+        catalog.loaded = false;
+        let mut loaded = capability("dcc-mcp", "discover_tools");
+        loaded.instance_id = "maya-0000-0000-0000-000000000000".to_string();
+
+        let payload = skill_inventory_payload(vec![catalog, loaded], &[], &[], &[], 1, 0);
+        let skill = &payload["skills"][0];
+        assert_eq!(skill["load_state"], "loaded");
+        assert_eq!(skill["loaded_instance_count"], 1);
+        assert_eq!(skill["unloaded_instance_count"], 0);
+        assert_eq!(skill["instance_count"], 1);
+        assert_eq!(skill["catalog_only"], false);
+        assert_eq!(skill["catalog_dcc_types"], json!(["maya"]));
+        assert_eq!(skill["dcc_states"][0]["catalog_available"], true);
+    }
+
+    #[test]
+    fn catalog_only_skill_has_no_fake_instance() {
+        let mut maya = capability("dcc-mcp", "discover_tools");
+        maya.instance_id = CATALOG_INSTANCE_ID.to_string();
+        maya.loaded = false;
+        let mut blender = maya.clone();
+        blender.dcc_type = "blender".to_string();
+
+        let payload = skill_inventory_payload(vec![maya, blender], &[], &[], &[], 2, 0);
+        let skill = &payload["skills"][0];
+        assert_eq!(skill["load_state"], "unloaded");
+        assert_eq!(skill["instance_count"], 0);
+        assert_eq!(skill["instances"], json!([]));
+        assert_eq!(skill["catalog_only"], true);
+        assert_eq!(skill["catalog_dcc_types"], json!(["blender", "maya"]));
     }
 }

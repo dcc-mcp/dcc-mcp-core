@@ -1001,6 +1001,9 @@ export type SkillRow = {
   loaded: boolean;
   loaded_instance_count: number;
   unloaded_instance_count: number;
+  catalog_only: boolean;
+  catalog_dcc_types: string[];
+  dcc_states: SkillDccState[];
   action_count: number;
   instance_count: number;
   instances: string[];
@@ -1021,6 +1024,14 @@ export type SkillInstanceRef = {
   prefix: string;
   dcc_type?: string;
   loaded?: boolean;
+};
+
+export type SkillDccState = {
+  dcc_type: string;
+  load_state: SkillLoadState;
+  loaded_instance_count: number;
+  unloaded_instance_count: number;
+  catalog_available: boolean;
 };
 
 export type SkillLoadState = 'loaded' | 'partial' | 'unloaded' | 'unknown';
@@ -1095,6 +1106,24 @@ export function normalizeSkillInstanceRef(raw: unknown, fallbackPrefix = '', fal
     dcc_type: String(o?.dcc_type ?? fallbackDcc),
     loaded: o?.loaded == null ? undefined : o.loaded === true,
   };
+}
+
+export function normalizeSkillDccState(raw: unknown): SkillDccState[] {
+  const o = recordOrNull(raw);
+  if (!o) return [];
+  const rawLoadState = String(o.load_state ?? 'unknown');
+  const loadState: SkillLoadState = rawLoadState === 'loaded'
+    || rawLoadState === 'partial'
+    || rawLoadState === 'unloaded'
+    ? rawLoadState
+    : 'unknown';
+  return [{
+    dcc_type: String(o.dcc_type ?? ''),
+    load_state: loadState,
+    loaded_instance_count: Number(o.loaded_instance_count ?? 0),
+    unloaded_instance_count: Number(o.unloaded_instance_count ?? 0),
+    catalog_available: o.catalog_available === true,
+  }];
 }
 
 export function defaultSkillAdoption(): SkillAdoptionMetrics {
@@ -1184,6 +1213,9 @@ export function normalizeSkillRow(raw: unknown): SkillRow {
       loaded: false,
       loaded_instance_count: 0,
       unloaded_instance_count: 0,
+      catalog_only: false,
+      catalog_dcc_types: [],
+      dcc_states: [],
       action_count: 0,
       instance_count: 0,
       instances: [],
@@ -1227,6 +1259,11 @@ export function normalizeSkillRow(raw: unknown): SkillRow {
     loaded: loadState === 'loaded',
     loaded_instance_count: Number(o.loaded_instance_count ?? instanceDetails.filter((instance) => instance.loaded === true).length),
     unloaded_instance_count: Number(o.unloaded_instance_count ?? instanceDetails.filter((instance) => instance.loaded === false).length),
+    catalog_only: o.catalog_only === true,
+    catalog_dcc_types: stringList(o.catalog_dcc_types),
+    dcc_states: Array.isArray(o.dcc_states)
+      ? o.dcc_states.flatMap((item) => normalizeSkillDccState(item))
+      : [],
     action_count: Number(o.action_count ?? tools.length ?? 0),
     instance_count: Number(o.instance_count ?? instances.length ?? 0),
     instances,

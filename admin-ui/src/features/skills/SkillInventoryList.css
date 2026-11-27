@@ -110,6 +110,24 @@
 .skill-inventory-description p { margin: 0; overflow-wrap: anywhere; font-size: 13px; line-height: 1.6; }
 .skill-inventory-description p + p,
 .skill-inventory-version { color: var(--muted-foreground); font-size: 12px; }
+.skill-inventory-dcc-states {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  min-width: 0;
+}
+.skill-inventory-dcc-states h4 { color: var(--muted-foreground); font-size: 12px; font-weight: 500; }
+.skill-inventory-dcc-state {
+  display: grid;
+  grid-template-columns: minmax(0, auto) minmax(0, 1fr);
+  gap: 2px 8px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 18px;
+}
+.skill-inventory-dcc-state strong { color: var(--foreground); font-weight: 500; text-transform: capitalize; }
+.skill-inventory-dcc-state span { color: var(--foreground); }
+.skill-inventory-dcc-state small { grid-column: 1 / -1; overflow-wrap: anywhere; }
 .skill-inventory-tools-cell,
 .skill-inventory-instances-cell,
 .skill-inventory-usage-detail { display: grid; align-content: start; gap: 8px; min-width: 0; }

@@ -73,4 +73,54 @@ describe('SkillInventoryList', () => {
     expect(within(row).getByText('blender-1')).toHaveClass('is-unloaded');
     expect(within(row).getByText('maya-1')).toHaveClass('is-loaded');
   });
+
+  it('shows catalog availability without inventing an instance or a partial state', () => {
+    const skill = normalizeSkillRow({
+      name: 'dcc-mcp',
+      dcc_types: ['blender', 'maya'],
+      load_state: 'loaded',
+      loaded_instance_count: 1,
+      unloaded_instance_count: 0,
+      catalog_only: false,
+      catalog_dcc_types: ['maya'],
+      instance_details: [{ id: 'maya-1', prefix: 'maya-1', dcc_type: 'maya', loaded: true }],
+      dcc_states: [{
+        dcc_type: 'maya',
+        load_state: 'loaded',
+        loaded_instance_count: 1,
+        unloaded_instance_count: 0,
+        catalog_available: true,
+      }],
+    });
+    render(<SkillInventoryList skills={[skill]} selected={null} onOpen={vi.fn()} t={t} />);
+    const row = screen.getByRole('listitem');
+    expect(within(row).getByRole('button', { name: 'Open dcc-mcp detail' })).toBeInTheDocument();
+    expect(within(row).getByText(t('skillPaths.state.loaded'), { selector: '.skill-inventory-load-state' })).toBeInTheDocument();
+    expect(row).not.toHaveTextContent('00000000');
+    fireEvent.click(row.querySelector('summary')!);
+    expect(within(row).getByText(t('skillPaths.table.dccAvailability'))).toBeVisible();
+    expect(within(row).getByText(t('skillPaths.state.catalogAvailable'))).toBeVisible();
+    expect(within(row).getByText('1 loaded, 0 unloaded')).toBeVisible();
+  });
+
+  it('shows catalog-only skills without a fake instance', () => {
+    const skill = normalizeSkillRow({
+      name: 'catalog-skill',
+      dcc_types: ['blender', 'maya'],
+      load_state: 'unloaded',
+      catalog_only: true,
+      catalog_dcc_types: ['blender', 'maya'],
+      dcc_states: [
+        { dcc_type: 'blender', load_state: 'unloaded', catalog_available: true },
+        { dcc_type: 'maya', load_state: 'unloaded', catalog_available: true },
+      ],
+    });
+    render(<SkillInventoryList skills={[skill]} selected={null} onOpen={vi.fn()} t={t} />);
+    const row = screen.getByRole('listitem');
+    expect(row).not.toHaveTextContent('00000000');
+    fireEvent.click(row.querySelector('summary')!);
+    expect(within(row).getAllByText(t('skillPaths.state.catalogAvailable'))).toHaveLength(2);
+    expect(within(row).getByText('blender')).toBeVisible();
+    expect(within(row).getByText('maya')).toBeVisible();
+  });
 });
