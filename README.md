@@ -10,7 +10,7 @@
 [![GitHub Release](https://img.shields.io/github/v/release/dcc-mcp/dcc-mcp-core?label=release)](https://github.com/dcc-mcp/dcc-mcp-core/releases)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](https://opensource.org/licenses/MIT)
 
-[中文](README_zh.md) | English
+[中文](README_zh.md) | English | [Türkçe](README_tr.md)
 
 [Website](https://dcc-mcp.github.io/) · [Marketplace](https://dcc-mcp.github.io/marketplace) · [Showcase](https://dcc-mcp.github.io/showcase) · [For Agents](https://dcc-mcp.github.io/agents) · [Ecosystem](https://dcc-mcp.github.io/ecosystem)
 
