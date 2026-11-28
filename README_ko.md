@@ -6,6 +6,10 @@
 
 [English](README.md) · [简体中文](README_zh.md) · [日本語](README_ja.md) · **한국어** · [Español](README_es.md) · [Français](README_fr.md) · [Deutsch](README_de.md) · [Português (Brasil)](README_pt-BR.md) · [Русский](README_ru.md) · [Türkçe](README_tr.md)
 
+## Skills over MCP
+
+**Skills over MCP**와 MCP `2026-07-28`을 지원하는 클라이언트는 확장을 알리는 DCC 엔드포인트에서 Agent Skills를 찾고, 필요할 때 `SKILL.md`와 관련 파일을 읽을 수 있습니다. 기존 클라이언트와 스크립트는 게이트웨이의 REST API를 통해 계속 `dccmcp`를 사용할 수 있습니다. [통합 가이드](docs/guide/mcp-skills-integration.md)
+
 ## 실행 중인 앱에서 도구 찾기
 
 [`dccmcp` CLI](https://github.com/dcc-mcp/dcc-mcp-cli)를 설치하고 작업할 앱에서 해당 [DCC-MCP 어댑터](docs/adapter-coverage.md)를 활성화합니다. 에이전트로 작업한다면 [`dcc-mcp` Skill](https://clawhub.ai/loonghao/skills/dcc-mcp)을 설치해 같은 CLI를 사용하도록 할 수 있습니다. 예를 들어 Maya 장면의 오브젝트 목록을 읽는 도구를 찾으려면 다음 두 명령을 실행하세요.
@@ -53,7 +57,7 @@ finally:
     handle.shutdown()
 ~~~
 
-연결한 뒤 `search_skills`로 `commercial-2d-layers`를 검색해 보세요. 검색 결과에 이 패키지가 나오면 서버가 예제를 정상적으로 찾은 것입니다.
+터미널에 표시된 DCC 엔드포인트에 `server/discover`를 호출해 `io.modelcontextprotocol/skills`를 제공하는지 확인하세요. 그런 다음 `skills/list`로 `commercial-2d-layers`를 찾을 수 있습니다. 구형 MCP 클라이언트는 `search_skills`로 같은 패키지를 찾을 수 있습니다.
 
 이 예제에서는 도구 하나를 패키지로 구성하는 방법을 볼 수 있습니다. [`SKILL.md`](examples/rez-skills/commercial_2d_layers/skills/commercial-2d-layers/SKILL.md)에 대상 앱과 도구 정의 파일을 지정합니다. [`tools.yaml`](examples/rez-skills/commercial_2d_layers/skills/commercial-2d-layers/tools.yaml)에는 `summarize_layers`가 읽기 전용이며 `document` 인수는 생략할 수 있다고 선언되어 있습니다. 예제의 [Python 스크립트](examples/rez-skills/commercial_2d_layers/skills/commercial-2d-layers/scripts/summarize_layers.py)는 미리 정해 둔 요약을 반환합니다. 실제로 열려 있는 문서를 읽으려면 어댑터에 해당 처리 로직을 구현하세요. 다음 명령으로 패키지 정의를 검사할 수 있습니다.
 

@@ -6,6 +6,10 @@
 
 [English](README.md) · [简体中文](README_zh.md) · [日本語](README_ja.md) · [한국어](README_ko.md) · [Español](README_es.md) · [Français](README_fr.md) · [Deutsch](README_de.md) · [Português (Brasil)](README_pt-BR.md) · **Русский** · [Türkçe](README_tr.md)
 
+## Skills over MCP
+
+Клиенты с поддержкой **Skills over MCP** и MCP `2026-07-28` могут обнаруживать Agent Skills на эндпоинте DCC, который объявляет расширение, и по мере необходимости читать `SKILL.md` и сопутствующие файлы. Существующие клиенты и скрипты могут по-прежнему использовать `dccmcp` через REST API шлюза. [Руководство по интеграции](docs/guide/mcp-skills-integration.md)
+
 ## Как найти инструмент в открытом приложении
 
 Установите [консольную утилиту `dccmcp`](https://github.com/dcc-mcp/dcc-mcp-cli) и включите в приложении соответствующий [адаптер DCC-MCP](docs/adapter-coverage.md). Если вы работаете через агента, [навык `dcc-mcp`](https://clawhub.ai/loonghao/skills/dcc-mcp) подскажет ему, как пользоваться той же утилитой. Например, чтобы найти инструмент для просмотра списка объектов в сцене Maya, выполните две команды.
@@ -53,7 +57,7 @@ finally:
     handle.shutdown()
 ~~~
 
-После подключения найдите `commercial-2d-layers` с помощью `search_skills`. Если пакет появился в результатах, сервер обнаружил пример.
+Вызовите `server/discover` по адресу DCC, выведенному в терминал, и проверьте, объявлено ли расширение `io.modelcontextprotocol/skills`. Затем найдите `commercial-2d-layers` через `skills/list`. Устаревшие клиенты MCP могут найти тот же пакет через `search_skills`.
 
 По этому примеру можно разобраться, из чего состоит инструмент. Файл [`SKILL.md`](examples/rez-skills/commercial_2d_layers/skills/commercial-2d-layers/SKILL.md) указывает целевое приложение и ссылается на [`tools.yaml`](examples/rez-skills/commercial_2d_layers/skills/commercial-2d-layers/tools.yaml). В нём `summarize_layers` объявлен как инструмент только для чтения с необязательным аргументом `document`. [Скрипт Python](examples/rez-skills/commercial_2d_layers/skills/commercial-2d-layers/scripts/summarize_layers.py) возвращает заранее подготовленную сводку. Для чтения открытого документа потребуется реализовать обработчик в адаптере приложения. Проверить описание пакета можно командой ниже.
 

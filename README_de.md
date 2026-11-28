@@ -6,6 +6,10 @@ Mit dcc-mcp-core greifen KI-Agenten und Produktionspipelines auf die Kreativsoft
 
 [English](README.md) · [简体中文](README_zh.md) · [日本語](README_ja.md) · [한국어](README_ko.md) · [Español](README_es.md) · [Français](README_fr.md) · **Deutsch** · [Português (Brasil)](README_pt-BR.md) · [Русский](README_ru.md) · [Türkçe](README_tr.md)
 
+## Skills over MCP
+
+Kompatible Clients können mit **Skills over MCP** und MCP `2026-07-28` Agent Skills an einem DCC-Endpunkt entdecken, der die Erweiterung ausweist. `SKILL.md` und Begleitdateien lassen sich bei Bedarf abrufen. Bestehende Clients und Skripte können weiterhin `dccmcp` über die REST-API des Gateways verwenden. [Integrationsleitfaden](docs/guide/mcp-skills-integration.md)
+
 ## Ein Werkzeug in einer laufenden Anwendung finden
 
 Installiere das [Kommandozeilenwerkzeug `dccmcp`](https://github.com/dcc-mcp/dcc-mcp-cli) und aktiviere in der Anwendung den passenden [DCC-MCP-Adapter](docs/adapter-coverage.md). Wenn du mit einem Agenten arbeitest, zeigt ihm der [Skill `dcc-mcp`](https://clawhub.ai/loonghao/skills/dcc-mcp), wie er dieselbe CLI nutzt. Mit den folgenden beiden Abfragen suchst du zum Beispiel nach einem Werkzeug, das die Objekte einer Maya-Szene auflistet.
@@ -53,7 +57,7 @@ finally:
     handle.shutdown()
 ~~~
 
-Suche nach dem Verbindungsaufbau mit `search_skills` nach `commercial-2d-layers`. Erscheint das Paket in den Treffern, hat der Server den Beispiel-Skill gefunden.
+Rufe am ausgegebenen DCC-Endpunkt `server/discover` auf und prüfe, ob er `io.modelcontextprotocol/skills` meldet. Suche dann mit `skills/list` nach `commercial-2d-layers`. Ältere MCP-Clients können das Paket mit `search_skills` finden.
 
 Am Beispiel lässt sich der Aufbau eines Werkzeugs nachvollziehen. In [`SKILL.md`](examples/rez-skills/commercial_2d_layers/skills/commercial-2d-layers/SKILL.md) stehen die Zielanwendung und der Verweis auf [`tools.yaml`](examples/rez-skills/commercial_2d_layers/skills/commercial-2d-layers/tools.yaml). Dort ist `summarize_layers` als lesendes Werkzeug mit dem optionalen Argument `document` deklariert. Das [Python-Skript](examples/rez-skills/commercial_2d_layers/skills/commercial-2d-layers/scripts/summarize_layers.py) liefert eine fest vorgegebene Zusammenfassung. Um ein tatsächlich geöffnetes Dokument auszulesen, implementierst du die Verarbeitung im Adapter der Anwendung. Die Paketdefinition prüfst du mit diesem Befehl.
 

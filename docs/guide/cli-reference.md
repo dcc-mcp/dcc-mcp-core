@@ -16,8 +16,14 @@ The standalone CLI repository publishes `dccmcp` and its `dcc-mcp-cli`
 compatibility alias as raw GitHub Release assets. Core publishes
 `dcc-mcp-server` and its runtime assets separately. DCCMCP is the preferred
 control path for shell-capable agents.
-If it is missing, obtain the user's consent before installing it from
-the official URL:
+
+Existing CLI scripts and clients can continue to use gateway REST alongside
+Skills over MCP. To discover Agent Skills and retrieve their files, use a
+compatible MCP client with the selected per-DCC endpoint. Check that it
+advertises the extension. [Skills over MCP integration guide](mcp-skills-integration.md)
+
+If `dccmcp` is missing, obtain the user's consent before running the official
+installer:
 
 ```bash
 curl -fL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-cli/main/scripts/install-cli.sh -o install-cli.sh

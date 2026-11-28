@@ -1,6 +1,7 @@
 # HTTP API
 
-`dcc_mcp_core` — MCP Streamable HTTP 服务器（2025-03-26 规范）。
+`dcc_mcp_core` 提供 Streamable HTTP 服务器，支持 MCP `2026-07-28`
+无状态发现、Skills over MCP 和旧版会话。
 
 ## 概述
 
@@ -110,7 +111,7 @@ handle.shutdown()
 
 ## McpHttpServer
 
-MCP Streamable HTTP 服务器（2025-03-26 规范）。
+为单个 DCC 实例提供工具和 Skill 目录的 MCP Streamable HTTP 服务器。
 
 ### 构造函数
 
@@ -133,7 +134,13 @@ server = McpHttpServer(
 
 ### MCP 协议端点
 
-服务器实现 MCP 2025-03-26 规范：
+启用 `mcp-2026-07-28` 的构建可以在新版 `POST /mcp` 路由上通过
+`server/discover` 查询能力。调用 Skills 方法前，先确认响应声明了
+`io.modelcontextprotocol/skills`。详见 [Skills over MCP API](../../api/skills-extension.md)
+和[协议迁移指南](../../guide/mcp-2026-07-28-migration.md)。
+
+旧客户端通过 `initialize` 协商 `2025-11-25`、`2025-06-18` 或
+`2025-03-26`。会话客户端使用以下路由。
 
 | 端点 | 方法 | 说明 |
 |------|------|------|

@@ -2,7 +2,7 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.dcc-mcp/dcc-mcp-core",
   "title": "DCC-MCP Core",
-  "description": "Agent control plane for DCC and engine hosts: one MCP endpoint, one tool contract.",
+  "description": "DCC and engine gateway for live tools. Discover Skills over MCP on supported DCC endpoints.",
   "version": "0.22.2",
   "repository": {
     "url": "https://github.com/dcc-mcp/dcc-mcp-core",

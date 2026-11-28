@@ -1,5 +1,10 @@
 # Getting Started
 
+For a compatible MCP client, [Skills over MCP](mcp-skills-integration.md)
+explains how to discover and read Agent Skills from a DCC instance over
+MCP `2026-07-28`. Use `dccmcp` with the public `dcc-mcp` Skill to operate
+live DCCs from a shell or keep an existing CLI integration running.
+
 ## Installation
 
 ### Public Agent Skills

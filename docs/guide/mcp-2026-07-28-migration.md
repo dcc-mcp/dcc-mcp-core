@@ -18,6 +18,7 @@ coexist for a defined window — how routing and the staged timeline work today.
 - [ADR-033 — explicit MCP HTTP protocol routing](../adr/033-mcp-http-protocol-router.md) — the `MCP-Protocol-Version` routing rule
 - [ADR-034 — final-revision modern response projection](../adr/034-modern-response-contract.md) — response envelope and discovery shape
 - [ADR-035 — schema-driven parameter headers](../adr/035-schema-driven-parameter-headers.md) — `Mcp-Name` / `Mcp-Param-*` mirroring
+- [Skills over MCP](mcp-skills-integration.md) — official extension for discovering and retrieving Agent Skills
 - [Modern request boundary](modern-request-boundary.md) — envelope and header validation, error codes
 - [Stateless provider parity](stateless-provider-parity.md) — resources and prompts on the modern route
 - [Migration: embedded → daemon](migration/from-embedded-to-daemon.md) — unrelated runtime-topology migration; read it if you are also retiring an embedded gateway
@@ -26,19 +27,21 @@ coexist for a defined window — how routing and the staged timeline work today.
 
 | Area | State in current releases |
 |------|---------------------------|
-| Stateless request path | Shipped, **opt-in** (compiled only with the `mcp-2026-07-28` Cargo feature) |
+| Stateless request path | Enabled in native Core Python wheels. Custom builds require the `mcp-2026-07-28` Cargo feature. |
 | Legacy session path | Shipped, unchanged, **still the default** for requests without an explicit modern claim |
 | `server/discover`, `tools/list`, `tools/call` | Shipped on the modern route |
 | Resources / prompts providers | Shipped on the modern route, gated by feature flags and registered providers |
-| Skills extension (`skills/list`, `skills/get`, `resources/directory/read`) | Shipped on the modern route |
+| [Skills over MCP](../api/skills-extension.md) | Available when the selected per-DCC endpoint advertises `io.modelcontextprotocol/skills`. |
 | Schema-driven `Mcp-Param-*` headers | Shipped on the modern route |
 | Multi-round-trip input (replaces SSE push) | **Not implemented** — see [SSE streaming is replaced by multi-round-trip input](#sse-streaming-is-replaced-by-multi-round-trip-input) |
 | Tasks wire surface | **Not implemented and not advertised** — see [Tasks are unavailable on the modern route](#tasks-are-unavailable-on-the-modern-route) |
 | OAuth 2.1 / OIDC authorization | **Not implemented** — see [Authorization hardening is deferred to Phase 2](#authorization-hardening-is-deferred-to-phase-2) |
-| Session / SSE removal | Planned for Phase 3; no session or SSE code has been marked `#[deprecated]` yet |
+| Legacy sessions and SSE | Available in current releases. See the [historical phase targets](#phase-timeline). |
 
-The default protocol version is still `2025-06-18` and `ProtocolMode::default()`
-is still `Session`. Nothing changes for a client that does not opt in.
+The default legacy protocol version is `2025-11-25` and
+`ProtocolMode::default()` is `Session`. Legacy clients can also negotiate
+`2025-06-18` and `2025-03-26`. The CLI MCP client keeps its legacy default,
+and regular `dccmcp` commands continue to use the gateway REST API.
 
 ## Breaking changes
 
@@ -56,7 +59,7 @@ The modern route has no lifecycle handshake. `server/discover` replaces
 - Discovery results carry `supportedVersions` (a list), not `protocolVersion`.
   Read the list rather than comparing a single version string.
 - Negotiation through the `initialize` body cannot select a lifecycle. A client
-  that asks for `2026-07-28` inside `initialize` gets `2025-06-18` back; only
+  that asks for `2026-07-28` inside `initialize` gets `2025-11-25` back. Only
   the modern envelope and the matching headers reach the stateless handler.
 
 ### `Mcp-Session-Id` and protocol-level sessions are removed
@@ -179,7 +182,7 @@ the embedded HTTP server, gateway, and CLI cannot drift.
 | Incoming request | Route |
 |------------------|-------|
 | `MCP-Protocol-Version: 2026-07-28` **and** a matching `_meta` version claim | Stateless (modern) |
-| `MCP-Protocol-Version: 2025-06-18` or `2025-03-26` | Session (legacy) |
+| `MCP-Protocol-Version: 2025-11-25`, `2025-06-18`, or `2025-03-26` | Session (legacy) |
 | Header absent, no modern `_meta` claim | Session (legacy) — Phase 1 default |
 | `Mcp-Session-Id` present, version header absent | Session (legacy); the session header never upgrades a request |
 | Unknown version | Session (legacy) in Phase 1–2; an explicit error in Phase 3 |
@@ -216,17 +219,15 @@ forward `mcp-2026-07-28`, so a binary built with plain
 
 ### Phase timeline
 
-Targets from [ADR-010](../adr/010-mcp-2026-07-28-dual-protocol-migration.md);
-dates are release targets, not guarantees.
+The table records the original targets in
+[ADR-010](../adr/010-mcp-2026-07-28-dual-protocol-migration.md). Use the current
+release status and the endpoint's advertised versions when planning an upgrade.
 
 | Phase | Release target | Date target | Default route | What changes |
 |-------|----------------|-------------|---------------|--------------|
 | 1 | 0.19.0 | 2026-07-15 | Session | Compat layer: both protocols served, modern path opt-in |
 | 2 | 0.21.0 | 2026-09-30 | Stateless | Default version flips to `2026-07-28`; feature on by default; session and SSE code marked deprecated |
 | 3 | 0.23.0 | 2026-12-15 | Stateless only | Session, SSE, and `initialize` removed; feature removed |
-
-Sunset of the legacy protocol: **2026-12-15** (Phase 3), inside the
-2026-12-31 deprecation-window deadline.
 
 ## Upgrading a client
 

@@ -2,6 +2,18 @@
 
 > Foundational library for the DCC Model Context Protocol (MCP) ecosystem. Rust-powered core (via PyO3) providing tool registry, structured results, event bus, skills/script registration, MCP protocol types, IPC transport, MCP Streamable HTTP server, process management, sandbox security, shared memory, screen capture, USD bridge, and telemetry for Digital Content Creation applications (Maya, Blender, Houdini, 3ds Max, etc.).
 
+## Skills over MCP
+
+The official `io.modelcontextprotocol/skills` extension lets a compatible
+client discover Agent Skills and read their files on demand. Check the selected
+per-DCC `mcp_url` with MCP `2026-07-28` `server/discover`, then use
+`skills/list` or `skills/get` and `resources/read`. Verify the manifest's
+SHA-256 digests and use `load_skill` for tool activation. See the
+[Skills over MCP guide](docs/guide/mcp-skills-integration.md).
+
+Shell agents and existing scripts use `dccmcp` over gateway REST. Legacy MCP
+session clients can use `2025-11-25`, `2025-06-18`, or `2025-03-26`.
+
 ## 🚨 CRITICAL: Skills-First Philosophy
 
 **When interacting with DCC applications (Maya, Blender, Houdini, etc.), use
@@ -236,7 +248,7 @@ Rust workspace with package membership defined by the root `Cargo.toml`, using P
 
 The historical god-crate `dcc-mcp-http` was decomposed into cohesive crates. New code should import the extracted crates directly:
 
-- **`dcc-mcp-jsonrpc`** — MCP 2025-03-26 JSON-RPC builders. Zero axum/tokio dependency, so standalone clients/CLIs can use it.
+- **`dcc-mcp-jsonrpc`** — JSON-RPC builders for legacy sessions and modern MCP requests. Zero axum/tokio dependency, so standalone clients/CLIs can use it.
 - **`dcc-mcp-wire`** — canonical MCP/REST call envelopes, validation, and argument/meta normalization shared by JSON-RPC, gateway, REST, and Python host wrappers.
 - **`dcc-mcp-job`** — async job tracker + pluggable persistence. Owns the optional `job-persist-sqlite` feature; `dcc-mcp-http` forwards the flag.
 - **`dcc-mcp-skill-rest`** — per-DCC `/v1/*` REST skill API. Owns the `utoipa` OpenAPI generator.

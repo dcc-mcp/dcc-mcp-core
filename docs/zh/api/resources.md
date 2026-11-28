@@ -4,10 +4,12 @@
 
 ## 概述
 
-Resources 原语使 MCP 客户端（LLM 和主机）能够通过用于工具的
-相同 HTTP 端点读取**实时 DCC 状态**。它实现了
-[MCP 2025-03-26](https://modelcontextprotocol.io/specification/2025-03-26)
-`resources` 能力：
+客户端可以在工具使用的同一个 HTTP 端点上读取**实时 DCC 状态**。使用 MCP
+`2026-07-28` 时，先通过 `server/discover` 查询资源能力，再调用
+`resources/list` 和 `resources/read`。[Skills over MCP](../../api/skills-extension.md)
+返回的 Skill 文件 URI 也通过 `resources/read` 读取。
+
+旧版会话通过 `initialize` 声明以下资源操作。
 
 - `resources/list` — 枚举可用 URI
 - `resources/read` — 通过 URI 获取内容（文本或 base64 blob）

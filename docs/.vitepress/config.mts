@@ -6,7 +6,7 @@ const siteUrl = 'https://dcc-mcp.github.io/dcc-mcp-core/'
 
 export default defineConfig({
   title: 'DCC-MCP-Core',
-  description: 'Production-grade MCP + Skills foundation for AI-assisted DCC workflows',
+  description: 'Skills over MCP for DCC workflows, with MCP 2026-07-28 discovery and dccmcp CLI compatibility',
   base: '/dcc-mcp-core/',
   cleanUrls: true,
   lastUpdated: true,
@@ -72,7 +72,7 @@ export default defineConfig({
             {
               text: 'MCP + Skills System',
               items: [
-                { text: 'MCP Integration Guide', link: '/guide/mcp-skills-integration' },
+                { text: 'Skills over MCP', link: '/guide/mcp-skills-integration' },
                 { text: 'Skills System', link: '/guide/skills' },
                 { text: 'Skill Scopes & Policies', link: '/guide/skill-scopes-policies' },
                 { text: 'Agents Reference', link: '/guide/agents-reference' },
@@ -164,7 +164,7 @@ export default defineConfig({
                 { text: 'Actions', link: '/api/actions' },
                 { text: 'Events', link: '/api/events' },
                 { text: 'Skills', link: '/api/skills' },
-                { text: 'Skills Extension (MCP)', link: '/api/skills-extension' },
+                { text: 'Skills over MCP API', link: '/api/skills-extension' },
                 { text: 'Protocols', link: '/api/protocols' },
                 { text: 'Transport', link: '/api/transport' },
                 { text: 'HTTP Server', link: '/api/http' },
@@ -263,7 +263,7 @@ export default defineConfig({
             {
               text: 'MCP + Skills 系统',
               items: [
-                { text: 'MCP + Skills 集成指南', link: '/zh/guide/mcp-skills-integration' },
+                { text: 'Skills over MCP 集成指南', link: '/zh/guide/mcp-skills-integration' },
                 { text: 'Skills 技能包', link: '/zh/guide/skills' },
                 { text: 'Skill 作用域与策略', link: '/zh/guide/skill-scopes-policies' },
                 { text: 'Agent 参考', link: '/zh/guide/agents-reference' },

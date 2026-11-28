@@ -4,8 +4,7 @@
 > Follow the links; don't read everything upfront. Keep detailed API guidance
 > in `llms.txt` / `llms-full.txt` and detailed human-readable explanations in
 > `docs/guide/*`. **AGENTS.md is the shared source of truth for agent guidance**
-> — see [Agent Contract Files](#agent-contract-files). Standard vendor entry
-> points are thin shims that delegate back here.
+> — see [Agent Contract Files](#agent-contract-files).
 > Detailed rules, traps, and code examples → [`docs/guide/agents-reference.md`](docs/guide/agents-reference.md)
 
 **🤖 New to this project?** Start with this file, then read [`docs/guide/agents-reference.md`](docs/guide/agents-reference.md) before writing code.
@@ -36,6 +35,17 @@ before falling back to raw scripting or scoped Computer Use.
 returned load/describe/call step, then invoke the typed tool.
 
 ## Agent Entry Strategy: CLI+REST (default) vs IDE MCP
+
+**Skills over MCP** is the official Agent Skills discovery and retrieval extension
+(`io.modelcontextprotocol/skills`). For a compatible MCP client, use the selected
+per-DCC `mcp_url`, call `server/discover` with MCP `2026-07-28`, and check that
+endpoint's declaration before calling `skills/list` or `skills/get`. Read the
+returned files with `resources/read` and verify the manifest digests. Follow the
+existing `load_skill` workflow to activate tools. See the [Skills over MCP guide](docs/guide/mcp-skills-integration.md).
+
+Keep `dccmcp` over gateway REST as the default entry point for shell agents and
+existing CLI integrations. Per-DCC session clients can still negotiate
+`2025-11-25`, `2025-06-18`, and `2025-03-26`.
 
 **dcc-mcp-core offers two entry paths with a clear layered design. Choose based on your runtime:**
 
@@ -138,17 +148,9 @@ Start a new agent turn after installation.
 
 `AGENTS.md` is the shared source of truth for Codex, OpenCode, Cursor, GitHub
 Copilot, Windsurf, Cline, Roo Code, Kiro, Trae, Augment, and other agent hosts.
-`CLAUDE.md`, `GEMINI.md`, `COPILOT.md`, and `CODEBUDDY.md` are standard thin
-entry-point shims. Keep shared guidance here and update a shim only when its
-vendor requires a genuine divergence.
-
-```json
-{
-  "context": {
-    "fileName": ["AGENTS.md", "GEMINI.md"]
-  }
-}
-```
+Keep shared instructions in this file and point host-specific configuration
+here. [Agent contract tests](tests/test_agent_instruction_files.py) enforce the
+single-file layout.
 
 ---
 
@@ -216,7 +218,7 @@ Repeating work in a DCC host has one normative entry point:
 
 ## Quick Orientation
 
-**What**: Rust-powered MCP library for DCC software (Maya, Blender, Houdini, Photoshop…). PyO3/maturin. Zero Python runtime deps. MCP 2025-03-26 Streamable HTTP.
+**What**: Rust-powered MCP library for Maya, Blender, Houdini, Photoshop, and other DCC hosts. PyO3/maturin, zero Python runtime dependencies, MCP `2026-07-28` discovery, Skills over MCP, and legacy Streamable HTTP sessions.
 
 **Why this project matters for AI agents**: dcc-mcp-core provides the **bridge between AI agents and DCC applications**. When you need to interact with Maya, Blender, Houdini, or any other DCC tool, **ALWAYS use dcc-mcp-core Skills** — they provide structured, validated, and safe MCP tools with built-in follow-up guidance.
 
@@ -234,7 +236,7 @@ Support check (only when unclear): `dccmcp dcc-types` lists canonical adapter-ba
 5. Package as a skill: fork or extend `dcc-mcp` to reuse `dccmcp` calls as structured MCP tools.
 6. Review reusable friction only after acceptance: query narrowly scoped `dccmcp stats`, then use the `review_skill_improvement` prompt from `dcc-mcp-skills-creator`; zero calls means no evidence, and review never expands edit/publish authority.
 7. On failure, preserve `request_id`; use `doctor`, failure-filtered `stats`, and the CLI-discovered `dcc_feedback__report`. Use public-safe `/v1/debug/issue-reports/{request_id}` for a reviewed bug report; never publish raw evidence or create an external issue without user authorization.
-8. The gateway never fans out per-tool backend tools into `tools/list`; the advertised gateway MCP surface is read-only discovery (`search`, `describe`) only.
+8. Gateway `tools/list` advertises the four workflow tools `search`, `describe`, `load_skill`, and `call`. Use `search` to discover individual backend tools.
 9. Use `ui-control` Computer Use only when a structured DCC skill/script/API is unsupported, missing, or cannot reach the required semantic UI. Never switch to another UI/input path after a policy, authorization, authentication, security, confirmation, desktop-availability, or user-interruption failure. The adapter/operator must bind native input to its DCC with `DCC_MCP_UI_CONTROL_PROCESS_ID` or `DCC_MCP_UI_CONTROL_WINDOW_HANDLE`; requests may only narrow that trusted scope. Use `snapshot` → one `act` → `snapshot`, then `stop_computer_use` on every exit path.
 10. Ctrl+Alt+Esc stops UI Control across DCC adapter processes in the Windows logon session. After the hard stop, do not retry, change `session_id`, or restart. Resume only with `ui_control__snapshot(resume_computer_use=true)` after an explicit user request and only while no Computer Use owner is active.
 11. Treat `desktop_unavailable` as a pause when Windows is locked, disconnected, or on a secure desktop. No CUA observation or raw input runs, but the logical `session_id` remains and structured DCC/MCP calls may continue subject to host readiness. Never automate LockApp. After unlock, discard old ids and take a fresh exact-target snapshot so the banner returns.
@@ -334,7 +336,8 @@ Python modules or source stable exports from private packages.
 | Register a remote DCC with a gateway that cannot share `FileRegistry` | `POST /v1/instances/register` with `{instance_id, dcc_type, mcp_url, ttl_secs?}`; refresh with `/heartbeat`, remove with `/deregister`; `gateway://instances` marks these rows with `source: "http"` |
 | Discover NAT-hidden DCCs through a relay | `GatewayConfig.relay_sources` / `dcc-mcp-server gateway --relay-source ADMIN_URL=PUBLIC_BASE_URL` polls relay `/tunnels`, probes `<PUBLIC_BASE_URL>/tunnel/<id>/mcp`, and exposes healthy rows with `source: "relay"` (#1363) |
 | Discover LAN-local DCC MCP endpoints without a shared registry | Build with `mdns`; run DCC servers with `--advertise-mdns` and gateways with `--discover-mdns`; mDNS rows are probed before surfacing and appear with `source: "mdns"` (#1362) |
-| Gateway dynamic capabilities | MCP `search` → `describe` for read-only discovery, then REST `/v1/call` / `POST /v1/call_batch` for execution |
+| Gateway dynamic capabilities | MCP `search` → follow `next_step` → MCP `call` or REST `POST /v1/call` / `POST /v1/call_batch` |
+| Read Agent Skill files over MCP | Check the selected per-DCC endpoint for `io.modelcontextprotocol/skills`, then use `skills/list` or `skills/get` and `resources/read` |
 | Gateway resources/prompts | `resources/list` / `resources/read` with exact gateway-returned URIs; `prompts/list` / `prompts/get` for aggregated backend prompt templates |
 
 | Persist project state | `DccProject.open/load(...)` + `register_project_tools(server, ...)` exposing `project.save/load/resume/status` |
@@ -724,7 +727,8 @@ Full list with code examples → [`docs/guide/agents-reference.md`](docs/guide/a
 
 | What | Where |
 |------|-------|
-| MCP spec (2025-03-26) | <https://modelcontextprotocol.io/specification/2025-03-26> |
+| Modern MCP lifecycle | [MCP 2026-07-28 migration guide](docs/guide/mcp-2026-07-28-migration.md) |
+| Skills over MCP | [MCP Skills extension](https://modelcontextprotocol.io/extensions/skills/overview) |
 | SKILL.md format | <https://agentskills.io/specification> |
 | AGENTS.md standard | <https://agents.md/> |
 | llms.txt format | <https://llmstxt.org/> |

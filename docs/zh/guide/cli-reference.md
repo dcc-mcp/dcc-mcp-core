@@ -6,9 +6,14 @@
 映射到一个 `DCC_MCP_*` 环境变量，所以任何部署清单都能驱动同一套配置面板。
 
 独立 CLI 仓库会把 `dccmcp` 与 `dcc-mcp-cli` 兼容入口作为原生 GitHub
-Release 资产发布。Core 仓库单独发布 `dcc-mcp-server` 与相关运行时资产。DCCMCP
-是所有具备 shell 能力的 Agent 的首选控制路径。如果尚未
-安装，先征得用户同意，再通过官方 URL 安装：
+Release 资产发布。Core 仓库单独发布 `dcc-mcp-server` 与相关运行时资产。
+`dccmcp` 是有 shell 的智能体的首选控制入口。
+
+现有 CLI 客户端和脚本可以继续走网关 REST。要通过 Skills over MCP
+发现 Agent Skill 并读取文件，使用兼容的 MCP 客户端连接目标 DCC 实例，
+并确认该端点已声明扩展。详见 [Skills over MCP 集成指南](mcp-skills-integration.md)。
+
+如果尚未安装 CLI，先征得用户同意，再通过官方 URL 安装：
 
 ```bash
 curl -fL https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-cli/main/scripts/install-cli.sh -o install-cli.sh

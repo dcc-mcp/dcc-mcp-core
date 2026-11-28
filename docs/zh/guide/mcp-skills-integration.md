@@ -1,203 +1,74 @@
-# MCP + Skills 集成指南
+# Skills over MCP 集成指南
 
-> **[English](../../guide/mcp-skills-integration)**
+[English](../../guide/mcp-skills-integration.md)
 
-## 为什么要结合 MCP 与 Skills？
+**dcc-mcp-core 支持官方 Skills over MCP 扩展**。兼容客户端可以先查看
+Agent Skill 的元数据，再按需读取 `SKILL.md` 和配套文件。
+[官方 Skills 扩展文档](https://modelcontextprotocol.io/extensions/skills/overview)
 
-### 标准 MCP 的问题
+## 选择连接入口
 
-标准 MCP 的 `tools/list` 会一次性返回所有工具——没有任何过滤。
+| 任务 | 入口 |
+| --- | --- |
+| 发现并读取 Agent Skill | 连接目标 DCC 的 `mcp_url`，确认它声明了 `io.modelcontextprotocol/skills`。 |
+| 在已打开的 DCC 会话里查找和运行工具 | 使用 `dccmcp` 和 `dcc-mcp` Skill，按搜索结果中的 `next_step` 操作。 |
+| 继续使用旧 MCP 集成 | 沿用会话握手。DCC 实例端点可协商 `2025-11-25`、`2025-06-18` 或 `2025-03-26`。 |
 
-当系统中有 3 个 DCC 实例 × 50 个技能包 × 5 个脚本 = **750 个工具同时在上下文中**。AI 的上下文窗口立即被占满，成本飙升，推理质量下降。
+从网关开始时，先读取 `gateway://instances`，找到打开了目标场景或文档的
+会话，再取它的 `mcp_url`。扩展是否可用取决于实际端点、构建和配置。
+`dcc-mcp-core` 的原生 Python wheel 已启用 MCP `2026-07-28`。
+自行编译时需启用对应的 Cargo feature。
+[协议迁移指南](../../guide/mcp-2026-07-28-migration.md)
 
-```
-标准 MCP tools/list：
-┌──────────────────────────────────────────────┐
-│  maya_geo__create_sphere                      │
-│  maya_geo__bevel                              │
-│  maya_anim__set_keyframe  ... (共 250 个)     │
-│  blender_sculpt__smooth                       │
-│  blender_sculpt__grab     ... (共 250 个)     │
-│  houdini_vex__compile     ... (共 250 个)     │
-└──────────────────────────────────────────────┘
-750 个工具每次都在上下文中 → 昂贵、缓慢
-```
+## 发现并读取 Skill
 
-### 我们的解决方案：会话范围渐进式发现
-
-每个 AI 会话**绑定到一个 DCC 实例**，`tools/list` 只返回该实例的工具。
-
-```
-会话 A（Maya 实例 #1）：
-  tools/list → 100 个 Maya 工具 + 50 个共享工具 = 150 个工具
-
-会话 B（Houdini 实例 #1）：
-  tools/list → 100 个 Houdini 工具 + 50 个共享工具 = 150 个工具
-
-上下文减少 71%，信息零损失
-```
-
-### CLI 工具的问题
-
-CLI 工具对 **DCC 状态一无所知**：
-- 无法看到当前场景、选中对象或视口内容
-- 需要多次往返才能收集上下文
-- 返回需要脆弱解析的原始文本
-- 执行过程中没有视觉反馈
-
-dcc-mcp-core **直接运行在 DCC 内部**，可以直接访问其完整状态。
-
-## 架构
-
-```
-AI 智能体（Claude、GPT 等）
-    │
-    │ tools/call {"name": "maya_geo__create_sphere", "radius": 2.0}
-    │
-    ▼
-网关服务器（dcc-mcp-server）          ← 每台机器一个
-    │
-    │ 会话 A → Maya 实例 #1（IPC）
-    │ 会话 B → Houdini 实例 #1（IPC）
-    │
-    ▼
-DCC 桥接插件
-    │
-    │ 执行脚本，捕获结果
-    │
-    ▼
-{success: true, message: "球体已创建", context: {name: "pSphere1"}}
-```
-
-## 核心概念
-
-### ServiceEntry — 每个 DCC 注册的信息
-
-```python
-from dcc_mcp_core import create_skill_server, McpHttpConfig
-
-# Gateway 自动注册 DCC 实例
-server = create_skill_server("maya", McpHttpConfig(port=8765))
-handle = server.start()
-```
-
-网关通过这些信息了解：
-- 哪个实例可用
-- 哪些文件已打开
-- 应将 AI 请求路由到哪个实例
-
-### 会话隔离
-
-```python
-# 将会话绑定到特定 Maya 实例
-session_id = mgr.get_or_create_session("maya", instance_id)
-
-# tools/list 仅过滤该 Maya 实例的技能
-# AI 智能体看到 150 个工具，而非 750 个
-```
-
-### Skills 系统
-
-```
-SKILL.md（agentskills.io）        tools.yaml + scripts/
-────────────────────────────────────────────────────────
-name: maya-geometry              tools: create_sphere → scripts/create_sphere.py
-metadata:                              bevel         → scripts/bevel.py
-  dcc-mcp:                             export_fbx    → scripts/export_fbx.bat
-    dcc: maya                          ──────────────
-    products: [maya]                   ↓ 注册为 MCP 工具
-    tools: tools.yaml           maya_geometry__create_sphere
-                                  maya_geometry__bevel
-                                  maya_geometry__export_fbx
-```
-
-零 Python 胶水代码。agentskills.io 元数据 + 同级文件 + 脚本 = MCP 工具。
-
-### 渐进式发现
-
-工具根据上下文逐步展示：
-
-| 过滤器 | 条件 | 结果 |
-|--------|------|------|
-| **DCC 类型** | 会话绑定到 Maya | 只显示 Maya 工具 |
-| **产品** | `metadata.dcc-mcp.products: ["maya"]` | Houdini 工具隐藏 |
-| **作用域** | 发现路径为 `System` | 不能被 repo 技能覆盖 |
-| **隐式调用** | `metadata.dcc-mcp.allow-implicit-invocation: false` | 需先显式调用 `load_skill` |
-
-## 快速开始
-
-### 1. 安装
+[README 示例](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/README_zh.md#用-python-启动一个-skill-服务)
+无需打开 Photoshop 即可提供示例 Skill。启动服务后，把终端输出的地址填到
+下面的 Bash 命令中。
 
 ```bash
-pip install dcc-mcp-core
-```
-
-### 2. 创建技能包
-
-```
-my-tools/
-├── SKILL.md
-├── tools.yaml
-└── scripts/
-    └── create_sphere.py
-```
-
-**SKILL.md：**
-```yaml
----
-name: my-tools
-description: "自定义 Maya 几何体工具。用于创建简单几何体。"
-metadata:
-  dcc-mcp:
-    dcc: maya
-    products: ["maya"]
-    allow-implicit-invocation: true
-    tools: tools.yaml
----
-# 我的 Maya 工具
-自定义几何体工具。
-```
-
-**tools.yaml：**
-```yaml
-tools:
-  - name: create_sphere
-    description: 创建多边形球体。
-    source_file: scripts/create_sphere.py
-```
-
-### 3. 启动服务器
-
-```python
-import os
-from dcc_mcp_core import create_skill_server, McpHttpConfig
-
-os.environ["DCC_MCP_MAYA_SKILL_PATHS"] = "/path/to/my-tools"
-
-server = create_skill_server("maya", McpHttpConfig(port=8765))
-handle = server.start()
-print(f"MCP 服务器: {handle.mcp_url()}")
-# AI 客户端连接到 http://127.0.0.1:8765/mcp
-```
-
-### 4. 连接 Claude Desktop
-
-```json
-{
-  "mcpServers": {
-    "maya": {
-      "url": "http://127.0.0.1:8765/mcp"
+curl -sS http://127.0.0.1:8765/mcp \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -H 'MCP-Protocol-Version: 2026-07-28' \
+  -H 'Mcp-Method: server/discover' \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "server/discover",
+    "params": {
+      "_meta": {
+        "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+        "io.modelcontextprotocol/clientCapabilities": {}
+      }
     }
-  }
-}
+  }'
 ```
 
-## 与其他方案的对比
+1. 查看响应中的 `supportedVersions` 和
+   `capabilities.extensions["io.modelcontextprotocol/skills"]`。
+2. 用 `skills/list` 浏览 Skill，或在已知 URI 时用 `skills/get` 查询。
+   每条记录包含元数据和文件清单。
+3. 用清单里的完整 URI 调用 `resources/read`，再校验返回字节的 SHA-256。
+   扩展声明 `directoryRead` 时，可通过 `resources/directory/read` 浏览目录。
+4. 需要激活 DCC 工具时，继续按现有 `load_skill` 流程操作。读取 Skill 文件
+   不会改变工具的激活状态。
 
-| 特性 | dcc-mcp-core | 通用 MCP | CLI 工具 |
-|------|-------------|---------|---------|
-| DCC 状态感知 | ✅ 场景、文档、对象 | ❌ 无 | ❌ 无 |
-| 上下文范围控制 | ✅ 会话隔离 | ❌ 全局 | ❌ 不适用 |
-| 零代码工具 | ✅ SKILL.md | ❌ 需要完整 Python | ✅ 仅脚本 |
-| 多实例支持 | ✅ 网关选举 | ❌ 单一端点 | ❌ 无 |
-| 结构化结果 | ✅ 始终 | ⚠️ 手动 | ❌ 文本解析 |
+每次请求都要携带新版协议要求的 HTTP 头和元数据。方法细节及文件发布规则见
+[Skills over MCP API 参考](../../api/skills-extension.md)。
+
+## 继续通过 CLI 操作
+
+```bash
+dccmcp list
+dccmcp search --query "list objects" --dcc-type maya
+```
+
+按搜索命中的 `next_step` 加载 Skill、检查参数或调用工具。CLI 仍是有 shell
+的智能体的默认入口，现有脚本可以继续通过网关 REST 使用。较老的安装可能
+仍使用 `dcc-mcp-cli` 这个可执行名称。直连 DCC 的旧 MCP 客户端可以继续用
+`search_skills` 查找 Skill，并通过 `load_skill` 激活工具。
+[CLI 参考](cli-reference.md)
+
+编写自己的 Skill 时，用 `SKILL.md` 描述工作流，在 `tools.yaml` 中声明工具
+和参数，并由配套脚本执行。详见 [Skills 编写指南](skills.md)。
