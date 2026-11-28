@@ -84,7 +84,7 @@ from dcc_mcp_core.skills_helper import call_tool
 
 1. Scaffold the extension with `marketplace_create_extension__create`.
 2. Implement the placeholder action script.
-3. Validate with `dcc_mcp_skills_creator__validate_skill_dir`.
+3. Validate the generated package with `dcc_mcp_core.validate_skill()` or `dccmcp lint <path>` (there is no `validate_skill_dir` MCP tool).
 4. Publish to a marketplace catalog with `marketplace_publish_extension__publish`.
 
 Read [MARKETPLACE_EXTENSION_GUIDE.md](references/MARKETPLACE_EXTENSION_GUIDE.md)

@@ -181,4 +181,4 @@ tools:
     source_file: scripts/make_comparison_sheet.py
     next-tools:
       on-success:
-        - image_stats
+        - verification__image_stats

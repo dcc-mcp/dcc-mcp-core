@@ -709,7 +709,23 @@ impl SkillCatalog {
 
         if let Some(dispatcher) = &self.dispatcher {
             for name in &action_names {
-                dispatcher.remove_handler(name);
+                // Only remove handlers this skill actually installed. An action
+                // whose registry entry belongs to another owner (e.g. an inline
+                // builtin diagnostic handler registered by
+                // register_diagnostic_mcp_tools, GH-1696) was merely borrowed on
+                // load — the registration guard skipped installing a handler —
+                // so removing it here would leave the action visible in
+                // tools/list but not callable, and reload would not restore it.
+                // Match the ownership rule used by ToolRegistry::unregister_skill.
+                let owned_by_this_skill = self
+                    .registry
+                    .get_action(name, None)
+                    .and_then(|meta| meta.skill_name)
+                    .as_deref()
+                    == Some(skill_name);
+                if owned_by_this_skill {
+                    dispatcher.remove_handler(name);
+                }
             }
         }
 

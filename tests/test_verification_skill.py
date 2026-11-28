@@ -86,7 +86,7 @@ def test_comparison_sheet_declares_image_stats_readback():
     meta = parse_skill_md(str(_SKILL_DIR))
     assert meta is not None
     comparison = next(tool for tool in meta.tools if tool.name == "make_comparison_sheet")
-    assert comparison.next_tools["on_success"] == ["image_stats"]
+    assert comparison.next_tools["on_success"] == ["verification__image_stats"]
 
 
 def _write_ppm(path: Path, color, size: int = 8) -> None:
