@@ -19,7 +19,7 @@ name: Publish MCP Registry
 # with a 400 naming the missing `mcp-name` line.
 #
 # Triggers:
-#   - release: published  - the normal path, once release-please cuts a release.
+#   - workflow_call       - release.yml calls after the server wheel reaches PyPI.
 #   - workflow_dispatch   - first registration and any later backfill.
 #
 # Run a first registration by hand from the Actions tab with `dry_run = true`
@@ -27,8 +27,14 @@ name: Publish MCP Registry
 # only ref GitHub lets you dispatch from, so this workflow has to be on `main`
 # before the first manual run.
 on:
-  release:
-    types: [published]
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+      dry_run:
+        type: boolean
+        default: true
   workflow_dispatch:
     inputs:
       version:
@@ -70,6 +76,9 @@ jobs:
       MCP_REGISTRY_URL: "https://registry.modelcontextprotocol.io"
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.version && format('refs/tags/v{0}', inputs.version) || github.sha }}
+          persist-credentials: false
 
       # Routed through env: rather than interpolated into the script body.
       # `${{ }}` expands before bash parses, so a free-text input or release
@@ -78,11 +87,10 @@ jobs:
       - name: Resolve the version to publish
         id: version
         env:
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
           INPUT_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          version="${INPUT_VERSION:-${RELEASE_TAG#v}}"
+          version="$INPUT_VERSION"
           if [ -z "$version" ]; then
             version="$(python -c 'import json;print(json.load(open(".release-please-manifest.json"))["."])')"
           fi
@@ -134,28 +142,18 @@ jobs:
         run: mcp-publisher validate server.json
 
       - name: Wait for PyPI to carry the ownership marker
-        if: ${{ !inputs.dry_run || github.event_name == 'release' }}
+        if: ${{ !inputs.dry_run }}
         env:
           VERSION: ${{ steps.version.outputs.version }}
           PYPI_PACKAGE: "dcc-mcp-server"
-          # Wall-clock budget, not an attempt count. `release: published` fires
-          # before publish-server-pypi has even started, and the org runner pool
-          # can hold that upload for a long time: 0.20.42 took ~31 minutes from
-          # the release event to the wheel being readable on PyPI. A
-          # 40 x 20s (~13 minute) budget reported "never appeared on PyPI" there
-          # while the marker was in fact already live - a false negative that
-          # cost the release its primary deliverable.
+          # Allow for index propagation and manual backfills after an interrupted upload.
           PYPI_WAIT_SECONDS: "2100"
           PYPI_POLL_INTERVAL_SECONDS: "20"
         run: |
           set -euo pipefail
           # The registry proves ownership by reading `mcp-name: <server name>`
           # out of the package README *as published on PyPI* - not out of this
-          # repository. That only becomes true once publish-server-pypi has
-          # uploaded the wheel, and release-please creates the release first,
-          # so `release: published` can reach this job while the wheel is still
-          # uploading. Publishing then fails with a 400 that reads like a
-          # server.json bug but is really this race:
+          # repository. A visible wheel without its ownership marker fails with:
           #
           #   registry validation failed for package 0 (dcc-mcp-server):
           #   PyPI package 'dcc-mcp-server' ownership validation failed.
@@ -204,16 +202,37 @@ jobs:
           echo "::error::check whether publish-server-pypi is still queued or failed before treating this as a marker problem"
           exit 1
 
+      - name: Check whether this version is already published
+        id: existing
+        if: ${{ !inputs.dry_run }}
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          entry="$MCP_REGISTRY_URL/v0.1/servers/io.github.dcc-mcp%2Fdcc-mcp-core/versions/$VERSION"
+          code=$(curl -sS --retry 2 --max-time 30 -o "$RUNNER_TEMP/registry-entry.json" -w '%{http_code}' "$entry")
+          case "$code" in
+            200)
+              jq -e --arg version "$VERSION" '.server.name == "io.github.dcc-mcp/dcc-mcp-core"
+                and .server.version == $version
+                and any(.server.packages[]; .identifier == "dcc-mcp-server" and .version == $version)' \
+                "$RUNNER_TEMP/registry-entry.json" > /dev/null
+              echo "published=true" >> "$GITHUB_OUTPUT"
+              ;;
+            404) echo "published=false" >> "$GITHUB_OUTPUT" ;;
+            *) echo "::error::Registry version lookup returned HTTP $code"; exit 1 ;;
+          esac
+
       - name: Authenticate with GitHub OIDC
-        if: ${{ !inputs.dry_run || github.event_name == 'release' }}
+        if: ${{ !inputs.dry_run && steps.existing.outputs.published == 'false' }}
         run: mcp-publisher login github-oidc --registry "$MCP_REGISTRY_URL"
 
       - name: Publish to the MCP Registry
-        if: ${{ !inputs.dry_run || github.event_name == 'release' }}
+        if: ${{ !inputs.dry_run && steps.existing.outputs.published == 'false' }}
         run: mcp-publisher publish server.json --registry "$MCP_REGISTRY_URL"
 
       - name: Confirm the entry is queryable
-        if: ${{ !inputs.dry_run || github.event_name == 'release' }}
+        if: ${{ !inputs.dry_run }}
         env:
           SERVER_NAME: "io.github.dcc-mcp/dcc-mcp-core"
           VERSION: ${{ steps.version.outputs.version }}

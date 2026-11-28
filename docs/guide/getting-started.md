@@ -88,7 +88,7 @@ The [official MCP Registry](https://github.com/modelcontextprotocol/registry)
 provides versioned server metadata for discovery. It is not a hosted DCC gateway
 or a universal one-click installer. Our entry is
 `io.github.dcc-mcp/dcc-mcp-core`; its
-[0.20.47 metadata](https://registry.modelcontextprotocol.io/v0.1/servers/io.github.dcc-mcp%2Fdcc-mcp-core/versions/0.20.47)
+[latest published metadata](https://registry.modelcontextprotocol.io/v0.1/servers/io.github.dcc-mcp%2Fdcc-mcp-core/versions/latest)
 points to the **`dcc-mcp-server`** package, not the Python SDK `dcc-mcp-core`.
 
 For agent-driven DCC work, start with the recommended
