@@ -154,15 +154,33 @@ pub fn stage_verified_binary_update_for(
     downloaded: &Path,
     expected_sha256: &str,
 ) -> Result<(), UpdateError> {
-    let target = UpdateTarget::CurrentExecutable;
-    stage_update_set_for(
+    stage_verified_binary_update_for_build(
         binary_name,
         current_exe,
+        downloaded,
+        expected_sha256,
+        env!("CARGO_PKG_VERSION"),
+    )
+}
+
+pub(super) fn stage_verified_binary_update_for_build(
+    binary_name: &str,
+    current_exe: &Path,
+    downloaded: &Path,
+    expected_sha256: &str,
+    source_build_version: &str,
+) -> Result<(), UpdateError> {
+    let target = UpdateTarget::CurrentExecutable;
+    stage_update_set_for_build_with_timeout(
+        binary_name,
+        current_exe,
+        source_build_version,
         &[UpdateSetSource {
             downloaded,
             target: &target,
             expected_sha256,
         }],
+        UPDATE_LOCK_TIMEOUT,
     )
 }
 
@@ -338,10 +356,18 @@ pub fn apply_staged_binary_update_for(
     binary_name: &str,
     current_exe: &Path,
 ) -> Result<bool, UpdateError> {
+    apply_staged_binary_update_for_build(binary_name, current_exe, env!("CARGO_PKG_VERSION"))
+}
+
+pub(super) fn apply_staged_binary_update_for_build(
+    binary_name: &str,
+    current_exe: &Path,
+    current_build_version: &str,
+) -> Result<bool, UpdateError> {
     apply_staged_update_set_for_build_with_policy(
         binary_name,
         current_exe,
-        env!("CARGO_PKG_VERSION"),
+        current_build_version,
         UPDATE_LOCK_TIMEOUT,
         UpdateSetPolicy::CurrentExecutableOnly,
     )
