@@ -227,7 +227,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          - os: ubuntu-22.04
             platform: linux-x86_64
             artifact_name: dcc-mcp-server-linux-x86_64
             binary: dcc-mcp-server
@@ -278,8 +278,8 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-binary-${{ hashFiles('**/Cargo.toml') }}
-          restore-keys: ${{ runner.os }}-cargo-binary-
+          key: ${{ matrix.os }}-cargo-binary-${{ hashFiles('**/Cargo.toml') }}
+          restore-keys: ${{ matrix.os }}-cargo-binary-
 
       - name: Generate third-party license texts
         run: python scripts/release/generate_third_party_licenses.py --output THIRD_PARTY_LICENSES.txt
@@ -289,19 +289,19 @@ jobs:
 
       # ── Raw binary build ──────────────────────────────────────────
       - name: Download admin UI bundle for Linux builds
-        if: matrix.os == 'ubuntu-latest'
+        if: runner.os == 'Linux'
         uses: actions/download-artifact@v8
         with:
           name: admin-ui-bundle
           path: crates/dcc-mcp-gateway-admin/src/generated
 
       - name: Use pre-built admin UI for Linux builds
-        if: matrix.os == 'ubuntu-latest'
+        if: runner.os == 'Linux'
         shell: bash
         run: echo "DCC_MCP_ADMIN_UI_PREBUILT=1" >> "$GITHUB_ENV"
 
       - name: Forbid OpenSSL in Linux server binary graph
-        if: matrix.os == 'ubuntu-latest'
+        if: runner.os == 'Linux'
         shell: bash
         run: bash scripts/ci/check_server_binary_tls_graph.sh
 
@@ -328,6 +328,12 @@ jobs:
           fi
           cp "$build_dir/$MATRIX_BINARY" "$MATRIX_ARTIFACT_NAME"
         shell: bash
+
+      - name: Verify the standalone server starts on Ubuntu 22.04
+        if: runner.os == 'Linux'
+        run: |
+          test "$(getconf GNU_LIBC_VERSION)" = "glibc 2.35"
+          ./dcc-mcp-server-linux-x86_64 --version
 
       - name: Create deployable server bundle
         id: server-bundle
@@ -384,7 +390,7 @@ jobs:
           maturin build --release --target universal2-apple-darwin --out wheels
 
       - name: Build PyPI wheel (Linux manylinux2014)
-        if: matrix.os == 'ubuntu-latest'
+        if: runner.os == 'Linux'
         shell: bash
         run: scripts/release/build_manylinux_server_wheel.sh
 
