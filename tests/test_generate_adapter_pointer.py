@@ -765,6 +765,8 @@ def test_core_readme_count_matches_catalog_and_links_complete_list(adapters):
     match = re.search(r"That reports \*\*(\d+) adapter entries\*\*", readme)
     assert match, "the reproducible catalog count must be explicit in the README"
     assert int(match.group(1)) == len(adapters)
-    assert "[complete generated host list](docs/adapter-coverage.md)" in readme
+    assert (
+        "[complete generated host list](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/docs/adapter-coverage.md)"
+    ) in readme
     assert "Selected hosts" in readme
     assert not re.search(r"stop \d+ adapters from becoming \d+ unrelated servers", readme)

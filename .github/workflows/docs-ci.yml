@@ -8,8 +8,7 @@ on:
       - ".github/workflows/deploy-docs.yml"
       - ".github/workflows/docs-ci.yml"
       - "docs/**"
-      - "README.md"
-      - "README_zh.md"
+      - "README*.md"
   push:
     branches: [main]
     paths:
@@ -17,8 +16,7 @@ on:
       - ".github/workflows/deploy-docs.yml"
       - ".github/workflows/docs-ci.yml"
       - "docs/**"
-      - "README.md"
-      - "README_zh.md"
+      - "README*.md"
   workflow_dispatch:
 
 permissions:
@@ -68,4 +66,4 @@ jobs:
         run: npm install -g markdownlint-cli2
 
       - name: Lint markdown
-        run: markdownlint-cli2 "docs/**/*.md" "README.md" "README_zh.md" "!docs/node_modules"
+        run: markdownlint-cli2 "docs/**/*.md" "README*.md" "!docs/node_modules"
