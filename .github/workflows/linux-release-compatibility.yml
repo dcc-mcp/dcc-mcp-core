@@ -1,0 +1,66 @@
+name: Ubuntu 22.04 release compatibility
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Published release tag
+        required: true
+        type: string
+  pull_request:
+    paths:
+      - .github/workflows/linux-release-compatibility.yml
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Resolve the published source
+        id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUESTED_TAG: ${{ inputs.tag }}
+        run: |
+          tag=${REQUESTED_TAG:-$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq '.tagName')}
+          [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          test "$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json isDraft --jq '.isDraft')" = false
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: refs/tags/${{ steps.source.outputs.tag }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@1961bfc0c4a8bf07e0a0c98e1e2459c642ea70a0 # 1.95.0
+      - uses: loonghao/vx@v0.9.34
+        with:
+          version: "0.9.34"
+      - name: Prepare the embedded Dashboard and release notices
+        run: |
+          scripts/release/prebuild_admin_ui.sh
+          python3 scripts/release/generate_third_party_licenses.py --output THIRD_PARTY_LICENSES.txt
+          python3 scripts/release/stage_package_notices.py
+      - name: Build and run the released binaries on Ubuntu 22.04
+        env:
+          RELEASE_TAG: ${{ steps.source.outputs.tag }}
+          DCC_MCP_ADMIN_UI_PREBUILT: "1"
+          DCC_MCP_CLI_NO_UPDATE_MAINTENANCE: "true"
+        run: |
+          test "$(getconf GNU_LIBC_VERSION)" = "glibc 2.35"
+          cargo build --release --locked -p dcc-mcp-server --bin dcc-mcp-server
+          mkdir -p dist-ubuntu22
+          cd dist-ubuntu22
+          for binary in dcc-mcp-server; do
+            asset="$binary-linux-x86_64-ubuntu22.04"
+            cp "../target/release/$binary" "$asset"
+            version=$(./"$asset" --version)
+            test "${version##* }" = "${RELEASE_TAG#v}"
+            sha256sum "$asset" > "$asset.sha256"
+          done
+          git rev-parse HEAD > SOURCE_COMMIT
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ubuntu22-${{ steps.source.outputs.tag }}
+          path: dist-ubuntu22/
+          if-no-files-found: error
