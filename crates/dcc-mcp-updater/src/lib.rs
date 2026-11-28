@@ -454,6 +454,23 @@ impl Updater {
         stage_verified_binary_update(binary_name, downloaded, expected_sha256.as_str())
     }
 
+    /// Stage an independently versioned executable using its running product version.
+    pub fn stage_verified_update_for_version(
+        downloaded: &Path,
+        binary_name: &str,
+        expected_sha256: &Sha256Digest,
+        running_version: &str,
+    ) -> Result<(), UpdateError> {
+        let executable = std::env::current_exe().map_err(|_| UpdateError::NoExePath)?;
+        update_set::stage_verified_binary_update_for_build(
+            binary_name,
+            &executable,
+            downloaded,
+            expected_sha256.as_str(),
+            running_version,
+        )
+    }
+
     /// Return whether a verified update is waiting to be applied on launch.
     pub fn has_staged_update(binary_name: &str) -> Result<bool, UpdateError> {
         let dir = staging_dir(binary_name)?;
@@ -465,10 +482,19 @@ impl Updater {
     /// To be called at startup BEFORE the main application logic runs.
     /// Returns `true` if an update was applied, `false` if no update was staged.
     pub fn apply_staged_update(binary_name: &str) -> Result<bool, UpdateError> {
+        Self::apply_staged_update_for_version(binary_name, env!("CARGO_PKG_VERSION"))
+    }
+
+    /// Use the executable's product version to distinguish a stale process from its replacement.
+    pub fn apply_staged_update_for_version(
+        binary_name: &str,
+        running_version: &str,
+    ) -> Result<bool, UpdateError> {
         if quarantine_legacy_staged_update(binary_name)? {
             return Err(UpdateError::LegacyUnsignedStage);
         }
-        apply_staged_binary_update(binary_name)
+        let executable = std::env::current_exe().map_err(|_| UpdateError::NoExePath)?;
+        update_set::apply_staged_binary_update_for_build(binary_name, &executable, running_version)
     }
 
     /// Remove any staged update artifacts (rollback).

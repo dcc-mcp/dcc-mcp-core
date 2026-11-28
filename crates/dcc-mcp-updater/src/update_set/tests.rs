@@ -514,6 +514,27 @@ fn source_and_older_builds_reexec_but_newer_build_does_not() {
 }
 
 #[test]
+fn single_binary_generation_uses_the_running_product_version() {
+    let temp = tempfile::tempdir().unwrap();
+    let current = write_fixture(temp.path(), "dccmcp", b"previous CLI");
+    let downloaded = write_fixture(temp.path(), "download", b"replacement CLI");
+    let binary_name = unique_name("standalone-cli-version");
+    stage_verified_binary_update_for_build(
+        &binary_name,
+        &current,
+        &downloaded,
+        &sha256_file(&downloaded).unwrap(),
+        "2.4.0",
+    )
+    .unwrap();
+    assert!(apply_staged_binary_update_for_build(&binary_name, &current, "2.4.0").unwrap());
+    assert_eq!(std::fs::read(&current).unwrap(), b"replacement CLI");
+    // A concurrent old process still needs to restart. The new process can dispatch immediately.
+    assert!(apply_staged_binary_update_for_build(&binary_name, &current, "2.4.0").unwrap());
+    assert!(!apply_staged_binary_update_for_build(&binary_name, &current, "2.4.1").unwrap());
+}
+
+#[test]
 fn older_process_does_not_apply_a_later_generation_marker() {
     let temp = tempfile::tempdir().unwrap();
     let current = write_fixture(temp.path(), "dcc-mcp-server.exe", b"server-62");
