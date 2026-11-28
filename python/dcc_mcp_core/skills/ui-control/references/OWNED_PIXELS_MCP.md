@@ -24,6 +24,19 @@ are PNG-relative. Delivery is `effect=unverifiable`; re-observe and verify befor
 claiming success. Every attempted action consumes the previous observation.
 Timeouts are not retried.
 
+The standalone DCC-CUA MCP task bridge can additionally advertise
+`guarded_key_sequence_v1`. On that bridge, grant `raw_input/key_sequence`
+to the exact task and supply the ordered `keys` array to `execute_action`.
+`ui_control__act` accepts the actions listed by the installed adapter's
+own schema. Inspect both contracts before choosing the caller.
+
+When the bridge returns a `post_snapshot`, reuse its observation ID for
+the next visual action on the same task. For a terminal Blender edit, verify
+the intended mesh, bone or animation change through a typed scene readback.
+The native `delivery.key_sequence_timing` fields measure keyboard dispatch
+and inter-step waits. Measure application completion and model usage at the
+agent host.
+
 ## Explicit secondary popup pixels
 
 The owner may separately set `allow_native_capture_popup_keyboard=True` in

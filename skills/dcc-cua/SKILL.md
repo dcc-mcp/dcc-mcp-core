@@ -129,6 +129,19 @@ Do not invent a profile ID. Runtime-advertised capabilities are authoritative.
 
 ## Execution order
 
+Before batching keyboard input, inspect the connected DCC-CUA Host's
+`guarded_key_sequence_v1` capability. In a Windows foreground pixel task
+with the separate `raw_input/key_sequence` grant, pass ordered taps and
+chords to one `execute_action`. A visible execution frame and a fresh
+same-task observation are required. Keep the normal stop boundary when the
+next operation depends on a new selection or dialog.
+
+Reuse the returned post-action observation when continuing visually. For a
+terminal edit, an independent scene readback can verify mesh dimensions,
+bone parenting or animation keys. Record verified wall time, native dispatch
+and inter-step waits separately. Use the platform's advertised observation
+and input routes when the batch capability is absent.
+
 1. Prefer a typed DCC-MCP host tool when it directly expresses the operation.
 2. Use DCC-CUA only for the UI behavior that typed host tools cannot expose.
 3. Bind one exact target with process ID and native window handle whenever the
