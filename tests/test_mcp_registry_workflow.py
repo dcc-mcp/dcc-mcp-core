@@ -22,6 +22,19 @@ SERVER_NAME = "io.github.dcc-mcp/dcc-mcp-core"
 WORKFLOW = REPO_ROOT / ".github" / "workflows" / "publish-mcp-registry.yml"
 
 
+def test_release_calls_registry_only_after_the_server_upload():
+    release = yaml_loads((WORKFLOW.parent / "release.yml").read_text(encoding="utf-8"))
+    publish = release["jobs"]["publish-mcp-registry"]
+    assert publish["needs"] == ["release-please", "publish-server-pypi"]
+    assert publish["uses"] == "./.github/workflows/publish-mcp-registry.yml"
+    assert publish["with"] == {
+        "version": "${{ needs.release-please.outputs.version }}",
+        "dry_run": False,
+    }
+    registry = yaml_loads(WORKFLOW.read_text(encoding="utf-8"))
+    assert set(registry["on"]) == {"workflow_call", "workflow_dispatch"}
+
+
 def _response(version, name=SERVER_NAME):
     """Build a registry detail response that also models historical backfills."""
     return {
@@ -400,10 +413,10 @@ wait
 
 @pytest.mark.skipif(os.name == "nt", reason="the registry workflow runs on Ubuntu")
 @pytest.mark.parametrize(
-    "input_version,release_tag,expected",
-    [("", "", "0.20.44"), ("", "v0.20.43", "0.20.43"), ("0.20.40", "v0.20.43", "0.20.40")],
+    "input_version,expected",
+    [("", "0.20.44"), ("0.20.40", "0.20.40")],
 )
-def test_registry_version_uses_manifest_without_dispatch_input(tmp_path, input_version, release_tag, expected):
+def test_registry_version_uses_manifest_without_dispatch_input(tmp_path, input_version, expected):
     """A stale server projection cannot silently select an older manual release."""
     workflow = yaml_loads(WORKFLOW.read_text(encoding="utf-8"))
     step = next(s for s in workflow["jobs"]["publish"]["steps"] if s.get("id") == "version")
@@ -413,7 +426,6 @@ def test_registry_version_uses_manifest_without_dispatch_input(tmp_path, input_v
     env = {
         "PATH": os.pathsep.join([str(Path(sys.executable).parent), os.defpath]),
         "INPUT_VERSION": input_version,
-        "RELEASE_TAG": release_tag,
         "GITHUB_OUTPUT": str(output),
     }
     result = subprocess.run(

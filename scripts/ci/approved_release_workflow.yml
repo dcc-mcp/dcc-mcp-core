@@ -1149,6 +1149,16 @@ jobs:
           print-hash: true
           skip-existing: true
 
+  publish-mcp-registry:
+    needs: [release-please, publish-server-pypi]
+    uses: ./.github/workflows/publish-mcp-registry.yml
+    permissions:
+      contents: read
+      id-token: write
+    with:
+      version: ${{ needs.release-please.outputs.version }}
+      dry_run: false
+
   # ── Publish dcc-mcp-core-semantic to PyPI ──
   publish-semantic-pypi:
     needs: [release-please, validate-release-version, build-semantic-wheels, validate-release-notices]
