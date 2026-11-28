@@ -19,7 +19,6 @@ _SHARED_THIRD_PARTY = {
     "tower-http",
 }
 _DEFAULT_FEATURE_EXCEPTIONS = {
-    ("dcc-mcp-cli", "dcc-mcp-sidecar"),
     ("dcc-mcp-gateway", "dcc-mcp-db"),
     ("dcc-mcp-gateway", "dcc-mcp-skills"),
     ("dcc-mcp-gateway-admin", "dcc-mcp-db"),
