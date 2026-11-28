@@ -30,11 +30,11 @@ the DCC adapter discovers it on the next restart or `reload_skill_paths` call.
 
 The marketplace code lives in three layers:
 
-1. **Domain** (`crates/dcc-mcp-cli/src/domain/marketplace.rs`) — types:
+1. **Domain** ([`crates/dcc-mcp-cli/src/domain/marketplace.rs`](https://github.com/dcc-mcp/dcc-mcp-cli/blob/main/crates/dcc-mcp-cli/src/domain/marketplace.rs)) — types:
    `MarketplaceSource`, `MarketplaceHit`, `MarketplaceSearchResult`,
    `InstalledMarketplacePackage`, `OutdatedMarketplacePackage`, etc.
 
-2. **Application** (`crates/dcc-mcp-cli/src/application/marketplace.rs`) —
+2. **Application** ([`crates/dcc-mcp-cli/src/application/marketplace.rs`](https://github.com/dcc-mcp/dcc-mcp-cli/blob/main/crates/dcc-mcp-cli/src/application/marketplace.rs)) —
    business logic: source management, search across sources, installation,
    uninstallation, update checks.
 

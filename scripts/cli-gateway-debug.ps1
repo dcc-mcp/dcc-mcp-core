@@ -1,4 +1,4 @@
-# Debug gateway + per-DCC REST/MCP using worktree-built dcc-mcp-cli / dcc-mcp-server.
+# Debug gateway + per-DCC REST/MCP using the standalone CLI and a worktree-built server.
 # Usage:
 #   # A) Live Maya + gateway (default 9765) — after relinking dcc-mcp-core into Maya
 #   .\scripts\cli-gateway-debug.ps1 -Mode gateway
@@ -61,14 +61,22 @@ if (-not $RepoRoot) {
     if (-not $RepoRoot) { $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path }
 }
 
-$Cli = Join-Path $RepoRoot "target\release\dcc-mcp-cli.exe"
-$Server = Join-Path $RepoRoot "target\release\dcc-mcp-server.exe"
-
-if (-not (Test-Path $Cli)) {
-    Write-Host "Building dcc-mcp-cli + dcc-mcp-server..."
-    Push-Location $RepoRoot
-    cargo build -p dcc-mcp-cli -p dcc-mcp-server --release
-    Pop-Location
+$cliName = if ($env:DCC_MCP_CLI_BIN) { $env:DCC_MCP_CLI_BIN } else { "dccmcp" }
+$Cli = (Get-Command -Name $cliName -CommandType Application -ErrorAction Stop).Source
+if ($Mode -eq "standalone") {
+    $target = "x86_64-pc-windows-msvc"
+    Push-Location -LiteralPath $RepoRoot
+    try {
+        $metadata = cargo metadata --format-version 1 --no-deps | ConvertFrom-Json
+        if ($LASTEXITCODE -ne 0) { throw "Cannot resolve the Cargo target directory." }
+        $Server = Join-Path $metadata.target_directory "$target/release/dcc-mcp-server.exe"
+        if (-not (Test-Path -LiteralPath $Server -PathType Leaf)) {
+            cargo build --locked --target $target --release -p dcc-mcp-server
+            if ($LASTEXITCODE -ne 0) { throw "MSVC server build failed." }
+        }
+    } finally {
+        Pop-Location
+    }
 }
 
 $serverProc = $null

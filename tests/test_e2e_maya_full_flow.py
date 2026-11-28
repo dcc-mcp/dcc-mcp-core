@@ -54,6 +54,7 @@ _DCC_MCP_CLI_BIN: str | None = None
 _cli_candidates = [
     os.environ.get("DCC_MCP_CLI_BIN"),
     os.environ.get("DCC_MCP_CLI"),
+    shutil.which("dccmcp"),
     shutil.which("dcc-mcp-cli"),
     shutil.which("dcc-mcp-cli.exe"),
 ]
@@ -147,7 +148,7 @@ requires_p1_4 = pytest.mark.skipif(
 
 requires_cli = pytest.mark.skipif(
     not DCC_MCP_CLI_AVAILABLE,
-    reason="dcc-mcp-cli binary not found in PATH. Build with `cargo build --release -p dcc-mcp-cli`.",
+    reason="Install the standalone dccmcp CLI or set DCC_MCP_CLI_BIN.",
 )
 
 

@@ -124,7 +124,7 @@ installation receipts and must not be used to bypass expiry or revocation checks
 
 The following is **design scope**, not implemented runtime behavior:
 
-1. Keep [the existing catalog module](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/crates/dcc-mcp-cli/src/application/install/catalog.rs) as the single CLI owner of fixed-feed retrieval,
+1. Keep [the existing catalog module](https://github.com/dcc-mcp/dcc-mcp-cli/blob/main/crates/dcc-mcp-cli/src/application/install/catalog.rs) as the single CLI owner of fixed-feed retrieval,
    verification, atomic persistence and rollback checks. The release index is a
    publisher-side input; clients should fetch one aggregated signed snapshot,
    not fan out to every adapter repository on every invocation.

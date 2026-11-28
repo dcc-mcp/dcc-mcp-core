@@ -6,6 +6,12 @@ page documents its operator-facing contract alongside the core server
 binaries. Flags on each binary map 1:1 onto an `DCC_MCP_*` environment
 variable, so any deployment manifest can drive the same configuration surface.
 
+The standalone repository owns the Rust CLI application, both binary names,
+the Python wrapper, and their release workflows. Core maintains the reusable
+MCP client SDK and the gateway/server. For local Core development, install
+the standalone CLI and put it on PATH, or set `DCC_MCP_CLI_BIN` for
+`just lint-skills` and the Windows gateway debug script.
+
 The standalone CLI repository publishes `dccmcp` and its `dcc-mcp-cli`
 compatibility alias as raw GitHub Release assets. Core publishes
 `dcc-mcp-server` and its runtime assets separately. DCCMCP is the preferred
