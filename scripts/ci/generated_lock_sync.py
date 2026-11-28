@@ -48,8 +48,6 @@ RELEASE_OUTPUTS = frozenset(
         "docs/guide/what-is-dcc-mcp-core.md",
         "docs/zh/guide/what-is-dcc-mcp-core.md",
         "llms.txt",
-        "pkg/dcc-mcp-cli-bin/pyproject.toml",
-        "pkg/dcc-mcp-cli-bin/python/dcc_mcp_cli/__init__.py",
         "pkg/dcc-mcp-core-semantic/pyproject.toml",
         "pkg/dcc-mcp-server-bin/pyproject.toml",
         "pkg/dcc-mcp-server-bin/python/dcc_mcp_server/__init__.py",

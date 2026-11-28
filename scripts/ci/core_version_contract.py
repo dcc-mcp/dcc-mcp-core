@@ -33,7 +33,6 @@ TOML_FIELDS = {
     "pyproject.toml": "project",
     "pkg/dcc-mcp-server-bin/pyproject.toml": "project",
     "pkg/dcc-mcp-core-semantic/pyproject.toml": "project",
-    "pkg/dcc-mcp-cli-bin/pyproject.toml": "project",
 }
 JSON_FIELDS = {
     "admin-ui/package.json": (("version",),),
@@ -50,7 +49,6 @@ JSONPATHS = {
 # Counts also catch accidental removal of a release marker from a known file.
 GENERIC_FILES = {
     "pkg/dcc-mcp-server-bin/python/dcc_mcp_server/__init__.py": 1,
-    "pkg/dcc-mcp-cli-bin/python/dcc_mcp_cli/__init__.py": 1,
     "python/dcc_mcp_core/_core.pyi": 1,
     ".agents/skills/dcc-mcp-core/SKILL.md": 1,
     "docs/.vitepress/config.mts": 2,

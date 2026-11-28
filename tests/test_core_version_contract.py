@@ -32,7 +32,6 @@ TOML_PROJECTIONS = {
     "pyproject.toml": "project",
     "pkg/dcc-mcp-server-bin/pyproject.toml": "project",
     "pkg/dcc-mcp-core-semantic/pyproject.toml": "project",
-    "pkg/dcc-mcp-cli-bin/pyproject.toml": "project",
 }
 JSON_PROJECTIONS = {
     "admin-ui/package.json": (("version",),),
@@ -41,7 +40,6 @@ JSON_PROJECTIONS = {
 }
 GENERIC_PROJECTIONS = {
     "pkg/dcc-mcp-server-bin/python/dcc_mcp_server/__init__.py": 1,
-    "pkg/dcc-mcp-cli-bin/python/dcc_mcp_cli/__init__.py": 1,
     "python/dcc_mcp_core/_core.pyi": 1,
     ".agents/skills/dcc-mcp-core/SKILL.md": 1,
     "docs/.vitepress/config.mts": 2,
@@ -895,7 +893,6 @@ def test_skill_version_ancestors_and_field_must_be_unique(contract, repository, 
 @pytest.mark.parametrize(
     "path",
     [
-        "pkg/dcc-mcp-cli-bin/python/dcc_mcp_cli/__init__.py",
         "pkg/dcc-mcp-server-bin/python/dcc_mcp_server/__init__.py",
         "python/dcc_mcp_core/_core.pyi",
     ],

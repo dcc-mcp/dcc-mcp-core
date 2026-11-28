@@ -52,10 +52,6 @@ THIRD_PARTY_LICENSES.txt
 /pkg/dcc-mcp-core-semantic/NOTICE
 /pkg/dcc-mcp-core-semantic/THIRD_PARTY_NOTICES.txt
 /pkg/dcc-mcp-core-semantic/THIRD_PARTY_LICENSES.txt
-/pkg/dcc-mcp-cli-bin/LICENSE
-/pkg/dcc-mcp-cli-bin/NOTICE
-/pkg/dcc-mcp-cli-bin/THIRD_PARTY_NOTICES.txt
-/pkg/dcc-mcp-cli-bin/THIRD_PARTY_LICENSES.txt
 # Python cache
 *.pyc
 *.pyo
@@ -141,5 +137,3 @@ benchmarks/skills/trend-history.json
 skills-bench-trend.json
 skills-bench-trend.md
 skills-bench-alerts.json
-
-pkg/dcc-mcp-cli-bin/python/dcc_mcp_cli/_payload/

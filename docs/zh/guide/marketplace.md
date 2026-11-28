@@ -27,11 +27,11 @@ Marketplace 是一个 CLI 优先的发现和安装系统，用于官方和社区
 
 市场代码分为三层：
 
-1. **领域层**（`crates/dcc-mcp-cli/src/domain/marketplace.rs`）— 类型定义：
+1. **领域层**（[`crates/dcc-mcp-cli/src/domain/marketplace.rs`](https://github.com/dcc-mcp/dcc-mcp-cli/blob/main/crates/dcc-mcp-cli/src/domain/marketplace.rs)）— 类型定义：
    `MarketplaceSource`、`MarketplaceHit`、`MarketplaceSearchResult`、
    `InstalledMarketplacePackage`、`OutdatedMarketplacePackage` 等。
 
-2. **应用层**（`crates/dcc-mcp-cli/src/application/marketplace.rs`）—
+2. **应用层**（[`crates/dcc-mcp-cli/src/application/marketplace.rs`](https://github.com/dcc-mcp/dcc-mcp-cli/blob/main/crates/dcc-mcp-cli/src/application/marketplace.rs)）—
    业务逻辑：源管理、跨源搜索、安装、卸载、更新检查。
 
 3. **目录包**（`crates/dcc-mcp-catalog/`）— 独立包，解析 `marketplace.json` /

@@ -126,10 +126,9 @@ Two consequences worth checking when a host reports an unexpected version:
   is only raised for the fallback: a binary taken from `PATH` carries no
   importable version, so comparing the package version against it would name a
   copy that never runs. Set `DCC_MCP_SERVER_BIN` to override the lookup.
-- `dccmcp` is a standalone Rust binary shipped in the release bundles, not
-  a Python package. There is no `dcc_mcp_cli` module: `import dcc_mcp_cli`
-  always fails inside a host, and this is expected. Invoke the binary from the
-  resolved environment's `PATH` instead.
+- Invoke the standalone `dccmcp` executable on the resolved environment's
+  PATH. The optional `dcc-mcp-cli` Python distribution provides both console
+  scripts and `dcc_mcp_cli.binary_path()` for callers that install its wheel.
 
 ## Import-Light Sidecar Launch
 

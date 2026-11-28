@@ -7,8 +7,6 @@ from zipfile import ZipFile
 
 from scripts.ci.check_release_notices import _expected_files
 from scripts.ci.check_release_notices import validate_archive
-from scripts.release.stage_package_notices import CLI_WRAPPER_NOTICE_FILES
-from scripts.release.stage_package_notices import CLI_WRAPPER_ROOT
 from scripts.release.stage_package_notices import NOTICE_FILES
 from scripts.release.stage_package_notices import PACKAGE_ROOTS
 from scripts.release.stage_package_notices import stage
@@ -108,8 +106,7 @@ def test_stage_package_notices_copies_generated_package_resources(tmp_path: Path
     stage(tmp_path)
 
     for package_root in PACKAGE_ROOTS:
-        names = CLI_WRAPPER_NOTICE_FILES if package_root == CLI_WRAPPER_ROOT else NOTICE_FILES
-        for name in names:
+        for name in NOTICE_FILES:
             assert (tmp_path / package_root / name).read_bytes() == (tmp_path / name).read_bytes()
 
 

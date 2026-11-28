@@ -5,7 +5,6 @@ on:
     branches: [main]
     paths:
       - crates/dcc-mcp-updater/**
-      - crates/dcc-mcp-cli/**
       - .github/workflows/verified-component-installation.yml
   workflow_dispatch:
 
@@ -43,40 +42,3 @@ jobs:
           key: verified-component-${{ runner.os }}
       - name: Test package transaction and byte admission
         run: vx cargo test --locked -p dcc-mcp-updater --lib
-      - name: Test local package validation
-        run: vx cargo test --locked -p dcc-mcp-cli --lib application::components
-      - name: Test isolated command admission
-        run: vx cargo test --locked -p dcc-mcp-cli --lib fixed_local_component_command
-      - name: Test executable startup isolation
-        run: vx cargo test --locked -p dcc-mcp-cli --test cli_update_inspection fixed_local_component_failures
-      - name: Build qualified Windows installer candidate
-        if: runner.os == 'Windows'
-        run: vx cargo build --locked -p dcc-mcp-cli --bin dcc-mcp-cli
-      - name: Bind candidate to source and bytes
-        if: runner.os == 'Windows'
-        shell: python
-        env:
-          QUALIFIED_SOURCE: ${{ github.event.pull_request.head.sha || github.sha }}
-        run: |
-          import hashlib, json, os, pathlib, subprocess
-          binary = pathlib.Path("target/debug/dcc-mcp-cli.exe")
-          source = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
-          assert source == os.environ["QUALIFIED_SOURCE"]
-          receipt = {
-              "schema_version": 1, "source_revision": source,
-              "target": "x86_64-pc-windows-msvc", "profile": "dev",
-              "binary": binary.name, "sha256": hashlib.sha256(binary.read_bytes()).hexdigest(),
-              "run_id": os.environ["GITHUB_RUN_ID"], "run_attempt": os.environ["GITHUB_RUN_ATTEMPT"],
-              "purpose": "reviewed local component installer candidate; not a release",
-          }
-          pathlib.Path("candidate-receipt.json").write_text(json.dumps(receipt, indent=2) + "\n")
-      - name: Upload qualified candidate
-        if: runner.os == 'Windows'
-        uses: actions/upload-artifact@v4
-        with:
-          name: verified-component-installer-windows-${{ github.event.pull_request.head.sha || github.sha }}
-          path: |
-            target/debug/dcc-mcp-cli.exe
-            candidate-receipt.json
-          if-no-files-found: error
-          retention-days: 7

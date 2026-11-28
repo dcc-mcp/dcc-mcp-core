@@ -11,7 +11,7 @@ set shell := ["sh", "-cu"]
 # and every recipe below — as well as CI workflows invoking `just build-*` —
 # will pick them up automatically.
 OPT_FEATURES := "workflow,scheduler,prometheus,job-persist-sqlite,admin,mcp-2026-07-28"
-CLI_BIN := if os_family() == "windows" { ".\\target\\release\\dcc-mcp-cli.exe" } else { "./target/release/dcc-mcp-cli" }
+CLI_BIN := env_var_or_default("DCC_MCP_CLI_BIN", "dccmcp")
 
 # Feature set for `maturin develop` (no abi3, extension-module linkage)
 DEV_FEATURES := "python-bindings,ext-module," + OPT_FEATURES
@@ -154,30 +154,6 @@ hakari-verify:
 # survived every justfile rename without anyone noticing.
 build-release:
     cargo build --release
-
-# Build dcc-mcp-cli for the current platform
-build-cli:
-    cargo build --release -p dcc-mcp-cli
-
-# Focused controlled HTTP fixtures for official CLI MCP inventory pagination.
-test-cli-smoke:
-    cargo nextest run --locked -p dcc-mcp-cli --test cli_smoke --no-fail-fast
-
-# Build dcc-mcp-cli universal2 binary for macOS (requires both targets installed)
-[unix]
-build-cli-universal:
-    #!/usr/bin/env sh
-    set -eu
-    rustup target add x86_64-apple-darwin aarch64-apple-darwin 2>/dev/null || true
-    cargo build --release -p dcc-mcp-cli --target x86_64-apple-darwin
-    cargo build --release -p dcc-mcp-cli --target aarch64-apple-darwin
-    lipo -create -output dcc-mcp-cli-macos-universal2 \
-        target/x86_64-apple-darwin/release/dcc-mcp-cli \
-        target/aarch64-apple-darwin/release/dcc-mcp-cli
-    lipo -create -output dccmcp-macos-universal2 \
-        target/x86_64-apple-darwin/release/dccmcp \
-        target/aarch64-apple-darwin/release/dccmcp
-    echo "Built: dcc-mcp-cli-macos-universal2 and dccmcp-macos-universal2"
 
 # Build dcc-mcp-server for the current platform
 build-server:
@@ -354,8 +330,8 @@ typecheck:
     uv run --extra dev mypy .
 
 # Lint bundled, example, and fixture skills with the built production CLI
-lint-skills: build-cli
-    {{CLI_BIN}} lint --max-depth 4 python/dcc_mcp_core/skills examples/skills examples/remote-server/skills examples/rez-skills tests/fixtures/skills tests/fixtures/prompts_skills
+lint-skills:
+    "{{CLI_BIN}}" lint --max-depth 4 python/dcc_mcp_core/skills examples/skills examples/remote-server/skills examples/rez-skills tests/fixtures/skills tests/fixtures/prompts_skills
 
 # Verify pure-Python sources parse on Python 3.7 (cp37 wheel parity).
 check-py37-syntax:

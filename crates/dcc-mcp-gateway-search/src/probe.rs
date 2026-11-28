@@ -11,7 +11,7 @@
 //! downloads, no shell, no ambient executable discovery:
 //!
 //! ```text
-//! dcc-mcp-cli components status dcc-cua   → {"status": "ready" | "missing" | "incompatible", ..}
+//! dccmcp --output json components status dcc-cua   → {"status": "ready" | "missing" | "incompatible", ..}
 //! dcc-cua manifest                        → capability manifest of the installed runtime
 //! dcc-cua ping                            → liveness
 //! ```
@@ -44,7 +44,8 @@ use crate::fallback::{CuaRuntimeProbe, CuaRuntimeState};
 pub const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// CLI that owns the component contract.
-pub const CLI_BIN: &str = "dcc-mcp-cli";
+pub const CLI_BIN: &str = "dccmcp";
+const COMPAT_CLI_BIN: &str = "dcc-mcp-cli";
 /// Standalone runtime binary published by the component contract.
 pub const CUA_BIN: &str = "dcc-cua";
 
@@ -88,9 +89,20 @@ impl CliCuaProbe {
 
 impl CuaRuntimeProbe for CliCuaProbe {
     fn probe(&self) -> CuaRuntimeState {
-        match component_status(self.budget()).as_deref() {
+        let Some(cli) =
+            cli_on_path(&ProbeEnv::from_process()).and_then(|path| path.canonicalize().ok())
+        else {
+            return CuaRuntimeState::Unknown;
+        };
+        match component_status(&cli, self.budget()).as_deref() {
             Some("ready") => {
-                if runtime_answers(self.budget()) {
+                let runtime =
+                    cli.with_file_name(format!("{CUA_BIN}{}", std::env::consts::EXE_SUFFIX));
+                if runtime
+                    .to_str()
+                    .and_then(|name| run(name, &["ping"], self.budget()))
+                    .is_some_and(|out| out.status.success())
+                {
                     CuaRuntimeState::Ready
                 } else {
                     CuaRuntimeState::NotResponding
@@ -114,7 +126,7 @@ impl CuaRuntimeProbe for CliCuaProbe {
 ///
 /// Beyond `PATH` it consults the same locations the executor
 /// (`python/dcc_mcp_core/cua_cli.py::resolve_cua_command`) resolves, using only
-/// filesystem checks: the directory beside `dcc-mcp-cli`, the standard install
+/// filesystem checks: the directory beside `dccmcp` or its compatible alias, the standard install
 /// directories, and a versioned standalone install (PIP-4981). A hit is
 /// reported as `Unverified` (actionable), never as a false `Missing` block.
 ///
@@ -231,20 +243,22 @@ fn cua_on_path(env: &ProbeEnv) -> bool {
         .any(|dir| find_executable_in(&dir, CUA_BIN, &env.extensions).is_some())
 }
 
-/// Directory of the installed `dcc-mcp-cli`, resolved through symlinks, so a
+/// Directory of the installed control CLI, resolved through symlinks, so a
 /// `dcc-cua` shipped beside it is found even when that directory is not on the
 /// current `PATH`. Mirrors `_resolve_cli_sibling` in `cua_cli.py`.
 fn cli_sibling_dir(env: &ProbeEnv) -> Option<PathBuf> {
-    let path_var = env.path.as_ref()?;
-    for dir in std::env::split_paths(path_var) {
-        let Some(cli) = find_executable_in(&dir, CLI_BIN, &env.extensions) else {
-            continue;
-        };
-        if let Ok(resolved) = cli.canonicalize() {
-            return resolved.parent().map(Path::to_path_buf);
-        }
-    }
-    None
+    cli_on_path(env)?
+        .canonicalize()
+        .ok()?
+        .parent()
+        .map(Path::to_path_buf)
+}
+
+fn cli_on_path(env: &ProbeEnv) -> Option<PathBuf> {
+    let path = env.path.as_ref()?;
+    [CLI_BIN, COMPAT_CLI_BIN].into_iter().find_map(|name| {
+        std::env::split_paths(path).find_map(|dir| find_executable_in(&dir, name, &env.extensions))
+    })
 }
 
 /// Standard bin directories used by the official installers, in priority
@@ -389,25 +403,16 @@ fn numeric_component(value: &str) -> Option<u64> {
     value.parse().ok()
 }
 
-/// Run `dcc-mcp-cli components status dcc-cua` and return its `status` field.
-fn component_status(timeout: Duration) -> Option<String> {
-    let output = run(CLI_BIN, &["components", "status", "dcc-cua"], timeout)?;
+/// Run `dccmcp components status dcc-cua` and return its `status` field.
+fn component_status(executable: &Path, timeout: Duration) -> Option<String> {
+    let args = &["--output", "json", "components", "status", "dcc-cua"];
+    let output = run(executable.to_str()?, args, timeout)?;
     if !output.status.success() {
         return None;
     }
     let stdout = String::from_utf8(output.stdout).ok()?;
     let value = serde_json::from_str::<serde_json::Value>(&stdout).ok()?;
     Some(value.get("status")?.as_str()?.to_string())
-}
-
-/// Confirm the installed runtime answers `ping`.
-///
-/// `components status` already validates the binary and reads its manifest
-/// (`dcc-mcp-cli/src/application/components.rs`), so re-running `manifest` here
-/// would be a second identical subprocess for no new information. Worst case
-/// for a full probe is therefore two spawns, not three.
-fn runtime_answers(timeout: Duration) -> bool {
-    run(CUA_BIN, &["ping"], timeout).is_some_and(|out| out.status.success())
 }
 
 /// Spawn `program` with `args`, collecting output under a hard timeout.
@@ -479,6 +484,23 @@ mod tests {
     use super::*;
 
     #[test]
+    fn standalone_command_takes_precedence_over_legacy_alias() {
+        let root = tempfile::tempdir().unwrap();
+        let old = root.path().join("old");
+        let primary = root.path().join("primary");
+        std::fs::create_dir(&old).unwrap();
+        std::fs::create_dir(&primary).unwrap();
+        let env = ProbeEnv {
+            path: Some(std::env::join_paths([&old, &primary]).unwrap()),
+            ..Default::default()
+        };
+        std::fs::write(old.join(COMPAT_CLI_BIN), b"cli").unwrap();
+        assert_eq!(cli_on_path(&env), Some(old.join(COMPAT_CLI_BIN)));
+        std::fs::write(primary.join(CLI_BIN), b"cli").unwrap();
+        assert_eq!(cli_on_path(&env), Some(primary.join(CLI_BIN)));
+    }
+
+    #[test]
     fn a_missing_cli_degrades_to_unknown_not_missing() {
         // `dcc-mcp-cli` is absent in this test environment, so the probe
         // cannot tell "not installed" from "cannot ask". It must say Unknown
@@ -505,7 +527,8 @@ mod tests {
 
     #[test]
     fn probe_names_the_official_binaries() {
-        assert_eq!(CLI_BIN, "dcc-mcp-cli");
+        assert_eq!(CLI_BIN, "dccmcp");
+        assert_eq!(COMPAT_CLI_BIN, "dcc-mcp-cli");
         assert_eq!(CUA_BIN, "dcc-cua");
     }
 

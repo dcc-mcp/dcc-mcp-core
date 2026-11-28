@@ -20,34 +20,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # The PyPI wrapper for the dcc-mcp-cli binary is a separate distribution
-  # under pkg/, so the main test suite (which imports dcc_mcp_core) does not
-  # cover it. Its bootstrap decides where the binary lands, and a wrong
-  # directory silently breaks `components ensure`, so it gets its own gate.
-  cli-wrapper:
-    name: CLI wrapper package
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - name: Stage package legal notices
-        run: |
-          python -c "from pathlib import Path; Path('THIRD_PARTY_LICENSES.txt').write_text('Package-only license text fixture for CI.\\n', encoding='utf-8')"
-          python scripts/release/stage_package_notices.py
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.12"
-      # `build` + `hatchling` + `wheel` let the suite build real wrapper
-      # wheels from synthetic archives: the release job's per-platform loop is
-      # a runtime filename collision that YAML-text assertions cannot see.
-      - name: Install pytest and wheel build tooling
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install pytest "build>=1.2" "hatchling>=1.25" "wheel>=0.46"
-      - name: Test the dcc-mcp-cli bootstrap
-        env:
-          PYTHONPATH: pkg/dcc-mcp-cli-bin/python
-        run: python -m pytest pkg/dcc-mcp-cli-bin/tests -q --tb=short --show-capture=no
-
   python37-contract:
     name: Python 3.7 contract
     runs-on: ubuntu-latest
@@ -343,27 +315,6 @@ jobs:
         run: |
           set -o pipefail
           vx just test-rust 2>&1 | tee rust-test-results.log
-      - name: Host install consent branch evidence
-        if: matrix.rust-validation == 'full'
-        shell: bash
-        run: |
-          set -euo pipefail
-          evidence="$(mktemp)"
-          trap 'rm -f "$evidence"' EXIT
-          vx cargo nextest run --workspace \
-            -E 'binary(=cli_host_e2e) & test(=install_never_announces_nothing_at_the_call_site)' \
-            --no-tests fail --success-output immediate --no-output-indent --color never \
-            2>&1 | tee "$evidence"
-          grep -Fx 'host-install-consent-gate exercised baseline=missing' "$evidence"
-      # Requires the corrected 2852 probe semantics: 2862 is rebased onto
-      # 2852 before this exact CLI-process contract is run in CI.
-      - name: Install verify core compatibility evidence
-        if: matrix.rust-validation == 'full'
-        shell: bash
-        run: |
-          set -euo pipefail
-          vx cargo test -p dcc-mcp-cli --test cli_verify_e2e -- \
-            --ignored verify_reports_incompatible_target_core_after_combined_slice --exact
       - name: Upload Rust test diagnostics
         if: always() && matrix.rust-validation == 'full'
         uses: actions/upload-artifact@v4
@@ -397,21 +348,6 @@ jobs:
       - name: Rust compile smoke
         if: matrix.rust-validation == 'smoke'
         run: vx cargo check --workspace --all-targets
-      - name: Windows process-tree runtime regression
-        if: matrix.os == 'windows-latest'
-        run: vx cargo test -p dcc-mcp-cli --lib infra::github_issues::tests::bounded_child_timeout_terminates_descendants_that_inherit_pipes -- --exact
-      - name: Windows adapter probe inherited-writer regression
-        if: matrix.os == 'windows-latest'
-        run: vx cargo test -p dcc-mcp-cli --lib application::adapter_import::tests::probe_timeout_terminates_inherited_writer -- --exact
-      - name: Windows adapter probe parent-exit inherited-writer regression
-        if: matrix.os == 'windows-latest'
-        run: vx cargo test -p dcc-mcp-cli --lib application::adapter_import::tests::probe_normal_parent_exit_drains_inherited_writer -- --exact
-      - name: macOS adapter probe inherited-writer regressions
-        if: matrix.os == 'macos-latest'
-        run: >-
-          vx cargo test -p dcc-mcp-cli --lib
-          application::adapter_import::tests::probe_
-          -- --nocapture
       - name: Tracy feature compile smoke
         run: vx cargo check -p dcc-mcp-server --no-default-features --features gateway-daemon,tracy
       # Verify the composition binary still builds in its slim variants
@@ -1324,12 +1260,23 @@ jobs:
         with:
           toolchain: "1.95.0"
 
-      - name: Test shared MCP client and CLI binaries
+      - name: Test shared MCP client
+        run: cargo test --locked -p dcc-mcp-client
+
+      - name: Test the released CLI against this Core wheel
+        env:
+          CLI_VERSION: 0.23.0
+          GH_TOKEN: ${{ github.token }}
         run: |
-          cargo test -p dcc-mcp-client
-          cargo test -p dcc-mcp-cli --lib
-          cargo run -p dcc-mcp-cli --bin dccmcp -- --help
-          cargo run -p dcc-mcp-cli --bin dcc-mcp-cli -- --help
+          cli="$RUNNER_TEMP/dccmcp"
+          repo=dcc-mcp/dcc-mcp-cli
+          asset=dccmcp-linux-x86_64
+          digest=$(gh release view "v$CLI_VERSION" --repo "$repo" --json assets --jq '.assets[] | select(.name == "dccmcp-linux-x86_64") | .digest')
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          gh release download "v$CLI_VERSION" --repo "$repo" --pattern "$asset" --output "$cli"
+          echo "${digest#sha256:}  $cli" | sha256sum --check
+          chmod +x "$cli"
+          DCC_MCP_TEST_CLI="$cli" python -m pytest tests/test_standalone_cli_interop.py -q
 
   # -- MCP interoperability e2e: independent client vs live MCP servers/gateway --
   # Exercises the full HTTP stack from outside the process:
