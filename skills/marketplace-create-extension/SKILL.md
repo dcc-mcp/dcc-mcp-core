@@ -17,7 +17,7 @@ metadata:
       domain: marketplace
       workflow_stage: authoring
       task_category: mutate
-    version: "0.22.1"  # x-release-please-version
+    version: "0.22.2"  # x-release-please-version
     layer: infrastructure
     search-hint: >-
       create marketplace extension, scaffold extension package, new skill
