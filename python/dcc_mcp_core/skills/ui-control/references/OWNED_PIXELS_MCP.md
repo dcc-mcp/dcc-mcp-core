@@ -32,6 +32,11 @@ own schema. Inspect both contracts before choosing the caller. Use the bridge's
 platform manifest to check foreground delivery, native frame visibility and
 the exact task's input grants. A batch stops if the target or grant changes.
 
+For deterministic multi-step edits, submit a bounded action plan through the
+same task connection. Journal each move, click or drag with its elapsed time,
+then check the application effect before dependent steps. Preserve the drag
+path and release position so another operator can reproduce the gesture.
+
 When the bridge returns a `post_snapshot`, reuse its observation ID for
 the next visual action on the same task. For a terminal Blender edit, verify
 the intended mesh, bone or animation change through a typed scene readback.

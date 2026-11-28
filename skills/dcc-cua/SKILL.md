@@ -145,6 +145,12 @@ bone parenting or animation keys. Record verified wall time, native dispatch
 and inter-step waits separately. Use the platform's advertised observation
 and input routes when the batch capability is absent.
 
+For complex UI work with known targets, plan a bounded script on the current
+task connection. Group adjacent keys and record mouse moves, clicks and drag
+paths in order. Keep the submitted plan and per-step journal. Verify a move
+by its hover or landing point, a click by its effect and a drag by held motion
+and release at its destination. Stop at an ambiguous result before continuing.
+
 1. Prefer a typed DCC-MCP host tool when it directly expresses the operation.
 2. Use DCC-CUA only for the UI behavior that typed host tools cannot expose.
 3. Bind one exact target with process ID and native window handle whenever the
