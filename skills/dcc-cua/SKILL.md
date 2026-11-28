@@ -129,27 +129,13 @@ Do not invent a profile ID. Runtime-advertised capabilities are authoritative.
 
 ## Execution order
 
-Before batching keyboard input, inspect the connected DCC-CUA Host's
-`guarded_key_sequence_v1` capability. In a supported foreground pixel task
-with the separate `raw_input/key_sequence` grant, pass ordered taps and
-chords to one `execute_action`. A visible execution frame and a fresh
-same-task observation are required. Inspect the runtime's platform requirements.
-Local X11 requires an unobscured, focused client on a non-composited display.
-macOS input requires Accessibility, Screen Recording, exact window focus and
-a working Escape monitor. Keep the normal stop boundary when the
-next operation depends on a new selection or dialog.
-
-Reuse the returned post-action observation when continuing visually. For a
-terminal edit, an independent scene readback can verify mesh dimensions,
-bone parenting or animation keys. Record verified wall time, native dispatch
-and inter-step waits separately. Use the platform's advertised observation
-and input routes when the batch capability is absent.
-
-For complex UI work with known targets, plan a bounded script on the current
-task connection. Group adjacent keys and record mouse moves, clicks and drag
-paths in order. Keep the submitted plan and per-step journal. Verify a move
-by its hover or landing point, a click by its effect and a drag by held motion
-and release at its destination. Stop at an ambiguous result before continuing.
+Prefer a bounded script for complex UI work with known targets. Keep the plan and per-step journal on one task connection.
+Group adjacent taps and chords in one `execute_action` when the Host advertises `guarded_key_sequence_v1` and grants `raw_input/key_sequence`.
+Require a visible execution frame and fresh same-task observation. Local X11 needs an exposed, focused client on a non-composited display.
+macOS needs Accessibility, Screen Recording, exact window focus and a working Escape monitor. Follow the platform's advertised routes.
+Record moves, clicks and drag paths in order. Verify the hover or landing point, click effect, held motion and release at the destination.
+Reuse the post-action observation for the next visual step. Stop when a selection, dialog or ambiguous result requires another decision.
+For a terminal edit, read back mesh dimensions, bone parenting or animation keys. Record verified wall time, native dispatch and inter-step waits separately.
 
 1. Prefer a typed DCC-MCP host tool when it directly expresses the operation.
 2. Use DCC-CUA only for the UI behavior that typed host tools cannot expose.
