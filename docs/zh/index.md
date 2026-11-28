@@ -1,10 +1,11 @@
 ---
 layout: home
+description: 通过 Skills over MCP 和 MCP 2026-07-28 发现 Agent Skills，使用 dccmcp 操作已打开的 DCC 应用。
 
 hero:
   name: DCC-MCP-Core
-  text: 面向 DCC AI 的 Gateway-first MCP + Skills
-  tagline: 生产级 MCP、零代码 Skills、动态能力路由，以及可随 Release 直接安装的 CLI/server 二进制；面向 Maya、Blender、Houdini、Photoshop 与自定义工作室宿主。
+  text: 面向数字内容创作的 Skills over MCP
+  tagline: 通过官方 MCP 扩展和 MCP 2026-07-28 发现 Agent Skills。使用 dccmcp 在 Maya、Blender、Houdini、Photoshop 等应用中查找和调用工具。
   image:
     src: /logo.svg
     alt: DCC-MCP-Core
@@ -13,8 +14,8 @@ hero:
       text: 快速开始
       link: /zh/guide/getting-started
     - theme: alt
-      text: 为什么选择 MCP + Skills？
-      link: /zh/guide/what-is-dcc-mcp-core
+      text: Skills over MCP
+      link: /zh/guide/mcp-skills-integration
     - theme: alt
       text: 安装 dcc-mcp Skill
       link: https://clawhub.ai/loonghao/skills/dcc-mcp
@@ -24,11 +25,11 @@ hero:
 
 features:
   - icon: 🤖
-    title: Agent 开箱即用
-    details: 安装公开 dcc-mcp Skill，再用 dccmcp 完成实例盘点、能力搜索、契约检查与 typed tool 调用。
+    title: 通过 MCP 发现 Agent Skills
+    details: 连接声明 Skills 扩展的 DCC 实例端点，按需读取 SKILL.md 和配套文件。
   - icon: 🎯
-    title: 动态能力路由
-    details: Agent 通过一个 gateway search、describe、call 工具，不再把所有后端工具塞进上下文。
+    title: 一个 CLI 操作多个 DCC 会话
+    details: 加载公开 dcc-mcp Skill 后，用 dccmcp 通过网关查找工具、检查参数和发起调用。已有 CLI 和 REST 集成可以继续使用。
   - icon: 🔌
     title: 零代码 Skill 注册
     details: 编写 SKILL.md + scripts/ 即获得 MCP 工具。无需 Python 胶水代码。支持 Python、MEL、MaxScript、Bash、PowerShell 等。

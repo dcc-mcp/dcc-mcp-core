@@ -1,6 +1,6 @@
 ---
 name: dcc-mcp-core
-description: "Foundation library for the DCC Model Context Protocol (MCP) ecosystem. Provides Rust-powered action management, skills system, IPC transport, MCP Streamable HTTP server (2025-03-26 spec, with 2025-06-18 and 2025-11-25 awareness), sandbox security, shared memory, screen capture, USD scene support, and telemetry for AI-assisted DCC workflows. Use when working with Maya, Blender, Houdini, 3ds Max, or any DCC MCP integration."
+description: "Rust and Python foundation for DCC integration. Supports Skills over MCP, MCP 2026-07-28 stateless discovery, legacy Streamable HTTP sessions, skill and tool registration, gateway REST, IPC, sandboxing, and telemetry. Use when developing or integrating adapters, Skills, or tools for Maya, Blender, Houdini, 3ds Max, or custom DCC hosts."
 allowed-tools: Bash Read Write Edit
 compatibility: "Python 3.7-3.14; Rust 1.95+ required to build from source; zero runtime Python dependencies"
 version: "0.22.2"  # x-release-please-version
@@ -38,7 +38,7 @@ The foundational library enabling AI assistants to interact with Digital Content
 | **Action Management** | Register, validate, dispatch, and execute actions with typed inputs/outputs |
 | **Skills System** | Zero-code script registration (Python/MEL/Batch/Shell/JS) as MCP tools via `SKILL.md` |
 | **Transport Layer** | High-performance IPC via ipckit with DccLink framing (IpcChannelAdapter, SocketServerAdapter) |
-| **MCP HTTP Server** | MCP Streamable HTTP (**2025-03-26 spec**) powered by axum/Tokio, runs in background thread |
+| **MCP HTTP Server** | axum/Tokio server supporting MCP `2026-07-28` discovery, Skills over MCP, and legacy Streamable HTTP sessions |
 | **Process Management** | Launch, monitor, auto-recover DCC processes (Maya, Blender, Houdini, etc.) |
 | **Sandbox Security** | Policy-based access control, input validation, audit logging |
 | **Shared Memory** | LZ4-compressed inter-process data exchange for large scenes |
@@ -422,17 +422,17 @@ print(f'Loaded: {[s.name for s in skills]}')
 - [dcc-mcp-rpyc](https://github.com/loonghao/dcc-mcp-rpyc) — RPyC bridge for remote DCC operations
 - [dcc-mcp-maya](https://github.com/loonghao/dcc-mcp-maya) — Maya MCP server implementation
 
-## MCP Specification Roadmap
+## Skills over MCP and legacy clients
 
-The library currently implements **MCP 2025-03-26** (Streamable HTTP). The ecosystem has since released:
+For a compatible MCP client, use the selected per-DCC endpoint's
+`server/discover` response and check for `io.modelcontextprotocol/skills`.
+Use `skills/list` or `skills/get` to obtain the manifest and `resources/read`
+to fetch and verify specific files. Use the existing `load_skill` workflow to
+activate the DCC tools. Follow the [Skills over MCP guide](../../../docs/guide/mcp-skills-integration.md).
 
-| Version | Key Features | Status in dcc-mcp-core |
-|---------|-------------|----------------------|
-| 2025-03-26 | Streamable HTTP, Tool Annotations, OAuth 2.1 | **Implemented** |
-| 2025-06-18 | Structured Tool Output, Elicitation, Resource Links, JSON-RPC batching removed, `MCP-Protocol-Version` header mandatory | Planned |
-| 2025-11-25 | Icon metadata, Tasks (experimental), Sampling with tool calls, JSON Schema 2020-12, enhanced OAuth | Planned |
-
-**AI Agents**: Do NOT implement draft features manually. Wait for `dcc-mcp-core` to expose them via `McpHttpServer`. Track progress at the GitHub repository.
+Native Core Python wheels enable MCP `2026-07-28`. Legacy MCP clients can
+still negotiate `2025-11-25`, `2025-06-18`, and `2025-03-26`. Use `dccmcp`
+over gateway REST as the default for shell agents and existing CLI scripts.
 
 ## Iteration Playbook
 

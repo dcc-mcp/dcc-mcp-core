@@ -4,6 +4,13 @@
 
 **Canonical copy:** `resources/read` with `uri=gateway://docs/agent-workflows` (matches the running gateway build).
 
+To retrieve Agent Skill files using **Skills over MCP**, read
+`gateway://instances` and connect to the target instance's `mcp_url`.
+Check its MCP `2026-07-28` `server/discover` response for
+`io.modelcontextprotocol/skills` before using `skills/list` or `skills/get`.
+Existing shell agents use `dccmcp` and gateway REST for DCC tool discovery and
+execution. [Skills over MCP integration guide](https://dcc-mcp.github.io/dcc-mcp-core/guide/mcp-skills-integration)
+
 ---
 
 ## Production reuse gate

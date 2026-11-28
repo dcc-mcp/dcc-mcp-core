@@ -48,7 +48,7 @@ dcc-mcp-core (workspace 根目录)
 ├── dcc-mcp-actions      # ToolRegistry, EventBus, ToolDispatcher, Pipeline
 ├── dcc-mcp-skills       # SkillScanner, SkillCatalog, SkillWatcher, Resolver
 ├── dcc-mcp-protocols    # MCP 类型: ToolDefinition, ResourceDefinition, Prompt, BridgeKind
-├── dcc-mcp-jsonrpc      # MCP 2025-03-26 JSON-RPC 线协议类型
+├── dcc-mcp-jsonrpc      # 新旧 MCP JSON-RPC 线协议类型
 ├── dcc-mcp-wire         # MCP/REST call envelope 规范化
 ├── dcc-mcp-job          # 异步 job 追踪和可选持久化
 ├── dcc-mcp-skill-rest   # Per-DCC /v1/* REST Skill API
@@ -165,7 +165,7 @@ dccmcp ← dcc-mcp-catalog + gateway REST contract
 
 ### dcc-mcp-protocols
 
-**职责**：MCP（Model Context Protocol）类型定义，遵循 2025-03-26 规范。
+**职责**：定义 MCP JSON-RPC 类型，支持 MCP `2026-07-28` 无状态请求和旧版会话。
 
 **关键类型**：
 - `ToolDefinition`、`ToolAnnotations` — MCP 工具模式及行为提示
@@ -318,7 +318,10 @@ dccmcp ← dcc-mcp-catalog + gateway REST contract
 
 ### dcc-mcp-http
 
-**职责**：MCP Streamable HTTP facade（2025-03-26 规范），拥有 axum routing、server startup、`McpHttpConfig` aggregate、Python bindings、prompt/resource registries，并从拆分 crate 兼容重导出历史路径。
+**职责**：MCP Streamable HTTP 入口，负责 axum 路由、服务启动、`McpHttpConfig`、
+Python 绑定和 prompt/resource 注册表。它区分 MCP `2026-07-28` 与旧版会话路由，
+并从拆分后的 crate 重导出原有 API 路径。Skill 文件发现和读取见
+[Skills over MCP 集成指南](mcp-skills-integration.md)。
 
 **关键组件**：
 - `McpHttpServer` — 后台线程 HTTP 服务器（axum/Tokio）

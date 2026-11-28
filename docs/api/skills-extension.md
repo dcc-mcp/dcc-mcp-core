@@ -1,30 +1,33 @@
-# MCP Skills Extension
+# Skills over MCP API
 
 `dcc-mcp-core` exposes discovered Agent Skills through the official
-`io.modelcontextprotocol/skills` extension. The extension is additive to the
-existing `search_skills`, `list_skills`, `get_skill_info`, and `load_skill`
-workflow. Reading a skill resource does not load its tools.
+`io.modelcontextprotocol/skills` extension on supported per-DCC MCP endpoints.
+The extension delivers Skill metadata and files. Tool activation uses the
+existing `load_skill` workflow. Existing CLI integrations use `dccmcp` over
+gateway REST, and direct legacy clients can keep using `search_skills`,
+`list_skills`, and `get_skill_info`. [Integration guide](../guide/mcp-skills-integration.md)
 
-The extension uses the server's existing MCP Resources surface and is enabled
-by default when Resources are enabled. Set
+Per-DCC servers enable the extension by default when Resources are enabled. Set
 `McpHttpConfig.enable_skills_extension = false` to disable it.
 
 ## Capability declaration
 
-Servers that expose the extension declare Resources and the extension settings
-in the MCP capability response:
+Check the selected endpoint's `server/discover` response on MCP `2026-07-28`
+before sending extension requests. Look for `resources` and the extension ID
+under `capabilities`. For example, the modern declaration includes these fields.
 
 ```json
 {
-  "resources": {"subscribe": true, "listChanged": true},
+  "resources": {"subscribe": false, "listChanged": false},
   "extensions": {
     "io.modelcontextprotocol/skills": {"directoryRead": true}
   }
 }
 ```
 
-The compatibility `server/discover` request is also supported and returns the
-same extension declaration with the server's supported protocol versions.
+Core also exposes the declaration during legacy session initialization when
+the extension is enabled. For modern discovery request headers and metadata,
+see the [modern request boundary](../guide/modern-request-boundary.md).
 
 ## Methods
 

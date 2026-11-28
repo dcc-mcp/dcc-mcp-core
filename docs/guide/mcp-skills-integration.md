@@ -1,201 +1,77 @@
-# MCP + Skills Integration
+# Skills over MCP
 
-> **[中文版](../zh/guide/mcp-skills-integration)**
+[中文版](../zh/guide/mcp-skills-integration.md)
 
-## Why We Combine MCP and Skills
+**dcc-mcp-core supports Skills over MCP**, the official extension for discovering
+and reading Agent Skills. Compatible clients can inspect workflow metadata
+before reading `SKILL.md` and supporting files. [Official Skills extension](https://modelcontextprotocol.io/extensions/skills/overview)
 
-### The Problem with Stock MCP
+## Choose an endpoint
 
-Standard MCP tools/list returns every tool the server knows about — all at once.
+| Task | Entry point |
+| --- | --- |
+| Discover and read an Agent Skill | Connect to the target DCC's `mcp_url` and check for `io.modelcontextprotocol/skills`. |
+| Find and run a tool in a live DCC session | Use `dccmcp` with the `dcc-mcp` Skill and follow the search result's `next_step`. |
+| Keep an older MCP integration working | Use the session lifecycle. Per-DCC servers negotiate `2025-11-25`, `2025-06-18`, or `2025-03-26`. |
 
-With 3 DCC instances × 50 skills × 5 scripts = **750 tools in context**. The AI's context window fills instantly, costs skyrocket, and reasoning quality degrades.
+If you start from the gateway, read `gateway://instances` and use the
+`mcp_url` of the session that owns the scene or document. Extension availability
+depends on the endpoint, build, and configuration. Native `dcc-mcp-core` Python
+wheels enable MCP `2026-07-28`. Custom builds need the corresponding Cargo
+feature. [MCP migration guide](mcp-2026-07-28-migration.md)
 
-```
-Stock MCP tools/list:
-┌──────────────────────────────────────────────┐
-│  maya_geo__create_sphere                      │
-│  maya_geo__bevel                              │
-│  maya_anim__set_keyframe  ... (x 250)         │
-│  blender_sculpt__smooth                       │
-│  blender_sculpt__grab     ... (x 250)         │
-│  houdini_vex__compile     ... (x 250)         │
-└──────────────────────────────────────────────┘
-750 tools in context every time → expensive, slow
-```
+## Discover and read a Skill
 
-### Our Solution: Session-Scoped Progressive Discovery
-
-Each AI session is **pinned to one DCC instance**. tools/list is scoped to that instance.
-
-```
-Session A (Maya instance #1):
-  tools/list → 100 Maya tools + 50 shared tools = 150 tools
-
-Session B (Houdini instance #1):
-  tools/list → 100 Houdini tools + 50 shared tools = 150 tools
-
-71% reduction in context size, zero information loss
-```
-
-### The Problem with CLI Tools
-
-CLI tools are **blind to DCC state**:
-- Can't see the active scene, selected objects, or viewport
-- Require multiple roundtrips to gather context
-- Return raw text requiring fragile parsing
-- Have no visual feedback during execution
-
-dcc-mcp-core **lives inside the DCC** and can access its full state directly.
-
-## Architecture
-
-```
-AI Agent (Claude, GPT, etc.)
-    │
-    │ tools/call {"name": "maya_geo__create_sphere", "radius": 2.0}
-    │
-    ▼
-Gateway Server (dcc-mcp-server)          ← one per machine
-    │
-    │ Session A → Maya instance #1 (IPC)
-    │ Session B → Houdini instance #1 (IPC)
-    │
-    ▼
-DCC Bridge Plugin
-    │
-    │ Executes script, captures result
-    │
-    ▼
-{success: true, message: "Sphere created", context: {name: "pSphere1"}}
-```
-
-## Key Concepts
-
-### ServiceEntry — What Each DCC Registers
-
-```python
-from dcc_mcp_core import create_skill_server, McpHttpConfig
-
-# Gateway auto-registers the DCC instance
-server = create_skill_server("maya", McpHttpConfig(port=8765))
-handle = server.start()
-```
-
-The gateway reads this to know:
-- Which instance is available
-- What files are open
-- Which instance to route the AI's request to
-
-### Session Isolation
-
-```python
-# Session pinning is handled automatically by the gateway
-# based on dcc_type, dcc_version, and scene metadata
-# set on McpHttpConfig
-```
-
-### Skills System
-
-```
-SKILL.md (agentskills.io)      tools.yaml + scripts/
-────────────────────────────────────────────────────────
-name: maya-geometry            tools: create_sphere → scripts/create_sphere.py
-metadata:                            bevel         → scripts/bevel.py
-  dcc-mcp:                           export_fbx    → scripts/export_fbx.bat
-    dcc: maya                        ──────────────
-    products: [maya]                 ↓ registered as
-    tools: tools.yaml         maya_geometry__create_sphere
-                                maya_geometry__bevel
-                                maya_geometry__export_fbx
-```
-
-Zero Python glue code. agentskills.io metadata + sibling files + scripts = MCP tools.
-
-### Progressive Discovery
-
-Tools are revealed gradually based on context:
-
-| Filter | Criteria | Result |
-|--------|----------|--------|
-| **DCC type** | Session is pinned to Maya | Only Maya tools visible |
-| **Product** | `metadata.dcc-mcp.products: ["maya"]` | Houdini tools hidden |
-| **Scope** | Discovery path is `System` | Can't be overridden by repo skills |
-| **Implicit** | `metadata.dcc-mcp.allow-implicit-invocation: false` | Requires explicit `load_skill` first |
-
-## Quick Start
-
-### 1. Install
+The [README example](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/README.md#serve-a-skill-from-python)
+serves a Photoshop Skill without opening Photoshop. Start the server and
+substitute the printed endpoint for the URL in this Bash example.
 
 ```bash
-pip install dcc-mcp-core
-```
-
-### 2. Create a skill
-
-```
-my-tools/
-├── SKILL.md
-├── tools.yaml
-└── scripts/
-    └── create_sphere.py
-```
-
-**SKILL.md:**
-```yaml
----
-name: my-tools
-description: "Custom Maya geometry tools. Use when creating simple geometry."
-metadata:
-  dcc-mcp:
-    dcc: maya
-    products: ["maya"]
-    allow-implicit-invocation: true
-    tools: tools.yaml
----
-# My Maya Tools
-Custom geometry tools.
-```
-
-**tools.yaml:**
-```yaml
-tools:
-  - name: create_sphere
-    description: Create a polygon sphere.
-    source_file: scripts/create_sphere.py
-```
-
-### 3. Start the server
-
-```python
-import os
-from dcc_mcp_core import create_skill_server, McpHttpConfig
-
-os.environ["DCC_MCP_MAYA_SKILL_PATHS"] = "/path/to/my-tools"
-
-server = create_skill_server("maya", McpHttpConfig(port=8765))
-handle = server.start()
-print(f"MCP server: {handle.mcp_url()}")
-# AI clients connect to http://127.0.0.1:8765/mcp
-```
-
-### 4. Connect Claude Desktop
-
-```json
-{
-  "mcpServers": {
-    "maya": {
-      "url": "http://127.0.0.1:8765/mcp"
+curl -sS http://127.0.0.1:8765/mcp \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -H 'MCP-Protocol-Version: 2026-07-28' \
+  -H 'Mcp-Method: server/discover' \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "server/discover",
+    "params": {
+      "_meta": {
+        "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+        "io.modelcontextprotocol/clientCapabilities": {}
+      }
     }
-  }
-}
+  }'
 ```
 
-## What Makes This Different
+1. Check `supportedVersions` and
+   `capabilities.extensions["io.modelcontextprotocol/skills"]` in the result.
+2. Use `skills/list` to browse entries or `skills/get` to look up a Skill by
+   URI. Each entry includes frontmatter and a file manifest.
+3. Read a file with `resources/read` using its exact manifest URI and verify the
+   returned bytes against the SHA-256 digest. When the extension declares
+   `directoryRead`, use `resources/directory/read` to browse a directory.
+4. To activate DCC tools, follow the existing `load_skill` flow. Reading a
+   Skill leaves its activation state unchanged.
 
-| Feature | dcc-mcp-core | Generic MCP | CLI tools |
-|---------|-------------|------------|-----------|
-| DCC state awareness | ✅ Scene, docs, objects | ❌ None | ❌ None |
-| Context scoping | ✅ Session-isolated | ❌ Global | ❌ N/A |
-| Zero-code tools | ✅ SKILL.md | ❌ Full Python | ✅ Scripts only |
-| Multi-instance | ✅ Gateway election | ❌ Single endpoint | ❌ No |
-| Structured results | ✅ Always | ⚠️ Manual | ❌ Text parsing |
+Send the modern headers and request metadata with every request. See the
+[Skills over MCP API reference](../api/skills-extension.md) for method details
+and file publication rules.
+
+## Use the CLI with existing integrations
+
+```bash
+dccmcp list
+dccmcp search --query "list objects" --dcc-type maya
+```
+
+Follow the search hit's `next_step` to load, describe, or call the tool. The
+CLI remains the default for shell agents and works with existing scripts through
+gateway REST. Older installations may use the `dcc-mcp-cli` executable alias.
+A legacy direct MCP client can use `search_skills` to find Skills and
+`load_skill` to activate tools. [CLI reference](cli-reference.md)
+
+For Skill authors, `SKILL.md` describes the workflow, `tools.yaml` declares
+typed operations, and sibling scripts implement them. The
+[Skills authoring guide](skills.md) covers packaging and validation.

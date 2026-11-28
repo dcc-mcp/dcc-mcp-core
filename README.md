@@ -6,6 +6,12 @@ Connect an AI agent or pipeline to the creative applications already running in 
 
 **English** · [简体中文](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/README_zh.md) · [日本語](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/README_ja.md) · [한국어](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/README_ko.md) · [Español](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/README_es.md) · [Français](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/README_fr.md) · [Deutsch](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/README_de.md) · [Português (Brasil)](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/README_pt-BR.md) · [Русский](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/README_ru.md) · [Türkçe](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/README_tr.md)
 
+## Skills over MCP
+
+**dcc-mcp-core supports the official Skills over MCP extension** (`io.modelcontextprotocol/skills`) and MCP `2026-07-28` stateless discovery. A compatible client can discover Agent Skills on a per-DCC endpoint that advertises the extension, read `SKILL.md` and supporting files on demand, and verify each file against its SHA-256 digest. See the [Skills over MCP integration guide](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/docs/guide/mcp-skills-integration.md).
+
+Existing clients and scripts can keep using **`dccmcp` over the gateway's REST API**. Per-DCC MCP servers also accept legacy session clients using `2025-11-25`, `2025-06-18`, or `2025-03-26`. See the [protocol migration guide](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/docs/guide/mcp-2026-07-28-migration.md).
+
 ## Find a tool in a running application
 
 Install the [`dccmcp` CLI](https://github.com/dcc-mcp/dcc-mcp-cli), then open the application with its [DCC-MCP adapter](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/docs/adapter-coverage.md) enabled. If you're working through an agent, the [`dcc-mcp` Skill](https://clawhub.ai/loonghao/skills/dcc-mcp) teaches it to use the same CLI. For example, to find a tool that lists objects in Maya, start with these two read-only commands.
@@ -53,7 +59,7 @@ finally:
     handle.shutdown()
 ~~~
 
-After connecting, search for `commercial-2d-layers` with `search_skills` to confirm that the server has discovered the package.
+Use the printed per-DCC URL to try `server/discover`, check for `io.modelcontextprotocol/skills`, then find `commercial-2d-layers` with `skills/list`. A legacy MCP client can find the same package with the `search_skills` tool.
 
 The example shows how to package a tool. [`SKILL.md`](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/examples/rez-skills/commercial_2d_layers/skills/commercial-2d-layers/SKILL.md) identifies the host and points to [`tools.yaml`](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/examples/rez-skills/commercial_2d_layers/skills/commercial-2d-layers/tools.yaml), where `summarize_layers` declares an optional `document` argument and read-only access. Its [Python script](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/examples/rez-skills/commercial_2d_layers/skills/commercial-2d-layers/scripts/summarize_layers.py) returns a fixed sample summary. To work on an open document, implement the handler in the host's adapter. Check the package declaration with the CLI.
 
@@ -70,7 +76,7 @@ Use the [Skills guide](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/docs/gu
 A client sends its request to the gateway. The gateway finds the registered session and routes the call to its adapter. The supervisor tracks whether that adapter is ready. The adapter runs the tool inside the application and dispatches work to the main thread when the host API requires it.
 
 - **Choose a session.** If two copies of the same application are open, read `gateway://instances` and check each entry's `mcp_url` and dispatch status before choosing a target. See the [gateway guide](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/docs/guide/gateway.md).
-- **Write a client.** Over HTTP, use `POST /v1/search` to find a tool, then send its `tool_slug` and `arguments` to `POST /v1/call` when the tool is ready. For MCP clients, the server supports Streamable HTTP and the Agent Skills extension. See the [REST API](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/docs/guide/rest-api-surface.md) and [MCP Skills guide](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/docs/guide/mcp-skills-integration.md).
+- **Write a client.** Over HTTP, use `POST /v1/search` to find a tool, then send its `tool_slug` and `arguments` to `POST /v1/call` when the tool is ready. To retrieve Agent Skill files over MCP, use the selected session's `mcp_url` and check its extension declaration. See the [REST API](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/docs/guide/rest-api-surface.md) and [Skills over MCP reference](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/docs/api/skills-extension.md).
 - **Repeat a task.** A workflow can record a multi-step job and resume it when persistent storage is configured. For a step that only the desktop interface exposes, UI Control binds input to a specific window. See [workflows](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/docs/guide/workflows.md) and [UI Control](https://github.com/dcc-mcp/dcc-mcp-core/blob/main/docs/guide/ui-control-workflows.md).
 
 ## Supported applications

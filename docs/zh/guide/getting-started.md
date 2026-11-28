@@ -1,5 +1,9 @@
 # 快速开始
 
+兼容的客户端可以通过 MCP `2026-07-28` 和官方 [Skills over MCP](mcp-skills-integration.md)
+扩展，从 DCC 实例发现并读取 Agent Skills。要从 shell 操作已打开的 DCC，
+或继续使用现有 CLI 集成，请使用 `dccmcp` 和公开的 `dcc-mcp` Skill。
+
 ## 安装
 
 ### 公开 Agent Skills

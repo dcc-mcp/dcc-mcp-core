@@ -1,10 +1,11 @@
 ---
 layout: home
+description: Discover Agent Skills with Skills over MCP and MCP 2026-07-28. Use dccmcp to run tools in live DCC sessions.
 
 hero:
   name: DCC-MCP-Core
-  text: Gateway-first MCP + Skills for DCC AI
-  tagline: Production-grade foundation combining MCP, zero-code Skills, dynamic capability routing, and release-ready CLI/server binaries for Maya, Blender, Houdini, Photoshop, and custom studio hosts.
+  text: Skills over MCP for DCC
+  tagline: Discover Agent Skills through the official MCP extension and MCP 2026-07-28. Use dccmcp to find and call tools in Maya, Blender, Houdini, Photoshop, and other studio hosts.
   image:
     src: /logo.svg
     alt: DCC-MCP-Core
@@ -13,8 +14,8 @@ hero:
       text: Get Started
       link: /guide/getting-started
     - theme: alt
-      text: Why MCP + Skills?
-      link: /guide/what-is-dcc-mcp-core
+      text: Skills over MCP
+      link: /guide/mcp-skills-integration
     - theme: alt
       text: Install dcc-mcp Skill
       link: https://clawhub.ai/loonghao/skills/dcc-mcp
@@ -24,11 +25,11 @@ hero:
 
 features:
   - icon: 🤖
-    title: Agent-Ready Entry
-    details: Install the public dcc-mcp Skill, then use dccmcp to inventory, search, inspect, and call typed DCC capabilities.
+    title: Discover Agent Skills over MCP
+    details: Read SKILL.md and supporting files on demand from a DCC endpoint that advertises the Skills extension.
   - icon: 🎯
-    title: Dynamic Capability Routing
-    details: Agents search, describe, load skills, and call tools through one gateway instead of carrying every backend tool in context.
+    title: One CLI for Your DCC Sessions
+    details: Use the public dcc-mcp Skill and dccmcp to search, inspect, and call typed tools through the gateway. Existing CLI and REST integrations continue to work.
   - icon: 🔌
     title: Zero-Code Skill Registration
     details: Write SKILL.md + scripts/ → instant MCP tools. No Python glue code needed. Supports Python, MEL, MaxScript, Bash, PowerShell, and more.

@@ -9,6 +9,14 @@
 
 ## Agent Bootstrap
 
+**Skills over MCP** lets compatible clients retrieve Agent Skill files over the
+official `io.modelcontextprotocol/skills` extension. Discover the selected
+per-DCC endpoint's capabilities with MCP `2026-07-28` `server/discover`.
+Use `skills/list` or `skills/get` for the manifest and `resources/read` for
+the files. Tool activation uses `load_skill`. Existing CLI integrations use
+`dccmcp` over gateway REST, and legacy MCP session clients remain supported.
+[Skills over MCP API](docs/api/skills-extension.md)
+
 Most agents should not begin with the Python API. Install one published Skill
 for the task, then use its workflow:
 
@@ -106,7 +114,7 @@ crates/
 ├── dcc-mcp-actions/      # ToolRegistry, ToolDispatcher, ToolValidator, EventBus, ToolPipeline
 ├── dcc-mcp-skills/       # SkillScanner, SkillCatalog, SkillWatcher, parse_skill_md, dependency resolver
 ├── dcc-mcp-protocols/    # MCP-facing Tool/Resource/Prompt/DccAdapter models
-├── dcc-mcp-jsonrpc/      # MCP 2025-03-26 JSON-RPC builders
+├── dcc-mcp-jsonrpc/      # Legacy and modern MCP JSON-RPC builders
 ├── dcc-mcp-wire/         # Canonical MCP/REST call envelopes + normalization
 ├── dcc-mcp-job/          # Async job tracker + optional persistence
 ├── dcc-mcp-skill-rest/   # Per-DCC /v1/* REST skill API

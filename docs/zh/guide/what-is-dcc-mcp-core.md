@@ -1,8 +1,9 @@
 # 什么是 DCC-MCP-Core？
 
-**DCC-MCP-Core** 是一套 Rust 基础库（含 Python 绑定），把 DCC（数字内容创作）软件中的"能力"—— Maya、Blender、Houdini、Photoshop、ZBrush、Unreal、Unity、Figma 等 ——分层暴露给两类消费者：
+**DCC-MCP-Core** 是一套含 Python 绑定的 Rust 基础库，为 Maya、Blender、Houdini、Photoshop、ZBrush、Unreal、Unity、Figma 等创作软件提供以下接入方式。
 
 - **具备 shell 能力的 Agent** → 安装公开 `dcc-mcp` Skill，通过 `dccmcp` 执行 `search → describe → call`。
+- **兼容 Skills over MCP 的客户端** → 通过 MCP `2026-07-28` 连接声明官方扩展的 DCC 实例端点，发现并读取 Agent Skill 文件。[集成指南](mcp-skills-integration.md)
 - **MCP-only IDE 客户端** → 使用 gateway 的少量固定 MCP 工作流（`search`、`describe`、`load_skill`、`call`）。
 - **传统调用方** →（cURL / CI / 任意 HTTP 客户端）通过**完整的 `/v1/*` REST 服务**。
 
@@ -31,10 +32,12 @@ flowchart LR
     end
 
     AGENT([Shell Agent + dcc-mcp Skill]):::client
+    SKCLIENT([Skills over MCP 客户端]):::client
     IDE([MCP-only IDE 客户端]):::client
     TRAD([cURL / CI / 传统后端]):::client
 
     AGENT -->|dccmcp: search<br/>describe / call| GW
+    SKCLIENT -->|MCP: server/discover<br/>skills/list / resources/read| PERDCC
     IDE -->|MCP: search<br/>describe / load_skill / call| GW
     TRAD -->|REST: POST /v1/search<br/>/describe /call| GW
     TRAD -.->|直连 per-DCC REST| PERDCC

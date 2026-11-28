@@ -3,6 +3,7 @@
 **DCC-MCP-Core** is a Rust-first library (with Python bindings) that exposes capabilities inside DCC (Digital Content Creation) tools — Maya, Blender, Houdini, Photoshop, ZBrush, Unreal, Unity, Figma, and custom studio hosts — through a **layered surface**:
 
 - **Shell-capable AI agents** → the published `dcc-mcp` Skill plus `dccmcp` for `search → describe → call`.
+- **Skills over MCP clients** → discover and read Agent Skill files from a per-DCC endpoint that advertises the official extension over MCP `2026-07-28`. [Integration guide](mcp-skills-integration.md)
 - **MCP-only IDE clients** → the gateway's small, static MCP workflow (`search`, `describe`, `load_skill`, `call`).
 - **Traditional callers** (cURL, CI, any HTTP client) → a full **`/v1/*` REST API** on every per-DCC server and on the gateway facade.
 
@@ -31,10 +32,12 @@ flowchart LR
     end
 
     AGENT([Shell-capable agent + dcc-mcp Skill]):::client
+    SKCLIENT([Skills over MCP client]):::client
     IDE([MCP-only IDE client]):::client
     TRAD([cURL / CI / traditional backends]):::client
 
     AGENT -->|dccmcp: search<br/>describe / call| GW
+    SKCLIENT -->|MCP: server/discover<br/>skills/list / resources/read| PERDCC
     IDE -->|MCP: search<br/>describe / load_skill / call| GW
     TRAD -->|REST: POST /v1/search<br/>/describe /call| GW
     TRAD -.->|direct REST to per-DCC| PERDCC

@@ -4,9 +4,13 @@
 
 ## Overview
 
-The Resources primitive lets MCP clients (LLMs and hosts) read **live DCC state** over the same
-HTTP endpoint used for tools. It implements the [MCP 2025-03-26](https://modelcontextprotocol.io/specification/2025-03-26)
-`resources` capability:
+The Resources primitive lets MCP clients read **live DCC state** over the same
+HTTP endpoint used for tools. With MCP `2026-07-28`, use `server/discover` to
+check resource capabilities and use `resources/list` and `resources/read` on
+the modern route. Skill files use the same read method with URIs returned by
+[Skills over MCP](skills-extension.md).
+
+Legacy sessions advertise these resource operations in `initialize`.
 
 - `resources/list` — enumerate available URIs
 - `resources/read` — fetch content by URI (text or base64 blob)

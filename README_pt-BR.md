@@ -6,6 +6,10 @@ Conecte um agente de IA ou um pipeline de produção aos aplicativos de criaçã
 
 [English](README.md) · [简体中文](README_zh.md) · [日本語](README_ja.md) · [한국어](README_ko.md) · [Español](README_es.md) · [Français](README_fr.md) · [Deutsch](README_de.md) · **Português (Brasil)** · [Русский](README_ru.md) · [Türkçe](README_tr.md)
 
+## Skills over MCP
+
+Com **Skills over MCP** e MCP `2026-07-28`, clientes compatíveis podem descobrir Agent Skills em um endpoint DCC que anuncia a extensão e ler `SKILL.md` e os arquivos auxiliares sob demanda. Os clientes e scripts existentes podem continuar usando `dccmcp` pela API REST do gateway. [Guia de integração](docs/guide/mcp-skills-integration.md)
+
 ## Encontrar uma ferramenta em um aplicativo aberto
 
 Instale a [ferramenta de linha de comando `dccmcp`](https://github.com/dcc-mcp/dcc-mcp-cli) e ative o [adaptador DCC-MCP](docs/adapter-coverage.md) do aplicativo. Se estiver trabalhando com um agente, a [Skill `dcc-mcp`](https://clawhub.ai/loonghao/skills/dcc-mcp) orienta o uso da mesma CLI. Para encontrar uma ferramenta que liste os objetos de uma cena do Maya, por exemplo, execute estas duas consultas.
@@ -53,7 +57,7 @@ finally:
     handle.shutdown()
 ~~~
 
-Depois de conectar o cliente, procure `commercial-2d-layers` com `search_skills`. Se o pacote aparecer nos resultados, o servidor conseguiu encontrá-lo.
+Chame `server/discover` no endpoint DCC exibido no terminal e veja se ele anuncia `io.modelcontextprotocol/skills`. Use `skills/list` para encontrar `commercial-2d-layers`. Clientes MCP antigos podem encontrar o pacote com `search_skills`.
 
 O exemplo mostra como organizar os arquivos de uma ferramenta. O [`SKILL.md`](examples/rez-skills/commercial_2d_layers/skills/commercial-2d-layers/SKILL.md) identifica o aplicativo e aponta para o [`tools.yaml`](examples/rez-skills/commercial_2d_layers/skills/commercial-2d-layers/tools.yaml). Nesse arquivo, `summarize_layers` é declarada como ferramenta somente de leitura, com um argumento opcional chamado `document`. O [script Python](examples/rez-skills/commercial_2d_layers/skills/commercial-2d-layers/scripts/summarize_layers.py) devolve um resumo predefinido. Para ler um documento aberto, implemente essa operação no adaptador do aplicativo. Confira a definição do pacote com o comando abaixo.
 

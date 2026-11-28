@@ -1,6 +1,7 @@
 # HTTP API
 
-`dcc_mcp_core` — MCP Streamable HTTP server (2025-03-26 spec).
+`dcc_mcp_core` provides a Streamable HTTP server with MCP `2026-07-28`
+stateless discovery, Skills over MCP, and legacy session support.
 
 ## Overview
 
@@ -140,7 +141,7 @@ is disabled. Adapters must not manufacture a fallback UUID.
 
 ## McpHttpServer
 
-MCP Streamable HTTP server (2025-03-26 spec).
+MCP Streamable HTTP server for a per-DCC tool and Skill catalog.
 
 ### Constructor
 
@@ -170,7 +171,13 @@ server = McpHttpServer(
 
 ### MCP Protocol Endpoints
 
-The server implements the MCP 2025-03-26 spec:
+On builds with `mcp-2026-07-28` enabled, the modern `POST /mcp` route uses
+`server/discover` for capability discovery. Check the response for
+`io.modelcontextprotocol/skills` before using Skills methods. See the
+[Skills over MCP API](skills-extension.md) and [protocol migration guide](../guide/mcp-2026-07-28-migration.md).
+
+The legacy `initialize` flow negotiates `2025-11-25`, `2025-06-18`, or
+`2025-03-26`. Session clients use these routes.
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|

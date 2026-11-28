@@ -6,6 +6,10 @@
 
 [English](README.md) · [简体中文](README_zh.md) · **日本語** · [한국어](README_ko.md) · [Español](README_es.md) · [Français](README_fr.md) · [Deutsch](README_de.md) · [Português (Brasil)](README_pt-BR.md) · [Русский](README_ru.md) · [Türkçe](README_tr.md)
 
+## Skills over MCP
+
+**Skills over MCP** と MCP `2026-07-28` に対応したクライアントは、拡張を公開する DCC エンドポイントで Agent Skills を検出し、必要に応じて `SKILL.md` と関連ファイルを取得できます。既存のクライアントとスクリプトは、引き続きゲートウェイの REST API 経由で `dccmcp` を使えます。[統合ガイド](docs/guide/mcp-skills-integration.md)
+
 ## 起動中のアプリでツールを探す
 
 [`dccmcp` CLI](https://github.com/dcc-mcp/dcc-mcp-cli) をインストールし、使いたいアプリで対応する [DCC-MCP アダプター](docs/adapter-coverage.md)を有効にします。エージェントから操作する場合は、[`dcc-mcp` Skill](https://clawhub.ai/loonghao/skills/dcc-mcp) に CLI の使い方が用意されています。たとえば、Maya でシーン内のオブジェクトを一覧にするツールを探すには、次の 2 つのコマンドを実行します。
@@ -53,7 +57,7 @@ finally:
     handle.shutdown()
 ~~~
 
-接続したら、`search_skills` で `commercial-2d-layers` を検索してください。結果に表示されれば、サーバーがサンプルを認識しています。
+表示された DCC エンドポイントで `server/discover` を呼び出し、`io.modelcontextprotocol/skills` が公開されていることを確認します。次に `skills/list` で `commercial-2d-layers` を探します。従来の MCP クライアントでは `search_skills` で同じパッケージを探せます。
 
 このサンプルでは、ツールを構成するファイルを順に確認できます。[`SKILL.md`](examples/rez-skills/commercial_2d_layers/skills/commercial-2d-layers/SKILL.md) で対象アプリとツール定義の場所を指定し、[`tools.yaml`](examples/rez-skills/commercial_2d_layers/skills/commercial-2d-layers/tools.yaml) で `summarize_layers` を読み取り専用として宣言しています。引数 `document` は省略できます。[Python スクリプト](examples/rez-skills/commercial_2d_layers/skills/commercial-2d-layers/scripts/summarize_layers.py)が返すのは固定のサンプルデータです。実際に開いているドキュメントを扱う処理は、アプリのアダプター側に実装します。パッケージの定義は次のコマンドで検証できます。
 

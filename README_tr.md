@@ -6,6 +6,10 @@ dcc-mcp-core ile bir yapay zekâ ajanını veya üretim hattını stüdyonuzda k
 
 [English](README.md) · [简体中文](README_zh.md) · [日本語](README_ja.md) · [한국어](README_ko.md) · [Español](README_es.md) · [Français](README_fr.md) · [Deutsch](README_de.md) · [Português (Brasil)](README_pt-BR.md) · [Русский](README_ru.md) · **Türkçe**
 
+## Skills over MCP
+
+**Skills over MCP** ve MCP `2026-07-28` desteği olan istemciler, uzantıyı duyuran bir DCC uç noktasında Agent Skills paketlerini bulabilir ve gerektiğinde `SKILL.md` ile ilgili dosyaları okuyabilir. Mevcut istemciler ve betikler, ağ geçidinin REST API’si üzerinden `dccmcp` kullanmaya devam edebilir. [Entegrasyon kılavuzu](docs/guide/mcp-skills-integration.md)
+
 ## Açık bir uygulamada araç bulma
 
 [`dccmcp` komut satırı aracını](https://github.com/dcc-mcp/dcc-mcp-cli) kurun ve kullanacağınız uygulamada ilgili [DCC-MCP bağdaştırıcısını](docs/adapter-coverage.md) etkinleştirin. Bir ajanla çalışıyorsanız [`dcc-mcp` Skill paketi](https://clawhub.ai/loonghao/skills/dcc-mcp) ajana aynı komut satırı aracını nasıl kullanacağını gösterir. Örneğin, Maya sahnesindeki nesneleri listeleyen bir araç aramak için aşağıdaki iki komutu çalıştırın.
@@ -53,7 +57,7 @@ finally:
     handle.shutdown()
 ~~~
 
-İstemci bağlandıktan sonra `search_skills` ile `commercial-2d-layers` paketini arayın. Paket sonuçlarda görünüyorsa sunucu örneği bulmuş demektir.
+Terminalde gösterilen DCC uç noktasında `server/discover` çağrısı yapın ve `io.modelcontextprotocol/skills` uzantısının duyurulduğunu doğrulayın. Ardından `skills/list` ile `commercial-2d-layers` paketini bulun. Eski MCP istemcileri aynı paketi `search_skills` ile bulabilir.
 
 Bu örnekte bir aracın hangi dosyalardan oluştuğunu görebilirsiniz. [`SKILL.md`](examples/rez-skills/commercial_2d_layers/skills/commercial-2d-layers/SKILL.md) hedef uygulamayı belirtir ve [`tools.yaml`](examples/rez-skills/commercial_2d_layers/skills/commercial-2d-layers/tools.yaml) dosyasını işaret eder. Bu dosyada `summarize_layers` salt okunur bir araç olarak tanımlanır. `document` parametresi isteğe bağlıdır. Örnekteki [Python betiği](examples/rez-skills/commercial_2d_layers/skills/commercial-2d-layers/scripts/summarize_layers.py) önceden hazırlanmış bir özet döndürür. Açık bir belgeyi okumak için bu işlemi uygulamanın bağdaştırıcısında gerçekleştirmeniz gerekir. Paket tanımını aşağıdaki komutla doğrulayabilirsiniz.
 
