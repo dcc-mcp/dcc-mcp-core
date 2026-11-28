@@ -28,7 +28,7 @@ dccmcp search --query "list objects" --dcc-type maya
 Сервер можно опробовать без запуска графического приложения. Клонируйте репозиторий, перейдите в его корневой каталог и установите пакет Python в виртуальное окружение.
 
 ~~~bash
-python -m pip install dcc-mcp-core
+python -m pip install --upgrade "dcc-mcp-core>=0.20.34"
 ~~~
 
 Запустите следующий код как скрипт Python. Сервер откроет свободный локальный порт и предоставит доступ к [примеру для слоёв Photoshop](examples/rez-skills/commercial_2d_layers/skills/commercial-2d-layers). Подключите клиент MCP к адресу, который появится в терминале. Чтобы завершить работу сервера, нажмите Ctrl+C в том же терминале.

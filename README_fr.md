@@ -28,7 +28,7 @@ Si Maya n’apparaît pas dans la liste, vérifiez que son adaptateur est actif 
 Vous pouvez essayer le serveur sans lancer de logiciel de création. Clonez le dépôt, placez-vous à sa racine et installez le paquet Python dans un environnement virtuel.
 
 ~~~bash
-python -m pip install dcc-mcp-core
+python -m pip install --upgrade "dcc-mcp-core>=0.20.34"
 ~~~
 
 Exécutez le script Python ci-dessous. Il met à disposition l’[exemple de gestion des calques Photoshop](examples/rez-skills/commercial_2d_layers/skills/commercial-2d-layers) sur un port local libre. Connectez votre client MCP à l’URL affichée dans le terminal. Appuyez sur Ctrl+C dans ce terminal pour arrêter le serveur.

@@ -28,7 +28,7 @@ Listede Maya’yı göremiyorsanız bağdaştırıcının çalıştığını ve 
 Sunucuyu denemek için bir tasarım uygulaması açmanız gerekmez. Depoyu klonlayın, kök dizine geçin ve Python paketini bir sanal ortama kurun.
 
 ~~~bash
-python -m pip install dcc-mcp-core
+python -m pip install --upgrade "dcc-mcp-core>=0.20.34"
 ~~~
 
 Aşağıdaki kodu bir Python betiği olarak çalıştırın. Betik, [Photoshop katman örneğini](examples/rez-skills/commercial_2d_layers/skills/commercial-2d-layers) bilgisayarınızdaki boş bir bağlantı noktasından sunar. MCP istemcinizi terminale yazdırılan URL’ye bağlayın. Sunucuyu durdurmak için betiği çalıştırdığınız terminalde Ctrl+C tuşlarına basın.

@@ -30,7 +30,7 @@ dccmcp search --query "list objects" --dcc-type maya
 想先试试服务端，可以直接使用仓库里的示例。克隆仓库后，在根目录激活 Python 虚拟环境，安装核心包。
 
 ~~~bash
-python -m pip install dcc-mcp-core
+python -m pip install --upgrade "dcc-mcp-core>=0.20.34"
 ~~~
 
 把下面的代码作为 Python 脚本运行。它会在本机选择一个空闲端口，提供 [Photoshop 图层示例](examples/rez-skills/commercial_2d_layers/skills/commercial-2d-layers)。把终端输出的 URL 填入 MCP 客户端即可连接。需要结束服务时，在运行脚本的终端按 Ctrl+C。
