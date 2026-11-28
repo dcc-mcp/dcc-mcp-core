@@ -28,7 +28,9 @@ The standalone DCC-CUA MCP task bridge can additionally advertise
 `guarded_key_sequence_v1`. On that bridge, grant `raw_input/key_sequence`
 to the exact task and supply the ordered `keys` array to `execute_action`.
 `ui_control__act` accepts the actions listed by the installed adapter's
-own schema. Inspect both contracts before choosing the caller.
+own schema. Inspect both contracts before choosing the caller. Use the bridge's
+platform manifest to check foreground delivery, native frame visibility and
+the exact task's input grants. A batch stops if the target or grant changes.
 
 When the bridge returns a `post_snapshot`, reuse its observation ID for
 the next visual action on the same task. For a terminal Blender edit, verify
