@@ -30,7 +30,7 @@ If Maya is missing from the list, check that its adapter is running and that the
 You can try the server without opening a DCC application. From the root of a checkout, install the Python package in a virtual environment.
 
 ~~~bash
-python -m pip install dcc-mcp-core
+python -m pip install --upgrade "dcc-mcp-core>=0.20.34"
 ~~~
 
 Run the following as a Python script. It serves the repository's [Photoshop layer example](https://github.com/dcc-mcp/dcc-mcp-core/tree/main/examples/rez-skills/commercial_2d_layers/skills/commercial-2d-layers) on an available local port. Connect an MCP client to the URL it prints. The server keeps listening until you press Ctrl+C.

@@ -28,7 +28,7 @@ dccmcp search --query "list objects" --dcc-type maya
 サーバーの動作は、制作アプリを起動せずに確認できます。リポジトリをクローンし、ルートディレクトリで Python の仮想環境を有効にしてパッケージをインストールします。
 
 ~~~bash
-python -m pip install dcc-mcp-core
+python -m pip install --upgrade "dcc-mcp-core>=0.20.34"
 ~~~
 
 次のコードを Python スクリプトとして実行すると、ローカルの空きポートで [Photoshop レイヤーのサンプル](examples/rez-skills/commercial_2d_layers/skills/commercial-2d-layers)が利用できます。表示された URL に MCP クライアントを接続してください。サーバーを終了するには、スクリプトを実行した端末で Ctrl+C を押します。

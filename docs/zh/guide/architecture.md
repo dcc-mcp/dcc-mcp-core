@@ -165,7 +165,8 @@ dccmcp ← dcc-mcp-catalog + gateway REST contract
 
 ### dcc-mcp-protocols
 
-**职责**：定义 MCP JSON-RPC 类型，支持 MCP `2026-07-28` 无状态请求和旧版会话。
+**职责**：定义 MCP 工具、资源、提示词以及 DCC 适配器的类型和接口。
+新版无状态请求和旧版会话的 JSON-RPC 消息类型由 `dcc-mcp-jsonrpc` 定义。
 
 **关键类型**：
 - `ToolDefinition`、`ToolAnnotations` — MCP 工具模式及行为提示

@@ -14,7 +14,7 @@ Per-DCC servers enable the extension by default when Resources are enabled. Set
 
 Check the selected endpoint's `server/discover` response on MCP `2026-07-28`
 before sending extension requests. Look for `resources` and the extension ID
-under `capabilities`. For example, the modern declaration includes these fields.
+under `capabilities`. The declaration includes these fields.
 
 ```json
 {
@@ -25,19 +25,18 @@ under `capabilities`. For example, the modern declaration includes these fields.
 }
 ```
 
-Core also exposes the declaration during legacy session initialization when
-the extension is enabled. For modern discovery request headers and metadata,
-see the [modern request boundary](../guide/modern-request-boundary.md).
+The extension declaration is scoped to stateless discovery. Legacy session
+clients use the built-in Skill tools listed above. See the
+[modern request boundary](../guide/modern-request-boundary.md) for discovery
+request headers and metadata.
 
 ## Methods
 
-`skills/list` returns complete entries for publishable skills. Modern
-`2026-07-28` responses include the standard `resultType`, `ttlMs`, and
-`cacheScope` fields. Each entry
+On MCP `2026-07-28`, `skills/list` returns complete entries for publishable
+skills, with `resultType`, `ttlMs`, and `cacheScope` in the response. Each entry
 contains the `SKILL.md` URI, verbatim YAML frontmatter, and a manifest of every
 file with its raw byte size and `sha256:` digest. Results include the standard
-pagination cursor and keep each skill entry intact. Legacy initialize/session
-clients receive the compatible result shape for their negotiated protocol.
+pagination cursor and keep each skill entry intact.
 
 `skills/get` accepts the URI of a skill's `SKILL.md` and returns the same
 complete entry without requiring a previous listing.

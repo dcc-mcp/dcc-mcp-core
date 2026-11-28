@@ -28,7 +28,7 @@ dccmcp search --query "list objects" --dcc-type maya
 제작 앱을 열지 않고도 서버를 시험해 볼 수 있습니다. 저장소를 복제한 뒤 루트 디렉터리에서 Python 가상 환경을 활성화하고 패키지를 설치합니다.
 
 ~~~bash
-python -m pip install dcc-mcp-core
+python -m pip install --upgrade "dcc-mcp-core>=0.20.34"
 ~~~
 
 아래 코드를 Python 스크립트로 실행하면 [Photoshop 레이어 예제](examples/rez-skills/commercial_2d_layers/skills/commercial-2d-layers)를 제공하는 서버가 로컬의 빈 포트에서 시작됩니다. 터미널에 출력된 URL로 MCP 클라이언트를 연결하세요. 스크립트를 실행한 터미널에서 Ctrl+C를 누르면 서버가 종료됩니다.
