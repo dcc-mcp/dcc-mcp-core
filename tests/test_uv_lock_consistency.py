@@ -24,7 +24,7 @@ CI_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 VERSION_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "version-consistency.yml"
 EXPECTED_ROOT_PACKAGE = "dcc-mcp-core"
 TRUSTED_VALIDATOR_PATH = "scripts/ci/generated_lock_sync.py"
-TRUSTED_VALIDATOR_COMMIT = "0b281b4df8bd394ad4085484f31ab9c58b81ce1f"
+TRUSTED_VALIDATOR_COMMIT = "8134568cea896768297872e43c770fe61000b07c"
 # Probe children create their PID file and only afterwards write the payload.
 # On Windows that pair is not atomic for a reader, so a parent that observes
 # the path immediately after ``run_bounded`` fails closed can read an empty or

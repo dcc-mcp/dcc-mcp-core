@@ -51,7 +51,7 @@ jobs:
       target: ${{ steps.target.outputs.target }}
     env:
       # Use a commit already reachable from main; a PR-local pin is lost on rebase merge.
-      TRUSTED_VALIDATOR_REF: 0b281b4df8bd394ad4085484f31ab9c58b81ce1f
+      TRUSTED_VALIDATOR_REF: 8134568cea896768297872e43c770fe61000b07c
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository &&
       (
@@ -63,7 +63,7 @@ jobs:
       - uses: actions/checkout@v6
         name: Checkout trusted lock validator
         with:
-          ref: 0b281b4df8bd394ad4085484f31ab9c58b81ce1f
+          ref: 8134568cea896768297872e43c770fe61000b07c
           path: trusted-lock-validator
           persist-credentials: false
 
