@@ -129,6 +129,14 @@ Do not invent a profile ID. Runtime-advertised capabilities are authoritative.
 
 ## Execution order
 
+Prefer a bounded script for complex UI work with known targets. Keep the plan and per-step journal on one task connection.
+Group adjacent taps and chords in one `execute_action` when the Host advertises `guarded_key_sequence_v1` and grants `raw_input/key_sequence`.
+Require a visible execution frame and fresh same-task observation. Local X11 needs an exposed, focused client on a non-composited display.
+macOS needs Accessibility, Screen Recording, exact window focus and a working Escape monitor. Follow the platform's advertised routes.
+Record moves, clicks and drag paths in order. Verify the hover or landing point, click effect, held motion and release at the destination.
+Reuse the post-action observation for the next visual step. Stop when a selection, dialog or ambiguous result requires another decision.
+For a terminal edit, read back mesh dimensions, bone parenting or animation keys. Record verified wall time, native dispatch and inter-step waits separately.
+
 1. Prefer a typed DCC-MCP host tool when it directly expresses the operation.
 2. Use DCC-CUA only for the UI behavior that typed host tools cannot expose.
 3. Bind one exact target with process ID and native window handle whenever the
